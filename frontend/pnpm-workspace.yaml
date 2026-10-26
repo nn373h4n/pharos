@@ -1,0 +1,7 @@
+# Dependency build scripts are denied by default; a package needs a reason to be listed as true.
+# - @parcel/watcher and @swc/core are optional tooling of next-intl (message extraction/watching).
+# - unrs-resolver ships prebuilt binaries as optional dependencies; its install script is not needed.
+allowBuilds:
+  "@parcel/watcher": false
+  "@swc/core": false
+  unrs-resolver: false

@@ -1,0 +1,29 @@
+{
+  "Metadata": {
+    "title": "Pharos",
+    "description": "Practical AI use cases for your profession, in your language."
+  },
+  "Common": {
+    "skipToContent": "Skip to main content",
+    "language": "Language"
+  },
+  "Home": {
+    "title": "AI will not take your job. It will strengthen it.",
+    "subtitle": "Pharos shows practical AI use cases for your own profession, in your own language.",
+    "statusTitle": "Early development",
+    "statusBody": "This is the project skeleton. Sign-in and your personal feed arrive in the next milestones."
+  },
+  "Footer": {
+    "license": "Open source under the Apache License 2.0"
+  },
+  "Error": {
+    "title": "Something went wrong",
+    "body": "The page could not be shown. You can try again.",
+    "retry": "Try again"
+  },
+  "NotFound": {
+    "title": "Page not found",
+    "body": "This page does not exist or has moved.",
+    "home": "Back to the start page"
+  }
+}

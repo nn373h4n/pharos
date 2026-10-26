@@ -5,5 +5,15 @@
     "MD041": false
   },
   // Planning documents keep their original languages and format; CLAUDE.md is maintainer-owned.
-  "ignores": ["node_modules/**", ".venv/**", "CLAUDE.md", "PHAROS_MASTER_PROMPT.md", "docs/PLAN.md", "docs/ARCHITECTURE_PROPOSAL.md"]
+  "ignores": [
+    "**/node_modules/**",
+    ".venv/**",
+    "**/.next/**",
+    "**/test-results/**",
+    "**/playwright-report/**",
+    "CLAUDE.md",
+    "PHAROS_MASTER_PROMPT.md",
+    "docs/PLAN.md",
+    "docs/ARCHITECTURE_PROPOSAL.md"
+  ]
 }

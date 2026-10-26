@@ -47,6 +47,7 @@ Not sent to a cloud LLM by default. If an admin enables it, personal and sensiti
 
 - R1 depends on user behaviour; the controls reduce but do not remove it.
 - Row-level security does not defend against code that executes arbitrary SQL as the application role, because that role can change `app.org_id` itself. Mitigations: parameterized queries only, LLM output and external text never reach SQL, the pool resets `app.org_id` on check-in, and `/readyz` verifies the role has no `BYPASSRLS`, is not a superuser and owns no table. See [DATA_MODEL.md](DATA_MODEL.md#row-level-security).
+- The web app sends `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy` and `Permissions-Policy`, but not yet a strict Content-Security-Policy. The CSP is planned with the output sanitization work (ADR-0009); until then, XSS protection relies on React escaping and on rendering no untrusted content.
 - Application logs pass through a regex masker. It covers common key names, headers, URLs and token formats, not every possible secret, so secrets must still not be logged on purpose.
 - Azerbaijani output quality and local-model quality are unmeasured.
 - The development agent guard is a guard rail, not a sandbox; its known limits are listed in `.claude/hooks/pre_bash_guard.py`.

@@ -1,0 +1,29 @@
+{
+  "Metadata": {
+    "title": "Pharos",
+    "description": "Peşənizə uyğun praktik süni intellekt nümunələri, öz dilinizdə."
+  },
+  "Common": {
+    "skipToContent": "Əsas məzmuna keç",
+    "language": "Dil"
+  },
+  "Home": {
+    "title": "Süni intellekt sizin işinizi almayacaq, onu gücləndirəcək.",
+    "subtitle": "Pharos sizin öz peşənizə uyğun praktik süni intellekt nümunələrini öz dilinizdə göstərir.",
+    "statusTitle": "İlkin inkişaf mərhələsi",
+    "statusBody": "Bu, layihənin skeletidir. Giriş və fərdi lent növbəti mərhələlərdə əlavə olunacaq."
+  },
+  "Footer": {
+    "license": "Apache License 2.0 ilə açıq mənbəli"
+  },
+  "Error": {
+    "title": "Nəsə səhv getdi",
+    "body": "Səhifəni göstərmək mümkün olmadı. Yenidən cəhd edə bilərsiniz.",
+    "retry": "Yenidən cəhd et"
+  },
+  "NotFound": {
+    "title": "Səhifə tapılmadı",
+    "body": "Bu səhifə mövcud deyil və ya köçürülüb.",
+    "home": "Ana səhifəyə qayıt"
+  }
+}

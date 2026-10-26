@@ -34,11 +34,16 @@ Demo mode uses local accounts, sample content and a fake LLM provider, so it nee
 Requirements: Python 3.12, [uv](https://docs.astral.sh/uv/), Node.js with pnpm, Docker with Compose, and `make`.
 
 ```bash
+uv sync                                          # backend dependencies
+pnpm --dir frontend install                      # frontend dependencies
+pnpm --dir frontend exec playwright install chromium   # browser for the end-to-end tests
+
 make help          # list targets
 make hooks         # enable the secret-scan pre-commit hook (needs Docker)
 make secrets-scan  # scan the git history for secrets
-make lint          # ruff, mypy, import contracts (frontend checks once it exists)
-make test          # hook tests and backend unit tests (frontend tests once it exists)
+make lint          # ruff, mypy, import contracts, eslint, tsc
+make test          # hook tests, backend and frontend unit tests
+make test-e2e      # Playwright against the production build (4 languages, axe checks)
 make test-integration  # PostgreSQL and Redis in throwaway containers (needs Docker)
 ```
 

@@ -1,10 +1,10 @@
 .DEFAULT_GOAL := help
 COMPOSE := docker compose -f deploy/docker-compose.yml
 
-.PHONY: help dev worker beat test test-integration lint fmt migrate hooks secrets-scan
+.PHONY: help dev worker beat test test-e2e test-integration lint fmt migrate hooks secrets-scan
 
 help: ## Show available targets
-	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-17s %s\n", $$1, $$2}'
+	@grep -E '^[a-z0-9-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-17s %s\n", $$1, $$2}'
 
 dev: ## Start the local stack (needs deploy/ from M1-08)
 	$(COMPOSE) --profile dev up
@@ -18,7 +18,10 @@ beat: ## Run the Celery scheduler (needs Redis)
 test: ## Run hook, backend and frontend unit tests
 	bash tests/hooks/test_guard.sh
 	uv run pytest backend/tests
-	@if [ -f frontend/package.json ]; then pnpm --dir frontend test; else echo "frontend: not present yet, skipped"; fi
+	pnpm --dir frontend test
+
+test-e2e: ## Run Playwright against the production build (needs: pnpm --dir frontend exec playwright install chromium)
+	pnpm --dir frontend test:e2e
 
 test-integration: ## Run integration tests against throwaway PostgreSQL and Redis (needs Docker)
 	bash scripts/test-infra.sh run
@@ -28,7 +31,8 @@ lint: ## Run linters and type checks
 	uv run ruff format --check .
 	uv run mypy --config-file backend/pyproject.toml backend/src
 	uv run lint-imports --config backend/.importlinter
-	@if [ -f frontend/package.json ]; then pnpm --dir frontend lint && pnpm --dir frontend typecheck; else echo "frontend: not present yet, skipped"; fi
+	pnpm --dir frontend lint
+	pnpm --dir frontend typecheck
 
 fmt: ## Format code
 	uv run ruff format .
