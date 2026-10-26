@@ -1,13 +1,19 @@
 .DEFAULT_GOAL := help
-COMPOSE := docker compose -f deploy/docker-compose.yml
+COMPOSE := docker compose -f deploy/docker-compose.yml --env-file deploy/.env
 
-.PHONY: help dev worker beat test test-e2e test-integration lint fmt migrate hooks secrets-scan
+.PHONY: help env dev down worker beat test test-e2e test-integration test-compose lint fmt migrate hooks secrets-scan
 
 help: ## Show available targets
 	@grep -E '^[a-z0-9-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-17s %s\n", $$1, $$2}'
 
-dev: ## Start the local stack (needs deploy/ from M1-08)
-	$(COMPOSE) --profile dev up
+env: ## Create deploy/.env with generated passwords (refuses to overwrite)
+	bash scripts/init-env.sh
+
+dev: ## Build and start the whole stack with Docker Compose (run `make env` first)
+	$(COMPOSE) --profile dev up --build
+
+down: ## Stop the stack (keeps the data volumes)
+	$(COMPOSE) down
 
 worker: ## Run a Celery worker (needs Redis, configured through PHAROS_* variables)
 	uv run celery --app pharos.workers.entrypoint worker --loglevel INFO
@@ -17,6 +23,7 @@ beat: ## Run the Celery scheduler (needs Redis)
 
 test: ## Run hook, backend and frontend unit tests
 	bash tests/hooks/test_guard.sh
+	bash tests/scripts/test_init_env.sh
 	uv run pytest backend/tests
 	pnpm --dir frontend test
 
@@ -25,6 +32,9 @@ test-e2e: ## Run Playwright against the production build (needs: pnpm --dir fron
 
 test-integration: ## Run integration tests against throwaway PostgreSQL and Redis (needs Docker)
 	bash scripts/test-infra.sh run
+
+test-compose: ## Build and check the Compose stack in a throwaway project (needs Docker, takes minutes)
+	bash scripts/compose-smoke.sh
 
 lint: ## Run linters and type checks
 	uv run ruff check .

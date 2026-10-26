@@ -25,7 +25,7 @@ Tenant tables get one policy for all commands (`tenant_policy_sql()`). Backgroun
 
 ## Database roles
 
-Two login roles are provisioned by the deployment before the first migration. A migration refuses to run if `pharos_app` is missing, is a superuser or has `BYPASSRLS`, or if it is run as `pharos_app`.
+Two login roles are provisioned by the deployment before the first migration. The Docker Compose stack does it with `deploy/postgres/init/01-roles.sh` on the first start of an empty data volume. A migration refuses to run if `pharos_app` is missing, is a superuser or has `BYPASSRLS`, or if it is run as `pharos_app`.
 
 | Role | Used by | Rights |
 | --- | --- | --- |

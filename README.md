@@ -19,15 +19,18 @@ One installation serves one organization and runs on a single Linux VM with Dock
 
 ## Quick start
 
-The Docker Compose stack lands in milestone M1-08. Until then there is nothing to start; the demo setup will be:
+You need Docker with Compose and `make`. Three commands start the whole stack:
 
 ```bash
 git clone https://github.com/nn373h4n/pharos.git && cd pharos
-cp deploy/.env.example deploy/.env   # edit the placeholder values
-make dev
+make env   # creates deploy/.env with generated passwords
+make dev   # builds the images and starts everything
 ```
 
-Demo mode uses local accounts, sample content and a fake LLM provider, so it needs no identity provider and no API key.
+Then open `https://localhost` (your browser will warn about the locally signed certificate). The
+stack currently serves the placeholder home page in four languages and the health endpoints; sign-in,
+sample content and the demo LLM provider arrive with the next milestones. See
+[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for configuration, TLS, ports and known limits.
 
 ## Develop
 
@@ -45,6 +48,7 @@ make lint          # ruff, mypy, import contracts, eslint, tsc
 make test          # hook tests, backend and frontend unit tests
 make test-e2e      # Playwright against the production build (4 languages, axe checks)
 make test-integration  # PostgreSQL and Redis in throwaway containers (needs Docker)
+make test-compose  # builds the Compose stack in a throwaway project and checks it (minutes)
 ```
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request. Commits need a DCO sign-off (`git commit -s`).

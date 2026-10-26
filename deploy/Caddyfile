@@ -1,0 +1,48 @@
+# Edge proxy: TLS, /api to the backend, everything else to the web app.
+#
+# PHAROS_DOMAIN  the host name users open (default: localhost)
+# PHAROS_TLS     "internal"   a certificate from Caddy's own CA (default; browsers warn until the
+#                             CA is trusted). Also the right choice for private networks.
+#                an e-mail    automatic Let's Encrypt/ZeroSSL certificate for a public domain
+#                "cert key"   paths of your own certificate and key, mounted into the container
+
+{
+	# The admin API is not needed and is not exposed.
+	admin off
+}
+
+# Container health check, reachable on the internal network only (the port is not published).
+http://:2020 {
+	respond "ok" 200
+}
+
+{$PHAROS_DOMAIN:localhost} {
+	tls {$PHAROS_TLS:internal}
+
+	encode zstd gzip
+
+	header {
+		-Server
+		X-Content-Type-Options "nosniff"
+	}
+
+	# /readyz opens database and Redis connections and needs no login, so it is not served to the
+	# internet. The container health checks and operators reach it on the internal network.
+	# This block must come before "handle /api/*": handle blocks are tried in the order written,
+	# and a plain "respond" directive would run after the proxy has already answered.
+	@readyz path /api/readyz
+	handle @readyz {
+		respond 404
+	}
+
+	handle /api/* {
+		reverse_proxy api:8000 {
+			# The client must not choose its own request id.
+			header_up X-Request-ID {http.request.uuid}
+		}
+	}
+
+	handle {
+		reverse_proxy web:3000
+	}
+}

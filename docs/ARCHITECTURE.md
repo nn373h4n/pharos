@@ -110,18 +110,24 @@ Next.js App Router, TypeScript, Tailwind, shadcn/ui, `next-intl` (ADR-0008). The
 
 ## 7. Deployment
 
-One `deploy/docker-compose.yml`, three networks (edge, internal, egress) and optional profiles `dev` (Keycloak), `local-llm` (Ollama) and `observability` (OpenTelemetry, Prometheus, Grafana). PostgreSQL and Redis sit on the internal network only. Images are slim and run as non-root. TLS is automatic ACME for public domains, or `tls internal` / a custom certificate for private ones.
+One `deploy/docker-compose.yml`, three networks and reserved profiles `dev` (Keycloak), `local-llm` (Ollama) and `observability` (OpenTelemetry, Prometheus, Grafana), whose services arrive with M2, M4 and M5. The details, the variables and the known limits are in [DEPLOYMENT.md](DEPLOYMENT.md); the reasoning is in [ADR-0010](adr/0010-compose-network-topology-and-container-hardening.md).
 
-| Service | Networks | Egress |
+- `edge` carries the published ports and only `caddy`. `app` (caddy, web, api) and `data` (api, worker, beat, migrate, postgres, redis) are Docker `internal: true` networks with no route to the internet; `caddy` and `web` are not on `data`, so a compromised proxy or web app cannot open a connection to the database or Redis. `egress` is joined only by the services that must call out.
+- Every container drops all capabilities, forbids privilege escalation and has a read-only root file system. All but `caddy` run as non-root users.
+- TLS is automatic ACME for public domains, or `tls internal` / a custom certificate for private ones.
+
+| Service | Networks | Internet access |
 | --- | --- | --- |
-| caddy | edge | — |
-| web | edge | — |
-| api | edge, internal, egress | OIDC provider only |
-| worker, beat | internal, egress | sources and LLM providers only |
-| migrate | internal | — (one-shot, operator-approved in production) |
-| postgres, redis | internal | none |
+| caddy | edge, app | inbound 80/443; outbound for certificate issuance |
+| web | app | none |
+| api | app, data, egress | identity provider (restricting destinations is a host firewall task) |
+| worker, beat | data, egress | content sources and LLM providers (same) |
+| migrate | data | none (one-shot; applied automatically on first install, by the operator in production) |
+| postgres, redis | data | none |
 
-Health: `/healthz` (process) and `/readyz` (database, Redis, migration version, worker heartbeat).
+The proxy does not serve `/api/readyz` to the internet and replaces the client's `X-Request-ID`.
+
+Health: `/healthz` (process) and `/readyz` (database, application role, Redis, worker heartbeat, migration version).
 
 ## 8. Differences from the planning documents
 
@@ -129,6 +135,7 @@ Health: `/healthz` (process) and `/readyz` (database, Redis, migration version, 
 | --- | --- | --- |
 | Default UI language | `az` (PLAN, MASTER_PROMPT) | `en`; each installation chooses its own default (ADR-0008) |
 | Tooling layout | PLAN §7 lists more agents, `commands/` and different skill names | The `.claude/` package in the repository |
+| Network layout | PROPOSAL §9 puts `web` and `api` on `edge` | Only `caddy` is on `edge`, because every container on a normal bridge network can reach the internet; the internal side is split into `app` and `data` (ADR-0010) |
 | Metrics for the heartbeat | "visible in metrics" | Written to Redis and shown in `/readyz`; Prometheus metrics come with the `observability` profile |
 | Anonymous idea pool | "admins cannot see it" | Not claimed until a design proves it (phase 2) |
 

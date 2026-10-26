@@ -1,0 +1,26 @@
+# Shared by backend/Dockerfile and frontend/Dockerfile (the build context is the repository root).
+.git
+.github
+.claude
+.venv
+**/node_modules
+**/.next
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+**/test-results
+**/playwright-report
+**/.env
+**/.env.*
+!**/.env.example
+**/secrets
+**/*.pem
+**/*.key
+deploy
+CLAUDE.local.md
+docs
+tests
+backend/tests
+frontend/e2e
