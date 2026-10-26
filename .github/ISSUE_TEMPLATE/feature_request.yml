@@ -1,0 +1,32 @@
+name: Feature request
+description: Suggest an improvement
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: Who is affected and what is hard today.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Does it fit the current scope?
+      description: See docs/PLAN.md. Phase 2 and 3 ideas are welcome but are not added to the MVP without an agreed priority.
+      options:
+        - MVP (phase 1)
+        - Phase 2 or 3
+        - Not sure
+    validations:
+      required: true

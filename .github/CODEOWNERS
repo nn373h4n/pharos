@@ -1,0 +1,14 @@
+# Default owner for everything
+*                           @nn373h4n
+
+# Security-sensitive paths always need a code owner review
+/SECURITY.md                @nn373h4n
+/docs/THREAT_MODEL.md       @nn373h4n
+/docs/adr/                  @nn373h4n
+/.claude/                   @nn373h4n
+/.github/                   @nn373h4n
+/scripts/                   @nn373h4n
+/deploy/                    @nn373h4n
+/backend/src/pharos/auth/   @nn373h4n
+/backend/src/pharos/core/   @nn373h4n
+/backend/alembic/           @nn373h4n

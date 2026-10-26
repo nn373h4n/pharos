@@ -1,7 +1,8 @@
 {
-  // Tables and ADR prose use long lines on purpose.
+  // Tables and ADR prose use long lines on purpose; the pull request template starts at level 2.
   "config": {
-    "MD013": false
+    "MD013": false,
+    "MD041": false
   },
   // Planning documents keep their original languages and format; CLAUDE.md is maintainer-owned.
   "ignores": ["node_modules/**", "CLAUDE.md", "PHAROS_MASTER_PROMPT.md", "docs/PLAN.md", "docs/ARCHITECTURE_PROPOSAL.md"]
