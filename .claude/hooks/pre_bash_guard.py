@@ -90,10 +90,15 @@ def strip_heredocs(command: str, depth: int) -> str:
         i += 1
         for match in HEREDOC.finditer(line):
             delimiter = match.group(1) or match.group(2) or match.group(3)
-            body = []
+            start, body = i, []
             while i < len(lines) and lines[i].strip() != delimiter:
                 body.append(lines[i])
                 i += 1
+            if i >= len(lines):
+                # No terminator: this fragment was cut out of a larger command (for example the
+                # inside of a nested $(...)). Keep the lines so quoting stays balanced.
+                i = start
+                continue
             i += 1  # terminator
             head = line[: match.start()]
             target = re.search(r"\b(bash|sh|zsh|dash|ash|python[\d.]*|perl|ruby|node|php)\b\s*[^|;&]*$", head)
