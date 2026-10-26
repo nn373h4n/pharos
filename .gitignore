@@ -2,3 +2,34 @@
 CLAUDE.local.md
 .claude/settings.local.json
 .claude/agent-memory-local/
+
+# Secrets and local environment — never commit
+.env
+.env.*
+!.env.example
+deploy/.env
+secrets/
+*.pem
+*.key
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+playwright-report/
+test-results/
+
+# Editors and OS
+.idea/
+.vscode/
+.DS_Store
