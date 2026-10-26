@@ -162,6 +162,9 @@ allow "$(printf "cat > notes.md <<'X'\nIt's fine; secrets and rm -rf are only te
 allow "$(printf "git commit -s -F - <<'X'\nDon't run rm -rf or cat .env\nX")"
 allow "$(printf 'git commit -s -m "$(cat <<'"'"'EOF'"'"'\nfix: handle rm -rf and don'"'"'t panic\nEOF\n)"')"
 
+allow "$(printf 'PR=$(gh pr create --title "x (y)" --body "$(cat <<'"'"'EOF'"'"'\nbody (with parens) and rm -rf\nEOF\n)" 2>&1 | tail -1) && echo "$PR"')"
+block "$(printf 'PR=$(gh pr create --body "$(cat <<'"'"'EOF'"'"'\nbody\nEOF\n)" 2>&1) && rm -rf x')"
+
 if [ "$failed" -ne 0 ]; then
   printf '\n%s case(s) FAILED\n' "$failed"
   exit 1
