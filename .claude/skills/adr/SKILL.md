@@ -18,18 +18,25 @@ Template:
 - Date: YYYY-MM-DD
 
 ## Context
+
 The problem, constraints and forces.
 
 ## Options considered
+
 1. <Option> — pros / cons
 2. <Option> — pros / cons
 
 ## Decision
+
 What we chose and why.
 
 ## Consequences
+
 Positive, negative, and follow-up work (tests, docs, migrations).
 
 ## References
+
 Issues, PRs, docs.
 ```
+
+Keep a blank line after every heading and around lists so `markdownlint` passes.

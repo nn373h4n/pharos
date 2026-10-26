@@ -1,0 +1,1 @@
+- [ADR status 0001-0009](project_adr_status.md) — 0001-0005 and 0008 Accepted; 0006, 0007, 0009 Proposed; what blocks 0007

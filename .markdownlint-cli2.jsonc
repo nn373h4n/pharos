@@ -1,0 +1,8 @@
+{
+  // Tables and ADR prose use long lines on purpose.
+  "config": {
+    "MD013": false
+  },
+  // Planning documents keep their original languages and format; CLAUDE.md is maintainer-owned.
+  "ignores": ["node_modules/**", "CLAUDE.md", "PHAROS_MASTER_PROMPT.md", "docs/PLAN.md", "docs/ARCHITECTURE_PROPOSAL.md"]
+}
