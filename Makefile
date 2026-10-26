@@ -1,13 +1,19 @@
 .DEFAULT_GOAL := help
 COMPOSE := docker compose -f deploy/docker-compose.yml
 
-.PHONY: help dev test test-integration lint fmt migrate hooks secrets-scan
+.PHONY: help dev worker beat test test-integration lint fmt migrate hooks secrets-scan
 
 help: ## Show available targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-17s %s\n", $$1, $$2}'
 
 dev: ## Start the local stack (needs deploy/ from M1-08)
 	$(COMPOSE) --profile dev up
+
+worker: ## Run a Celery worker (needs Redis, configured through PHAROS_* variables)
+	uv run celery --app pharos.workers.entrypoint worker --loglevel INFO
+
+beat: ## Run the Celery scheduler (needs Redis)
+	uv run celery --app pharos.workers.entrypoint beat --loglevel INFO
 
 test: ## Run hook, backend and frontend unit tests
 	bash tests/hooks/test_guard.sh
@@ -20,7 +26,7 @@ test-integration: ## Run integration tests against throwaway PostgreSQL and Redi
 lint: ## Run linters and type checks
 	uv run ruff check .
 	uv run ruff format --check .
-	uv run mypy backend/src
+	uv run mypy --config-file backend/pyproject.toml backend/src
 	uv run lint-imports --config backend/.importlinter
 	@if [ -f frontend/package.json ]; then pnpm --dir frontend lint && pnpm --dir frontend typecheck; else echo "frontend: not present yet, skipped"; fi
 

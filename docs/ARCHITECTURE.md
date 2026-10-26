@@ -38,7 +38,8 @@ Dashed arrows are the only traffic that leaves the compose networks (default-den
 
 - **User requests** never call an LLM. If an insight is not ready, the card shows "being prepared" and a job is queued.
 - **Collection** runs on a schedule: beat → worker → connector → pipeline → PostgreSQL.
-- **api and worker share the same Python package** and differ only in entry point.
+- **api and worker share the same Python package** and differ only in entry point: `uvicorn --factory pharos.main:create_app` for the API, `celery --app pharos.workers.entrypoint worker` and `... beat` for background work (`make worker`, `make beat` locally).
+- **Heartbeat:** beat schedules `pharos.heartbeat` every 60 seconds and a worker writes the current time to Redis (`pharos:worker:heartbeat`); a worker also writes one when it starts. `/readyz` treats the worker as alive while that timestamp is at most 210 seconds old. A fresh timestamp proves beat, broker and worker all work. Tasks are JSON-only, acknowledged late and must be idempotent, because a task is redelivered if its worker dies.
 - **Local LLM**: Ollama runs inside compose (profile `local-llm`), and cloud LLM egress is closed when it is selected.
 
 ## 2. Backend layout

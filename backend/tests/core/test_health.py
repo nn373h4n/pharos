@@ -14,7 +14,13 @@ from pharos.main import create_app
 PASSWORD = "Zx9-example-only"
 UNREACHABLE_DB = f"postgresql+asyncpg://user:{PASSWORD}@127.0.0.1:1/pharos"
 UNREACHABLE_REDIS = f"redis://:{PASSWORD}@127.0.0.1:1/0"
-ALL_OK = {"database": "ok", "database_role": "ok", "redis": "ok", "migrations": "ok"}
+ALL_OK = {
+    "database": "ok",
+    "database_role": "ok",
+    "redis": "ok",
+    "worker": "ok",
+    "migrations": "ok",
+}
 
 
 class FakeReadiness:
@@ -51,7 +57,7 @@ async def test_readyz_is_ok_when_every_check_passes(client: httpx.AsyncClient) -
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("failing", ["database", "database_role", "redis", "migrations"])
+@pytest.mark.parametrize("failing", list(ALL_OK))
 async def test_readyz_is_503_and_names_the_failed_check(
     client: httpx.AsyncClient, failing: str
 ) -> None:
@@ -134,5 +140,6 @@ async def test_real_readiness_fails_closed_and_does_not_leak_details(
         "readiness: database check failed",
         "readiness: database role check failed",
         "readiness: redis check failed",
+        "readiness: worker heartbeat check failed",
         "readiness: migration check failed",
     }

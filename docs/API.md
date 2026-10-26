@@ -16,7 +16,7 @@ Run the server with `uvicorn --factory pharos.main:create_app`. There is no modu
 | Method | Path | Auth | Purpose |
 | --- | --- | --- | --- |
 | GET | `/api/healthz` | none | Liveness: the process is up. Touches no dependency. |
-| GET | `/api/readyz` | none | Readiness: database, application role, Redis and migration revision. |
+| GET | `/api/readyz` | none | Readiness: database, application role, Redis, worker heartbeat and migration revision. |
 
 ### `GET /api/healthz`
 
@@ -27,7 +27,7 @@ Run the server with `uvicorn --factory pharos.main:create_app`. There is no modu
 `200` when every check passes, `503` otherwise. The body names the failed checks and nothing else; the reason is written to the log.
 
 ```json
-{"status": "ok", "checks": {"database": "ok", "database_role": "ok", "redis": "ok", "migrations": "ok"}}
+{"status": "ok", "checks": {"database": "ok", "database_role": "ok", "redis": "ok", "worker": "ok", "migrations": "ok"}}
 ```
 
 | Check | Passes when |
@@ -35,6 +35,7 @@ Run the server with `uvicorn --factory pharos.main:create_app`. There is no modu
 | `database` | `SELECT 1` succeeds as the application role |
 | `database_role` | the application role is not a superuser, has no `BYPASSRLS` and owns no table in `public` |
 | `redis` | `PING` succeeds |
+| `worker` | the worker heartbeat in Redis is at most 210 seconds old (three missed beats plus slack) |
 | `migrations` | the revision in `alembic_version` equals the head of `backend/alembic/versions` |
 
-Each call opens database connections and pings Redis, and it is unauthenticated. Use it for the container healthcheck and the internal network; do not proxy it to the internet. The worker heartbeat joins this list with M1-06.
+Each call opens database connections and pings Redis, and it is unauthenticated. Use it for the container healthcheck and the internal network; do not proxy it to the internet. A worker writes its first heartbeat as soon as it starts, but until one has, `worker` fails, so use `/healthz` for container restarts and `/readyz` for monitoring.
