@@ -1,2 +1,11 @@
 [tool.uv.workspace]
 members = ["backend"]
+
+# Applies to Python outside backend/ (for example .claude/hooks). backend/ has its own settings.
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = ["docs", "*.md"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "S", "SIM", "RUF"]

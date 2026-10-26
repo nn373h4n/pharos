@@ -33,15 +33,40 @@ WRAPPERS = {
     "command": set(),
     "builtin": set(),
     "exec": {"-a"},
-    "xargs": {"-n", "-a", "-I", "-L", "-P", "-s", "-d", "-E", "--max-args", "--arg-file",
-              "--max-procs", "--max-lines", "--delimiter", "--replace", "--eof", "--max-chars"},
+    "xargs": {
+        "-n",
+        "-a",
+        "-I",
+        "-L",
+        "-P",
+        "-s",
+        "-d",
+        "-E",
+        "--max-args",
+        "--arg-file",
+        "--max-procs",
+        "--max-lines",
+        "--delimiter",
+        "--replace",
+        "--eof",
+        "--max-chars",
+    },
     "timeout": {"-s", "-k", "--signal", "--kill-after"},
     "stdbuf": {"-i", "-o", "-e"},
     "ionice": {"-c", "-n", "-p", "--class", "--classdata"},
     "setsid": set(),
     "watch": {"-n", "-d", "--interval"},
 }
-UV_VALUE_FLAGS = {"--with", "--python", "-p", "--directory", "--project", "--package", "--extra", "--group"}
+UV_VALUE_FLAGS = {
+    "--with",
+    "--python",
+    "-p",
+    "--directory",
+    "--project",
+    "--package",
+    "--extra",
+    "--group",
+}
 SHELLS = {"sh", "bash", "zsh", "dash", "ash"}
 SCRIPT_RUNNERS = {"perl", "ruby", "node", "php", "source", "."}
 PYTHON = re.compile(r"^python(\d+(\.\d+)*)?$")
@@ -101,13 +126,17 @@ def strip_heredocs(command: str, depth: int) -> str:
                 continue
             i += 1  # terminator
             head = line[: match.start()]
-            target = re.search(r"\b(bash|sh|zsh|dash|ash|python[\d.]*|perl|ruby|node|php)\b\s*[^|;&]*$", head)
+            target = re.search(
+                r"\b(bash|sh|zsh|dash|ash|python[\d.]*|perl|ruby|node|php)\b\s*[^|;&]*$", head
+            )
             if target:
                 text = "\n".join(body)
                 if target.group(1) in SHELLS:
                     check_string(text, depth + 1)
                 elif CODE_FORBIDDEN.search(text):
-                    raise Blocked("here-doc code with file deletion, process execution or secrets access")
+                    raise Blocked(
+                        "here-doc code with file deletion, process execution or secrets access"
+                    )
     return "\n".join(out)
 
 
@@ -223,7 +252,9 @@ def check_rm(args: list[str]) -> None:
             targets.append(arg)
     if recursive and force:
         raise Blocked("recursive forced delete (rm -r -f in any form)")
-    if recursive and any((t.rstrip("/") or "/") in BROAD_TARGETS or t in BROAD_TARGETS for t in targets):
+    if recursive and any(
+        (t.rstrip("/") or "/") in BROAD_TARGETS or t in BROAD_TARGETS for t in targets
+    ):
         raise Blocked("recursive delete of a broad target")
 
 
@@ -274,9 +305,9 @@ def check_git(args: list[str]) -> None:
             if (
                 arg.startswith("--force")
                 or arg in ("--delete", "--mirror", "--prune")
-                or re.fullmatch(r"-[A-Za-z]+", arg) and ("f" in arg or "d" in arg)
+                or (re.fullmatch(r"-[A-Za-z]+", arg) and ("f" in arg or "d" in arg))
                 or arg.startswith("+")
-                or arg.startswith(":") and len(arg) > 1
+                or (arg.startswith(":") and len(arg) > 1)
             ):
                 raise Blocked("force push, remote delete or mirror push")
 
@@ -306,7 +337,11 @@ def check_env_files(command: str, args: list[str]) -> None:
     ignored: list[str] = []
     if command in DEST_LAST and len(positional) >= 2:
         ignored = [positional[-1]]
-    elif command in PATTERN_FIRST and positional and not any(a in ("-e", "-f", "--regexp") for a in cleaned):
+    elif (
+        command in PATTERN_FIRST
+        and positional
+        and not any(a in ("-e", "-f", "--regexp") for a in cleaned)
+    ):
         ignored = [positional[0]]
     root = project_dir()
     for arg in cleaned:
@@ -396,7 +431,7 @@ def check_string(command: str, depth: int = 0) -> None:
     try:
         tokens = tokenize(command)
     except ValueError as exc:
-        raise Blocked(f"unparseable command ({exc})")
+        raise Blocked(f"unparseable command ({exc})") from exc
     pipeline_has_download = False
     for words, piped in split_commands(tokens):
         if not piped:
@@ -406,14 +441,22 @@ def check_string(command: str, depth: int = 0) -> None:
             name = base(stripped[0])
             if name in DOWNLOADERS:
                 pipeline_has_download = True
-            elif is_interpreter(name) and pipeline_has_download and code_argument(stripped[1:], ("-o", "-W")) is None:
+            elif (
+                is_interpreter(name)
+                and pipeline_has_download
+                and code_argument(stripped[1:], ("-o", "-W")) is None
+            ):
                 raise Blocked("downloaded content piped into an interpreter")
         check_single(words, depth)
     # `bash < <(curl ...)`: the redirect target is the download placeholder
     for index, token in enumerate(tokens):
-        if token == "<" and index + 1 < len(tokens) and SUBST_DL in tokens[index + 1]:
-            if index > 0 and is_interpreter(base(tokens[index - 1])):
-                raise Blocked("downloaded content piped into an interpreter")
+        redirects_download = (
+            token == "<"  # noqa: S105 - a shell operator, not a password
+            and index + 1 < len(tokens)
+            and SUBST_DL in tokens[index + 1]
+        )
+        if redirects_download and index > 0 and is_interpreter(base(tokens[index - 1])):
+            raise Blocked("downloaded content piped into an interpreter")
 
 
 def main() -> int:
@@ -428,7 +471,10 @@ def main() -> int:
     try:
         check_string(command)
     except Blocked as reason:
-        print(f"pre-bash-guard: blocked - {reason}. Ask the user if this is really needed.", file=sys.stderr)
+        print(
+            f"pre-bash-guard: blocked - {reason}. Ask the user if this is really needed.",
+            file=sys.stderr,
+        )
         return 2
     except Exception as exc:  # fail closed
         print(f"pre-bash-guard: internal error ({type(exc).__name__}); blocking", file=sys.stderr)

@@ -29,6 +29,7 @@ Thanks for helping. Pharos is early-stage, so the best first step is to talk bef
 make hooks    # once: enables the secret-scan pre-commit hook (needs Docker)
 make lint
 make test
+make test-integration   # when you touch the database, RLS or readiness (needs Docker)
 ```
 
 Every feature ships with tests. Never delete, skip or weaken a test to make it pass. If a check cannot run in your environment, say so in the pull request instead of leaving it out.
