@@ -1,0 +1,227 @@
+# Pharos: one installation = one organization on one Linux host.
+#
+#   make env      create deploy/.env with generated passwords
+#   make dev      build and start everything, then open https://localhost
+#
+# Networks
+#   edge    the only network with published ports (caddy)
+#   app     no route to the internet (internal: true): caddy, web and api. The part of the stack
+#           that faces users and renders their requests.
+#   data    no route to the internet (internal: true): api, worker, beat, migrate, postgres, redis.
+#           caddy and web are not on it, so a compromised proxy or web app cannot open a
+#           connection to the database or to Redis.
+#   egress  outbound internet for the services that must call out: api (identity provider),
+#           worker and beat (content sources and LLM providers)
+# postgres, redis and web cannot open connections to the internet.
+# Which destinations the egress services may reach is a host firewall or proxy decision; see
+# docs/DEPLOYMENT.md.
+#
+# The profiles "dev" (Keycloak), "local-llm" (Ollama) and "observability" (OpenTelemetry,
+# Prometheus, Grafana) are reserved. Their services arrive with the milestones that need them
+# (M2, M4, M5), together with the decision about which images to trust.
+
+name: pharos
+
+networks:
+  edge: {}
+  app:
+    internal: true
+  data:
+    internal: true
+  egress: {}
+
+volumes:
+  postgres_data: {}
+  redis_data: {}
+  caddy_data: {}
+  caddy_config: {}
+
+x-hardening: &hardening
+  restart: unless-stopped
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  pids_limit: 256
+
+x-backend-build: &backend-build
+  context: ..
+  dockerfile: backend/Dockerfile
+
+x-backend-env: &backend-env
+  PHAROS_ENVIRONMENT: ${PHAROS_ENVIRONMENT:-production}
+  PHAROS_LOG_LEVEL: ${PHAROS_LOG_LEVEL:-INFO}
+  PHAROS_DATABASE_URL: postgresql+asyncpg://pharos_app:${PHAROS_APP_PASSWORD:?set PHAROS_APP_PASSWORD}@postgres:5432/pharos
+  PHAROS_REDIS_URL: redis://:${PHAROS_REDIS_PASSWORD:?set PHAROS_REDIS_PASSWORD}@redis:6379/0
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    <<: *hardening
+    # Root inside the container with every capability dropped except the one needed to bind 80/443.
+    cap_add: [NET_BIND_SERVICE]
+    ports:
+      - "${PHAROS_HTTP_PORT:-80}:80"
+      - "${PHAROS_HTTPS_PORT:-443}:443"
+    environment:
+      PHAROS_DOMAIN: ${PHAROS_DOMAIN:-localhost}
+      PHAROS_TLS: ${PHAROS_TLS:-internal}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    tmpfs: [/tmp]
+    networks: [edge, app]
+    depends_on:
+      web: { condition: service_healthy }
+      api: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:2020/"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    mem_limit: 128m
+
+  web:
+    build:
+      context: ..
+      dockerfile: frontend/Dockerfile
+    image: pharos-web:${PHAROS_IMAGE_TAG:-local}
+    <<: *hardening
+    environment:
+      PHAROS_DEFAULT_LOCALE: ${PHAROS_DEFAULT_LOCALE:-en}
+    tmpfs: [/tmp, /app/.next/cache]
+    networks: [app]
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/healthz').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    mem_limit: 512m
+
+  api:
+    build: *backend-build
+    image: pharos-backend:${PHAROS_IMAGE_TAG:-local}
+    <<: *hardening
+    command: ["uvicorn", "--factory", "pharos.main:create_app", "--host", "0.0.0.0", "--port", "8000"]
+    environment: *backend-env
+    tmpfs: [/tmp]
+    networks: [app, data, egress]
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request, sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/healthz', timeout=3).status == 200 else 1)"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    mem_limit: 512m
+
+  worker:
+    build: *backend-build
+    image: pharos-backend:${PHAROS_IMAGE_TAG:-local}
+    <<: *hardening
+    command: ["celery", "--app", "pharos.workers.entrypoint", "worker", "--loglevel", "INFO", "--concurrency", "2"]
+    environment: *backend-env
+    tmpfs: [/tmp]
+    networks: [data, egress]
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+    healthcheck:
+      test: ["CMD-SHELL", "celery --app pharos.workers.entrypoint inspect ping --timeout 5 -d celery@$$HOSTNAME"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    mem_limit: 512m
+
+  beat:
+    build: *backend-build
+    image: pharos-backend:${PHAROS_IMAGE_TAG:-local}
+    <<: *hardening
+    # The schedule file goes to tmpfs; it is rebuilt from the code on every start.
+    command: ["celery", "--app", "pharos.workers.entrypoint", "beat", "--loglevel", "INFO", "-s", "/tmp/celerybeat-schedule", "--pidfile="]
+    environment: *backend-env
+    tmpfs: [/tmp]
+    networks: [data, egress]
+    depends_on:
+      redis: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+    mem_limit: 256m
+
+  # One-shot job. With PHAROS_MIGRATE_ON_START=true (the demo default) it applies the migrations
+  # before the API starts. In production set it to false and run the migration yourself after
+  # reviewing it: docker compose run --rm migrate
+  migrate:
+    build: *backend-build
+    image: pharos-backend:${PHAROS_IMAGE_TAG:-local}
+    <<: *hardening
+    restart: "no"
+    command:
+      - sh
+      - -c
+      - 'if [ "$$PHAROS_MIGRATE_ON_START" = "true" ]; then exec alembic -c backend/alembic.ini upgrade head; else echo "PHAROS_MIGRATE_ON_START is not true: migrations skipped"; fi'
+    environment:
+      PHAROS_MIGRATE_ON_START: ${PHAROS_MIGRATE_ON_START:-true}
+      PHAROS_MIGRATIONS_DATABASE_URL: postgresql+asyncpg://pharos_owner:${PHAROS_OWNER_PASSWORD:?set PHAROS_OWNER_PASSWORD}@postgres:5432/pharos
+    tmpfs: [/tmp]
+    networks: [data]
+    depends_on:
+      postgres: { condition: service_healthy }
+    mem_limit: 512m
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    <<: *hardening
+    user: postgres
+    environment:
+      POSTGRES_DB: pharos
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      PHAROS_OWNER_PASSWORD: ${PHAROS_OWNER_PASSWORD:?set PHAROS_OWNER_PASSWORD}
+      PHAROS_APP_PASSWORD: ${PHAROS_APP_PASSWORD:?set PHAROS_APP_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    tmpfs: [/tmp, /var/run/postgresql]
+    networks: [data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d pharos"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    mem_limit: 1g
+
+  redis:
+    image: redis:8.8.3-alpine
+    <<: *hardening
+    user: redis
+    command:
+      - sh
+      - -c
+      - 'exec redis-server --requirepass "$$REDIS_PASSWORD" --appendonly yes'
+    environment:
+      REDIS_PASSWORD: ${PHAROS_REDIS_PASSWORD:?set PHAROS_REDIS_PASSWORD}
+      # Lets redis-cli authenticate in the health check without the password on its command line.
+      REDISCLI_AUTH: ${PHAROS_REDIS_PASSWORD}
+    volumes:
+      - redis_data:/data
+    networks: [data]
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    mem_limit: 256m
