@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Git pre-commit hook: scan staged changes for secrets with gitleaks (run in Docker, no host install).
+# Enable with: make hooks
+set -eu
+image="zricethezav/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f" # v8.30.1
+
+if ! command -v docker >/dev/null 2>&1; then
+  echo "pre-commit: docker is required for the gitleaks scan; commit blocked." >&2
+  exit 1
+fi
+
+repo=$(git rev-parse --show-toplevel)
+exec docker run --rm -v "$repo:/repo:ro" "$image" git --pre-commit --staged --redact --verbose /repo
