@@ -30,6 +30,7 @@ Status: v0 (milestone M1). Every control below must gain an automated test befor
 | XSS | LLM output is plain text or restricted markdown; server-side sanitization with `nh3`; strict CSP; React escaping | Malicious HTML/markdown corpus |
 | CSRF | Same origin behind Caddy, SameSite=Lax cookie, CSRF token on mutating requests | Cross-origin POST |
 | Secret exposure | AES-256-GCM envelope encryption, `key_version` rotation; masking filter on logs; gitleaks pre-commit and CI; fake data only in the repository | Search logs for key patterns |
+| Code execution through the task queue | Celery accepts JSON only (no pickle); Redis is reachable from the internal network only and requires a password in production; a task payload is data, never code | `tests/workers/test_app.py` (serializer and `accept_content`) |
 | DoS and cost abuse | Per-user and per-organization rate limits (Redis); LLM budget with 80% warning and 100% stop; queue backpressure | Limit-exceeded tests |
 | Supply chain | Lockfiles, Dependabot, CodeQL, Trivy, SBOM, pinned container digests and action SHAs; signed images by M5 | Required CI checks |
 | Misuse of the development agent | PreToolUse guard hook, deny rules, gitleaks pre-commit; planned devcontainer | `tests/hooks/test_guard.sh` |

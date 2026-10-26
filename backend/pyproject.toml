@@ -8,6 +8,7 @@ license = "Apache-2.0"
 dependencies = [
     "alembic>=1.20.1",
     "asyncpg>=0.32.0",
+    "celery>=5.6.3",
     "fastapi>=0.162.0",
     "pydantic>=2.14.1",
     "pydantic-settings>=2.16.1",
@@ -36,6 +37,16 @@ python_version = "3.12"
 strict = true
 mypy_path = "src"
 packages = ["pharos"]
+
+# Celery ships no type information; the rest of the code base stays strictly typed.
+[[tool.mypy.overrides]]
+module = ["celery", "celery.*", "kombu", "kombu.*"]
+ignore_missing_imports = true
+
+# Celery's decorators are untyped, so decorated tasks and signal handlers cannot be typed either.
+[[tool.mypy.overrides]]
+module = ["pharos.workers.*"]
+disallow_untyped_decorators = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

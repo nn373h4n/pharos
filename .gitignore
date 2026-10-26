@@ -33,3 +33,7 @@ test-results/
 .idea/
 .vscode/
 .DS_Store
+
+# Celery beat state
+celerybeat-schedule*
+celerybeat.pid

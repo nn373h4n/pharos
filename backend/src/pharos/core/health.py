@@ -1,10 +1,12 @@
 """Liveness and readiness endpoints.
 
-`/healthz` says the process is up and touches nothing else. `/readyz` checks the database, Redis
-and the migration version. Failures are logged; the response only says which check failed.
+`/healthz` says the process is up and touches nothing else. `/readyz` checks the database, the
+application role, Redis, the worker heartbeat and the migration version. Failures are logged; the
+response only says which check failed.
 """
 
 import logging
+import time
 from pathlib import Path
 from typing import Literal, Protocol
 
@@ -15,6 +17,8 @@ from pydantic import BaseModel
 from redis.asyncio import Redis
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
+
+from pharos.core.heartbeat import worker_is_alive
 
 logger = logging.getLogger(__name__)
 
@@ -82,9 +86,20 @@ class Readiness:
 
     async def _redis_ping(self) -> CheckResult:
         try:
-            await self._redis.ping()  # type: ignore[misc]
+            await self._redis.ping()
         except Exception:
             logger.exception("readiness: redis check failed")
+            return "fail"
+        return "ok"
+
+    async def _worker(self) -> CheckResult:
+        try:
+            alive = await worker_is_alive(self._redis, time.time())
+        except Exception:
+            logger.exception("readiness: worker heartbeat check failed")
+            return "fail"
+        if not alive:
+            logger.error("readiness: no recent worker heartbeat")
             return "fail"
         return "ok"
 
@@ -109,6 +124,7 @@ class Readiness:
             "database": await self._database(),
             "database_role": await self._database_role(),
             "redis": await self._redis_ping(),
+            "worker": await self._worker(),
             "migrations": await self._migrations(),
         }
         ok = all(result == "ok" for result in checks.values())
