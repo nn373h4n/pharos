@@ -1,0 +1,130 @@
+# Pharos architecture
+
+Status: v0 (milestone M1). Describes the intended system; sections marked *planned* are not implemented yet.
+Decisions behind it live in [`docs/adr/`](adr/). Where this file and an accepted ADR disagree, the ADR wins.
+
+## 1. Shape of the system
+
+Pharos is a **modular monolith**: one FastAPI backend package (`pharos`), run as two processes (`api` and `worker`), plus PostgreSQL 16 with pgvector, Redis, a Next.js frontend and Caddy as the edge proxy. There are no microservices (ADR-0001).
+
+```mermaid
+flowchart TB
+  U["User (browser)"]
+  subgraph compose["docker compose"]
+    C["caddy · TLS, /api → api, / → web"]
+    W["web · Next.js · SSR, i18n · holds no tokens"]
+    A["api · FastAPI · OIDC BFF, RBAC, feed, admin"]
+    P[("postgres 16 + pgvector · RLS, Alembic")]
+    R[("redis · Celery broker, cache, rate limits, sessions")]
+    K["worker + beat · Celery · connectors → SafeHttpClient → pipeline · LLMGateway"]
+  end
+  E["OIDC provider"]
+  S["External sources"]
+  L["LLM providers or local Ollama"]
+  U -->|HTTPS| C
+  C --> W
+  C --> A
+  W --> A
+  A --> P
+  A --> R
+  K --> P
+  K --> R
+  A -. egress .-> E
+  K -. egress .-> S
+  K -. egress .-> L
+```
+
+Dashed arrows are the only traffic that leaves the compose networks (default-deny egress).
+
+- **User requests** never call an LLM. If an insight is not ready, the card shows "being prepared" and a job is queued.
+- **Collection** runs on a schedule: beat → worker → connector → pipeline → PostgreSQL.
+- **api and worker share the same Python package** and differ only in entry point.
+- **Local LLM**: Ollama runs inside compose (profile `local-llm`), and cloud LLM egress is closed when it is selected.
+
+## 2. Backend layout
+
+```text
+backend/src/pharos/
+├── core/        config, db session, RLS helper, security, logging
+├── auth/        OIDC (any provider, Entra preset), sessions, local accounts
+├── orgs/ users/ onboarding/
+├── sources/     source management, connector registry
+├── ingestion/   fetch and normalization tasks
+├── content/     items, dedup, embeddings
+├── enrichment/  enrichment and insight tasks
+├── llm/         LLMGateway, prompts, budget
+├── feed/        ranking, cache, cursor pagination
+├── admin/ audit/
+└── workers/     Celery app, beat schedule
+```
+
+Each module has `router.py → service.py → repository.py`, plus `schemas.py` and `models.py`.
+
+- A router holds no SQL and no business logic.
+- A service never imports FastAPI.
+- A module never touches another module's repository.
+
+These rules are enforced in CI with `import-linter` (*planned*, M1-05).
+
+`connectors/` is a separate Python package (`pharos-connectors`) discovered through entry points; the `SourceConnector` protocol lives in a small SDK package (ADR-0006, *planned* for M3).
+
+## 3. Content pipeline
+
+Six idempotent Celery tasks. The LLM is called in three of them and has no tools: delimited text in, schema-validated JSON out.
+
+1. **Collect** — `connector.fetch(since)`; all HTTP goes through `SafeHttpClient` → `raw_items`.
+2. **Normalize** — canonical URL (tracking parameters removed), `url_hash` → `items`.
+3. **Cheap filter** (LLM #1) — rules and embedding similarity first; only uncertain items reach a small model.
+4. **Cluster** — embedding similarity above a threshold assigns a shared `cluster_id`. Items are grouped, never merged.
+5. **Enrich** (LLM #2, strong model) — summary, category, profession relevance, quality score.
+6. **Insight** (LLM #3, strong model, lazy) — for `(item, profession, language, prompt_version)`: summary, how to apply, "Try this" prompt, data-safety note.
+
+Cost control: insights are generated only for profession/language pairs that have active users and only for items that reach a feed. The AI level is not part of the cache key. A budget check runs in `LLMGateway`: at 80% the admin is warned, at 100% new generation stops while cached insights keep being served.
+
+## 4. Tenancy
+
+One installation serves one organization, but the code is tenant-aware (ADR-0005).
+
+| Plane | Contents | Rule |
+| --- | --- | --- |
+| Content (public) | global sources, items, embeddings, insights | `scope='public'`, `owner_org_id` is null |
+| Organization-owned content | items from an organization's own sources | `scope='org'`, `owner_org_id` NOT NULL |
+| Tenant | users, profiles, interactions, LLM config and usage, audit | `org_id` NOT NULL, RLS |
+
+`org_id` comes only from the authenticated session. Each transaction sets `app.org_id` with `set_config(..., true)`; PostgreSQL row-level security is the second line of defence. The application role does not own the tables and cannot bypass RLS; migrations run with a separate role. See [DATA_MODEL.md](DATA_MODEL.md).
+
+## 5. Authentication
+
+The backend is the BFF (ADR-0003): OIDC Authorization Code with PKCE, `state` and `nonce`, issuer and audience checks, server-side sessions in Redis, and an httpOnly, Secure, SameSite=Lax cookie. Tokens never reach the browser. Entra ID is the first preset; Keycloak is used in dev and E2E tests; local accounts are the fallback. LDAP and SAML are phase 2.
+
+## 6. Frontend
+
+Next.js App Router, TypeScript, Tailwind, shadcn/ui, `next-intl` (ADR-0008). The frontend is presentation only: authentication, authorization and business rules live in the backend, and the browser calls `/api` on the same origin. Locales: `en` (source and fallback), `az`, `tr`, `ru`. CI fails on a missing key.
+
+## 7. Deployment
+
+One `deploy/docker-compose.yml`, three networks (edge, internal, egress) and optional profiles `dev` (Keycloak), `local-llm` (Ollama) and `observability` (OpenTelemetry, Prometheus, Grafana). PostgreSQL and Redis sit on the internal network only. Images are slim and run as non-root. TLS is automatic ACME for public domains, or `tls internal` / a custom certificate for private ones.
+
+| Service | Networks | Egress |
+| --- | --- | --- |
+| caddy | edge | — |
+| web | edge | — |
+| api | edge, internal, egress | OIDC provider only |
+| worker, beat | internal, egress | sources and LLM providers only |
+| migrate | internal | — (one-shot, operator-approved in production) |
+| postgres, redis | internal | none |
+
+Health: `/healthz` (process) and `/readyz` (database, Redis, migration version, worker heartbeat).
+
+## 8. Differences from the planning documents
+
+| Topic | Planning document | In force |
+| --- | --- | --- |
+| Default UI language | `az` (PLAN, MASTER_PROMPT) | `en`; each installation chooses its own default (ADR-0008) |
+| Tooling layout | PLAN §7 lists more agents, `commands/` and different skill names | The `.claude/` package in the repository |
+| Metrics for the heartbeat | "visible in metrics" | Written to Redis and shown in `/readyz`; Prometheus metrics come with the `observability` profile |
+| Anonymous idea pool | "admins cannot see it" | Not claimed until a design proves it (phase 2) |
+
+## 9. Not covered yet
+
+Backup and restore procedure, log retention defaults, embedding model choice (ADR-0007) and the load-test profile are open; see `docs/ARCHITECTURE_PROPOSAL.md` §16.
