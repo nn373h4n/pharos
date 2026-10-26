@@ -12,7 +12,34 @@ Status: v0 (milestone M1). Only `organizations` and the RLS helper exist in the 
 
 ## Row-level security
 
-Each transaction starts with `set_config('app.org_id', <org from session>, true)` (equivalent to `SET LOCAL`). Policies compare `org_id` to `current_setting('app.org_id')`; content tables use `scope = 'public' OR owner_org_id = current_setting('app.org_id')::uuid`. The application role is not the table owner and has no `BYPASSRLS`, so the policies cannot be skipped. Background jobs set the same parameter before touching tenant data. Cache keys include the organization wherever data is tenant-specific.
+Each transaction starts with `set_config('app.org_id', <org from session>, true)` (equivalent to `SET LOCAL`), done by `tenant_session()` in `pharos.core.rls`. Policies compare `org_id` to the SQL function `pharos_current_org()`, which returns `NULLIF(pg_catalog.current_setting('app.org_id', true), '')::pg_catalog.uuid`. The wrapper matters: after a scoped transaction ends, the setting stays defined as an empty string on that connection, and a bare `::uuid` cast of it would raise an error instead of matching no rows.
+
+Content tables get separate policies per command (`content_policy_sql()`):
+
+- **Read:** `scope = 'public' OR owner_org_id = pharos_current_org()`.
+- **Insert, update, delete:** only rows with `owner_org_id = pharos_current_org()`. No tenant can create, change, hide or delete the public rows every tenant shares. Public rows are written by the table owner or by a dedicated ingestion role passed as `public_writer_role` (added with the connectors in M3).
+
+Tenant tables get one policy for all commands (`tenant_policy_sql()`). Background jobs set the same parameter before touching tenant data. Cache keys include the organization wherever data is tenant-specific.
+
+**What this protects, and what it does not.** RLS stops queries that forget a `WHERE org_id = ...` filter, and a tenant-scoped session cannot see or change another organization's rows. It does not stop code that can run arbitrary SQL as the application role: that code can call `set_config('app.org_id', ...)` and switch organization. A pooled connection is reset (`RESET app.org_id`) when it is returned, so a switch cannot leak to the next request, but preventing arbitrary SQL (parameterized queries only, no SQL built from user input or LLM output) stays a code-level rule. `/readyz` checks that the application role is not a superuser, has no `BYPASSRLS` and owns no table.
+
+## Database roles
+
+Two login roles are provisioned by the deployment before the first migration. A migration refuses to run if `pharos_app` is missing, is a superuser or has `BYPASSRLS`, or if it is run as `pharos_app`.
+
+| Role | Used by | Rights |
+| --- | --- | --- |
+| `pharos_owner` | Alembic migrations only; owns the schema objects | DDL; its credentials are not part of the API/worker settings |
+| `pharos_app` | API and worker | `NOSUPERUSER NOBYPASSRLS`, no ownership; only the grants a migration gives it (for `organizations`: `SELECT`, and `UPDATE` on `name`, `settings`, `updated_at`) |
+
+```sql
+CREATE ROLE pharos_owner LOGIN PASSWORD '<generated>';
+CREATE ROLE pharos_app LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE PASSWORD '<generated>';
+CREATE DATABASE pharos OWNER pharos_owner;
+GRANT CONNECT ON DATABASE pharos TO pharos_app;
+```
+
+Creating an organization is an operator task done as `pharos_owner`; the application cannot create or delete organizations or change an organization's `id`, `slug` or `created_at`.
 
 ## Tables
 

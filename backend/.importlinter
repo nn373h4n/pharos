@@ -1,0 +1,29 @@
+[importlinter]
+root_package = pharos
+include_external_packages = True
+
+[importlinter:contract:services-do-not-import-fastapi]
+name = Services do not import FastAPI
+type = forbidden
+source_modules =
+    pharos.*.service
+forbidden_modules =
+    fastapi
+    starlette
+# Only direct imports count: a service may use shared infrastructure that itself uses FastAPI.
+allow_indirect_imports = True
+
+[importlinter:contract:routers-do-not-touch-repositories]
+name = Routers go through services, never repositories
+type = forbidden
+source_modules =
+    pharos.*.router
+forbidden_modules =
+    pharos.*.repository
+# router -> service -> repository is the intended chain, so indirect imports are fine.
+allow_indirect_imports = True
+
+# Still to add when the modules exist:
+# - a module never imports another module's repository (one contract per module pair or a layers
+#   contract over the module list, once there is more than one module with a repository);
+# - litellm may only be imported inside pharos.llm (ADR-0002, with M4).

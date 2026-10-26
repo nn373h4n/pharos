@@ -37,7 +37,9 @@ Requirements: Python 3.12, [uv](https://docs.astral.sh/uv/), Node.js with pnpm, 
 make help          # list targets
 make hooks         # enable the secret-scan pre-commit hook (needs Docker)
 make secrets-scan  # scan the git history for secrets
-make test          # hook tests now; backend and frontend tests as they land
+make lint          # ruff, mypy, import contracts (frontend checks once it exists)
+make test          # hook tests and backend unit tests (frontend tests once it exists)
+make test-integration  # PostgreSQL and Redis in throwaway containers (needs Docker)
 ```
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request. Commits need a DCO sign-off (`git commit -s`).

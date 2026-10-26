@@ -56,6 +56,20 @@ applies to the data, and public data carries no tenant.
   the application role cannot bypass RLS; CHECK-constraint tests on `scope`/`owner_org_id`.
 - Follow-up docs: plane per table in `docs/DATA_MODEL.md`; RLS helper in the Alembic baseline (M1-05).
 
+## Amendment (2026-10-26, M1-05 security review)
+
+This clarifies the decision without changing it:
+
+- **Reads and writes on content tables are separate policies.** The decision text says
+  `scope = 'public' OR owner_org_id = current org`. That predicate applies to reads only. A single
+  policy of that shape would let any organization rewrite, hide, take over or delete the public rows
+  that every organization shares. Writes are limited to rows with `owner_org_id = current org`;
+  public rows are written by the table owner or by a dedicated ingestion role.
+- **Limit of RLS.** The application role can call `set_config('app.org_id', ...)`, so RLS protects
+  against forgotten filters, not against arbitrary SQL executed as that role. Parameterized queries
+  stay a code-level rule; the pool resets `app.org_id` on check-in; `/readyz` verifies that the
+  application role is not a superuser, has no `BYPASSRLS` and owns no table.
+
 ## References
 
 - `docs/ARCHITECTURE_PROPOSAL.md` accepted decision 2, sections 1, 2 (rows 4-5), 3, 5, 6, 7, 15
