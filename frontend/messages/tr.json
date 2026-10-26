@@ -1,0 +1,29 @@
+{
+  "Metadata": {
+    "title": "Pharos",
+    "description": "Mesleğinize uygun pratik yapay zekâ kullanım örnekleri, kendi dilinizde."
+  },
+  "Common": {
+    "skipToContent": "Ana içeriğe geç",
+    "language": "Dil"
+  },
+  "Home": {
+    "title": "Yapay zekâ işinizi elinizden almayacak, işinizi güçlendirecek.",
+    "subtitle": "Pharos, kendi mesleğinize uygun pratik yapay zekâ kullanım örneklerini kendi dilinizde gösterir.",
+    "statusTitle": "Erken geliştirme aşaması",
+    "statusBody": "Bu, projenin iskeletidir. Giriş ve kişisel akış sonraki aşamalarda eklenecek."
+  },
+  "Footer": {
+    "license": "Apache License 2.0 ile açık kaynak"
+  },
+  "Error": {
+    "title": "Bir şeyler ters gitti",
+    "body": "Sayfa gösterilemedi. Tekrar deneyebilirsiniz.",
+    "retry": "Tekrar dene"
+  },
+  "NotFound": {
+    "title": "Sayfa bulunamadı",
+    "body": "Bu sayfa mevcut değil veya taşınmış.",
+    "home": "Başlangıç sayfasına dön"
+  }
+}
