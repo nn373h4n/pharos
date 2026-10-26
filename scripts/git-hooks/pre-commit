@@ -10,4 +10,4 @@ if ! command -v docker >/dev/null 2>&1; then
 fi
 
 repo=$(git rev-parse --show-toplevel)
-exec docker run --rm -v "$repo:/repo:ro" "$image" protect --staged --source /repo --redact --verbose
+exec docker run --rm -v "$repo:/repo:ro" "$image" git --pre-commit --staged --redact --verbose /repo
