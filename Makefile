@@ -24,6 +24,7 @@ beat: ## Run the Celery scheduler (needs Redis)
 test: ## Run hook, backend and frontend unit tests
 	bash tests/hooks/test_guard.sh
 	bash tests/scripts/test_init_env.sh
+	bash tests/scripts/test_check_dco.sh
 	uv run pytest backend/tests
 	pnpm --dir frontend test
 

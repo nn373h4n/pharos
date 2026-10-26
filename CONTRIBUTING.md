@@ -32,6 +32,17 @@ make test
 make test-integration   # when you touch the database, RLS or readiness (needs Docker)
 ```
 
+The same checks run on every pull request, and a failing check blocks the merge:
+
+| Check | What it covers |
+| --- | --- |
+| DCO sign-off | Every commit has a `Signed-off-by:` line. Commits by GitHub bots (Dependabot) are skipped. Fix a missing one with `git rebase --signoff main`. |
+| Backend, Backend integration | ruff, mypy (strict), import contracts, unit tests; tests against PostgreSQL and Redis |
+| Frontend, End-to-end | eslint, tsc, vitest, production build; Playwright with axe on four languages |
+| Docs | markdownlint |
+| Docker Compose | builds the stack and checks isolation and hardening (`make test-compose`) |
+| Secret scan, CodeQL, Trivy | gitleaks over the full history, static analysis, vulnerable dependencies and image packages |
+
 Every feature ships with tests. Never delete, skip or weaken a test to make it pass. If a check cannot run in your environment, say so in the pull request instead of leaving it out.
 
 ## Rules that reviewers enforce
