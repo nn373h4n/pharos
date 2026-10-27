@@ -9,6 +9,8 @@ from pharos.core.config import Settings
 from pharos.core.errors import ApiError, ErrorCode, forbidden, not_authenticated, not_found
 from pharos.main import create_app
 
+ORIGIN = {"Origin": "http://localhost:3000"}  # the development default of PHAROS_PUBLIC_URL
+
 
 class Login(BaseModel):
     password: str
@@ -73,7 +75,7 @@ async def test_errors_are_problem_documents(
 
 @pytest.mark.anyio
 async def test_method_not_allowed_keeps_the_allow_header(client: httpx.AsyncClient) -> None:
-    response = await client.delete("/api/_t/missing")
+    response = await client.delete("/api/_t/missing", headers=ORIGIN)
     assert response.status_code == 405
     assert response.json()["code"] == "method_not_allowed"
     assert "GET" in response.headers["allow"]
@@ -91,7 +93,7 @@ async def test_validation_errors_name_the_field_but_never_echo_the_input(
     client: httpx.AsyncClient,
 ) -> None:
     response = await client.post(
-        "/api/_t/login", json={"password": 12345678, "x": "pw-leak-canary"}
+        "/api/_t/login", json={"password": 12345678, "x": "pw-leak-canary"}, headers=ORIGIN
     )
     assert response.status_code == 422
     body = response.json()

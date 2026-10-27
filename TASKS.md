@@ -46,7 +46,8 @@ All ten tasks were merged through pull requests. The pipeline arrived with M1-09
 | F-10 | P3 | Todo | Cache or rate limit `/api/readyz` (it is hidden from the internet already) | Review of M1-05 |
 | F-11 | P3 | Todo | Move to ESLint 10 and TypeScript 7 when `eslint-config-next` and `typescript-eslint` support them | M1-07; Dependabot ignores these majors |
 | F-12 | P3 | Todo | English version of `PHAROS_MASTER_PROMPT.md` before the public launch (G3) | Proposal decision 7 |
-| F-13 | P3 | Todo | Trust `X-Forwarded-*` headers from the proxy in the API | Needed when client addresses and OIDC redirects arrive (M2) |
+| F-13 | P3 | Done | Trust `X-Forwarded-*` headers from the proxy in the API | Done in M2-03b: trusted from Caddy's pinned address only |
+| F-14 | P2 | Todo | Keep the worker out of session records in Redis (ACL users or a MAC on the record) | Before the worker handles untrusted content (M3); see THREAT_MODEL residual risks |
 
 ## Decisions waiting for the maintainer
 
@@ -64,7 +65,7 @@ Plan: [docs/plans/m2-sign-in-organization-onboarding.md](docs/plans/m2-sign-in-o
 | M2-02 | P0 | Done | Migration 0002: departments, professions, users, local credentials, profiles, audit log, org lookup function | 01 | RLS test per table; cross-organization foreign keys rejected; audit log append-only; column grants; downgrade round trip |
 | M2-10a | P1 | Done | Keycloak spike: dev profile behind Caddy, issuer hostname, CA trust | 01 | The API validates a Keycloak token through the proxy hostname |
 | M2-03a | P0 | Done | Error format, clock, principal, unit of work, `current_user`, settings, lazy organization, route-coverage gate | 02 | A failing commit never returns 200; the gate fails on an uncovered route |
-| M2-03b | P0 | Todo | Session store, CSRF, Origin check, cookies, pinned proxy trust | 03a | Revocation, fixation, Origin and forged forwarded-header tests |
+| M2-03b | P0 | Done | Session store, CSRF, Origin check, cookies, pinned proxy trust | 03a | Revocation, fixation, Origin and forged forwarded-header tests |
 | M2-03c | P1 | Todo | Rate limiter, audit service, event catalogue | 03b | Concurrent attempts counted exactly; audit entries without secrets |
 | M2-04 | P0 | Todo | Local accounts: login, logout, `/me`, operator CLI | 03c | Break-glass admin can sign in; no user enumeration; no hard lockout |
 | M2-08 | P1 | Todo | Profile and onboarding API, professions, interest codes | 03a | Profile validated against its organization; timestamps stored |

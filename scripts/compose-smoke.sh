@@ -33,6 +33,9 @@ PHAROS_MIGRATE_ON_START=true
 PHAROS_IMAGE_TAG=$TAG
 PHAROS_PUBLIC_URL=https://localhost:$HTTPS_PORT
 PHAROS_ORG_SLUG=smoke
+PHAROS_APP_SUBNET=172.28.31.0/24
+PHAROS_APP_DYNAMIC_RANGE=172.28.31.0/25
+PHAROS_CADDY_IP=172.28.31.254
 PHAROS_SECRET_KEY=$(secret)
 EOF
 
@@ -101,6 +104,26 @@ echo "$foreign" | sed 's/^/      /'
 check_blocked "a foreign Host header is never reflected into a redirect" grep -qi 'evil.example' <<<"$foreign"
 headers=$(https -D - -o /dev/null -H 'X-Request-ID: client-chosen' "$base/api/healthz")
 check_blocked "a client-chosen X-Request-ID is replaced by the proxy" grep -qi 'x-request-id: client-chosen' <<<"$headers"
+
+echo "== which client address the API believes"
+# The API logs the peer address it ended up with. Behind Caddy that is the real client; a header sent
+# by anyone else must change nothing.
+FORGED=203.0.113.77
+https -o /dev/null -H "X-Forwarded-For: $FORGED" "$base/api/healthz?probe=via-caddy"
+compose exec -T web node -e "fetch('http://api:8000/api/healthz?probe=direct', {headers: {'x-forwarded-for': '$FORGED'}}).then((r) => process.exit(r.ok ? 0 : 1))"
+sleep 1
+api_log=$(compose logs --no-log-prefix api 2>&1)
+via_caddy=$(grep 'probe=via-caddy' <<<"$api_log" | tail -1)
+direct=$(grep 'probe=direct' <<<"$api_log" | tail -1)
+web_ip=$(docker inspect --format '{{(index .NetworkSettings.Networks "'"$PROJECT"'_app").IPAddress}}' "$(compose ps -q web)")
+echo "      via Caddy: $(grep -o '"message": "[^"]*"' <<<"$via_caddy")"
+echo "      direct:    $(grep -o '"message": "[^"]*"' <<<"$direct")"
+check "the request through Caddy reached the API log (positive control)" test -n "$via_caddy"
+check "the request from the web container reached the API log (positive control)" test -n "$direct"
+check_blocked "a forged X-Forwarded-For sent through Caddy is not believed" grep -q "$FORGED" <<<"$via_caddy"
+check_blocked "Caddy's own address is not what the API records for a client behind it" grep -q "172.28.31.254:" <<<"$via_caddy"
+check_blocked "a forged X-Forwarded-For sent straight to the API is not believed" grep -q "$FORGED" <<<"$direct"
+check "a direct caller is recorded under its own address" grep -q "$web_ip:" <<<"$direct"
 
 # /readyz must not be served to the internet, whatever the spelling of the path.
 leaks=0

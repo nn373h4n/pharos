@@ -14,14 +14,18 @@ from fastapi import FastAPI
 from redis.asyncio import Redis
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from pharos.core.auth import NoSessions
+from pharos.core.clock import SystemClock
 from pharos.core.config import Settings, get_settings
+from pharos.core.csrf import CsrfMiddleware, SessionCookie
 from pharos.core.db import create_engine, create_session_factory
 from pharos.core.errors import REQUEST_ID_STATE_KEY, install_error_handlers
 from pharos.core.health import Readiness, expected_migration_heads
 from pharos.core.health import router as health_router
 from pharos.core.logging import configure_logging, request_id_var
 from pharos.core.organization import OrganizationResolver
+from pharos.core.redis import url_for_database
+from pharos.core.secrets import KeyPurpose, derive_key
+from pharos.core.sessions import SessionIdentityResolver, SessionStore
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +69,7 @@ class RequestIdMiddleware:
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
     configure_logging(settings.log_level)
+    cookie = SessionCookie(settings.public_url)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -72,7 +77,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         redis = Redis.from_url(settings.redis_url.get_secret_value())
         app.state.session_factory = create_session_factory(engine)
         app.state.organization = OrganizationResolver(engine, settings.org_slug)
-        app.state.sessions = NoSessions()
+        # A separate database and short timeouts: sessions fail closed when Redis does not answer.
+        session_redis = Redis.from_url(
+            url_for_database(settings.redis_url.get_secret_value(), settings.session_redis_db),
+            socket_timeout=2,
+            socket_connect_timeout=2,
+        )
+        app.state.session_store = SessionStore(
+            session_redis,
+            SystemClock(),
+            idle_seconds=settings.session_idle_seconds,
+            absolute_seconds=settings.session_absolute_seconds,
+        )
+        app.state.sessions = SessionIdentityResolver(app.state.session_store, cookie.name)
         app.state.readiness = Readiness(
             engine,
             redis,
@@ -83,6 +100,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         try:
             yield
         finally:
+            await session_redis.aclose()
             await redis.aclose()
             await engine.dispose()
 
@@ -96,6 +114,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.state.settings = settings
     install_error_handlers(app)
+    app.add_middleware(
+        CsrfMiddleware,
+        public_url=settings.public_url,
+        key=derive_key(settings.secret_key, KeyPurpose.CSRF),
+        cookie=cookie,
+    )
     app.add_middleware(RequestIdMiddleware)
     app.include_router(health_router, prefix=API_PREFIX)
     return app

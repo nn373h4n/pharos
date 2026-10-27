@@ -121,7 +121,14 @@ def test_public_url_must_be_a_bare_origin(public_url: str) -> None:
 
 def test_public_url_is_normalized_to_an_origin() -> None:
     assert production(public_url="https://Pharos.example:8443/").public_url == (
-        "https://Pharos.example:8443"
+        "https://pharos.example:8443"
+    )
+    # The browser leaves the default port out of the Origin header.
+    assert (
+        production(public_url="https://pharos.example:443").public_url == "https://pharos.example"
+    )
+    assert Settings(environment="development", public_url="http://localhost:80").public_url == (
+        "http://localhost"
     )
     assert Settings(environment="development").public_url == "http://localhost:3000"
 
@@ -152,3 +159,8 @@ def test_org_slug_must_be_a_plain_slug(slug: str) -> None:
 
 def test_org_slug_accepts_a_plain_slug() -> None:
     assert production(org_slug="acme-2").org_slug == "acme-2"
+
+
+def test_idle_timeout_cannot_exceed_the_absolute_limit() -> None:
+    with pytest.raises(ValidationError, match="session_idle_seconds"):
+        production(session_idle_seconds=100, session_absolute_seconds=60)
