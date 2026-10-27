@@ -6,13 +6,18 @@ from pathlib import Path
 from typing import Literal, Self
 from urllib.parse import urlsplit
 
-from pydantic import SecretStr, model_validator
+from pydantic import SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # backend/alembic, resolved from src/pharos/core/config.py
 DEFAULT_ALEMBIC_DIR = Path(__file__).resolve().parents[3] / "alembic"
 
 _PLACEHOLDER_PASSWORDS = {"changeme", "password", "secret", "pharos", "postgres", "example", "test"}
+
+
+_SLUG = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")
+_DEVELOPMENT_SECRET_KEY = "development-only-secret-key-never-use-in-production"  # noqa: S105  (the published development default; production refuses it)
+MIN_SECRET_KEY_BYTES = 32
 
 
 def _password(url: SecretStr) -> str:
@@ -44,6 +49,44 @@ class Settings(BaseSettings):
 
     alembic_dir: Path = DEFAULT_ALEMBIC_DIR
 
+    # The address users open, as an origin. Redirects and the CSRF Origin check compare against it;
+    # the Host header is never trusted for that because the proxy rewrites it.
+    public_url: str = "http://localhost:3000"
+    # The one organization of this installation (ADR-0005). It is looked up lazily, so the stack
+    # can start before the operator creates it.
+    org_slug: str = "default"
+    # Root secret. Separate keys for separate purposes are derived from it (see core/secrets.py).
+    secret_key: SecretStr = SecretStr(_DEVELOPMENT_SECRET_KEY)
+
+    @field_validator("public_url")
+    @classmethod
+    def _origin_only(cls, value: str) -> str:
+        parts = urlsplit(value)
+        try:
+            parts.port  # noqa: B018  (raises ValueError for a malformed port)
+        except ValueError:
+            raise ValueError("public_url has an invalid port") from None
+        if parts.scheme not in ("http", "https") or not parts.hostname:
+            raise ValueError("public_url must be an http(s) address such as https://pharos.example")
+        if (
+            parts.username
+            or parts.password
+            or parts.path not in ("", "/")
+            or parts.query
+            or parts.fragment
+        ):
+            raise ValueError(
+                "public_url must be an origin: no credentials, path, query or fragment"
+            )
+        return f"{parts.scheme}://{parts.netloc}"
+
+    @field_validator("org_slug")
+    @classmethod
+    def _slug(cls, value: str) -> str:
+        if not _SLUG.fullmatch(value):
+            raise ValueError("org_slug may contain lower-case letters, digits and hyphens only")
+        return value
+
     @model_validator(mode="after")
     def _require_real_secrets_in_production(self) -> Self:
         if self.environment != "production":
@@ -52,6 +95,17 @@ class Settings(BaseSettings):
             raise ValueError("database_url needs a real password in production")
         if not _password(self.redis_url):
             raise ValueError("redis_url needs a password in production")
+        if not self.public_url.startswith("https://"):
+            raise ValueError("public_url must use https in production")
+        key = self.secret_key.get_secret_value()
+        if (
+            key == _DEVELOPMENT_SECRET_KEY
+            or len(key.encode()) < MIN_SECRET_KEY_BYTES
+            or len(set(key)) < 8
+        ):
+            raise ValueError(
+                f"secret_key needs at least {MIN_SECRET_KEY_BYTES} random bytes in production"
+            )
         return self
 
 

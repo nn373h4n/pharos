@@ -31,6 +31,9 @@ PHAROS_ENVIRONMENT=production
 PHAROS_DEFAULT_LOCALE=az
 PHAROS_MIGRATE_ON_START=true
 PHAROS_IMAGE_TAG=$TAG
+PHAROS_PUBLIC_URL=https://localhost:$HTTPS_PORT
+PHAROS_ORG_SLUG=smoke
+PHAROS_SECRET_KEY=$(secret)
 EOF
 
 compose() { docker compose -p "$PROJECT" -f deploy/docker-compose.yml --env-file "$ENV_FILE" "$@"; }
@@ -112,9 +115,23 @@ check "/api/readyz is not served to the internet, under any spelling of the path
 check "/api/readyz answers 404" test "$(https -o /dev/null -w '%{http_code}' "$base/api/readyz")" = 404
 
 echo "== readiness on the internal network"
-ready=$(compose exec -T api python -c "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:8000/api/readyz', timeout=5).read().decode())" 2>&1)
+readyz() { compose exec -T api python -c "import urllib.error, urllib.request
+try:
+    print(urllib.request.urlopen('http://127.0.0.1:8000/api/readyz', timeout=5).read().decode())
+except urllib.error.HTTPError as error:
+    print(error.read().decode())" 2>&1; }
+# The organization is created by the operator after the stack is up, so a fresh stack is not ready.
+before=$(readyz)
+echo "      $before"
+check "before the organization exists readyz is unavailable and names only that check" \
+  grep -q '"status":"unavailable".*"organization":"fail"' <<<"$before"
+check_blocked "no other check fails before the organization exists" \
+  grep -qE '"(database|database_role|redis|worker|migrations)":"fail"' <<<"$before"
+compose exec -T postgres psql -q -U postgres -d pharos \
+  -c "INSERT INTO organizations (name, slug) VALUES ('Smoke', 'smoke')" >/dev/null
+ready=$(readyz)
 echo "      $ready"
-check "readyz reports database, application role, redis, worker and migrations all ok" grep -q '"status":"ok"' <<<"$ready"
+check "readyz reports database, application role, redis, worker, migrations and organization all ok" grep -q '"status":"ok"' <<<"$ready"
 
 echo "== network isolation"
 # Every probe is a plain TCP connection made with a tool the image already has. A probe only counts

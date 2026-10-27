@@ -9,7 +9,10 @@ from redis.asyncio import Redis
 from pharos.core.config import Settings
 from pharos.core.db import create_engine
 from pharos.core.health import Readiness, ReadinessResponse
+from pharos.core.organization import OrganizationResolver
 from pharos.main import create_app
+
+from ..constants import FAKE_SECRET_KEY
 
 PASSWORD = "Zx9-example-only"
 UNREACHABLE_DB = f"postgresql+asyncpg://user:{PASSWORD}@127.0.0.1:1/pharos"
@@ -20,6 +23,7 @@ ALL_OK = {
     "redis": "ok",
     "worker": "ok",
     "migrations": "ok",
+    "organization": "ok",
 }
 
 
@@ -109,6 +113,8 @@ async def test_docs_are_hidden_in_production() -> None:
             environment="production",
             database_url=f"postgresql+asyncpg://user:{PASSWORD}@db:5432/pharos",  # type: ignore[arg-type]
             redis_url=f"redis://:{PASSWORD}@cache:6379/0",  # type: ignore[arg-type]
+            public_url="https://pharos.example",
+            secret_key=FAKE_SECRET_KEY,  # type: ignore[arg-type]
         )
     )
     transport = httpx.ASGITransport(app=app)
@@ -125,7 +131,9 @@ async def test_real_readiness_fails_closed_and_does_not_leak_details(
     redis = Redis.from_url(UNREACHABLE_REDIS)
     try:
         with caplog.at_level(logging.ERROR):
-            report = await Readiness(engine, redis, frozenset({"0001"})).check()
+            report = await Readiness(
+                engine, redis, frozenset({"0001"}), OrganizationResolver(engine, "acme")
+            ).check()
     finally:
         await redis.aclose()
         await engine.dispose()
@@ -142,4 +150,5 @@ async def test_real_readiness_fails_closed_and_does_not_leak_details(
         "readiness: redis check failed",
         "readiness: worker heartbeat check failed",
         "readiness: migration check failed",
+        "readiness: organization check failed",
     }
