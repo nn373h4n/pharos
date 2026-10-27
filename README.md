@@ -75,7 +75,7 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request. Commits n
 4. **M4** — LLM layer, personal feed, "Try this".
 5. **M5** — hardening, load tests, pilot readiness.
 
-The maintainer's task list is in `TASKS.md` once it is published.
+The task list is in [TASKS.md](TASKS.md) and the milestone status in [PROGRESS.md](PROGRESS.md).
 
 ## License
 
