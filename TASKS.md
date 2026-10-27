@@ -66,7 +66,7 @@ Plan: [docs/plans/m2-sign-in-organization-onboarding.md](docs/plans/m2-sign-in-o
 | M2-10a | P1 | Done | Keycloak spike: dev profile behind Caddy, issuer hostname, CA trust | 01 | The API validates a Keycloak token through the proxy hostname |
 | M2-03a | P0 | Done | Error format, clock, principal, unit of work, `current_user`, settings, lazy organization, route-coverage gate | 02 | A failing commit never returns 200; the gate fails on an uncovered route |
 | M2-03b | P0 | Done | Session store, CSRF, Origin check, cookies, pinned proxy trust | 03a | Revocation, fixation, Origin and forged forwarded-header tests |
-| M2-03c | P1 | Todo | Rate limiter, audit service, event catalogue | 03b | Concurrent attempts counted exactly; audit entries without secrets |
+| M2-03c | P1 | Done | Rate limiter, audit service, event catalogue | 03b | Concurrent attempts counted exactly; audit entries without secrets |
 | M2-04 | P0 | Todo | Local accounts: login, logout, `/me`, operator CLI | 03c | Break-glass admin can sign in; no user enumeration; no hard lockout |
 | M2-08 | P1 | Todo | Profile and onboarding API, professions, interest codes | 03a | Profile validated against its organization; timestamps stored |
 | M2-05 | P0 | Todo | Generic OIDC with a fake-IdP negative suite, user creation on first sign-in | 03c | Every negative case in the plan is rejected; the first sign-in upsert never writes `role` or `status`; display names are truncated to 200 characters |

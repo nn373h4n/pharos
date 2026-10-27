@@ -14,6 +14,7 @@ from fastapi import FastAPI
 from redis.asyncio import Redis
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from pharos.core.audit import AuditLog
 from pharos.core.clock import SystemClock
 from pharos.core.config import Settings, get_settings
 from pharos.core.csrf import CsrfMiddleware, SessionCookie
@@ -23,6 +24,7 @@ from pharos.core.health import Readiness, expected_migration_heads
 from pharos.core.health import router as health_router
 from pharos.core.logging import configure_logging, request_id_var
 from pharos.core.organization import OrganizationResolver
+from pharos.core.ratelimit import LoginThrottle, RateLimiter
 from pharos.core.redis import url_for_database
 from pharos.core.secrets import KeyPurpose, derive_key
 from pharos.core.sessions import SessionIdentityResolver, SessionStore
@@ -90,6 +92,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             absolute_seconds=settings.session_absolute_seconds,
         )
         app.state.sessions = SessionIdentityResolver(app.state.session_store, cookie.name)
+        app.state.login_throttle = LoginThrottle(RateLimiter(session_redis, SystemClock()))
+        app.state.audit = AuditLog(
+            app.state.session_factory, derive_key(settings.secret_key, KeyPurpose.AUDIT_IP)
+        )
         app.state.readiness = Readiness(
             engine,
             redis,
