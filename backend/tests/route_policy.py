@@ -47,7 +47,16 @@ PUBLIC_ROUTES: frozenset[Route] = frozenset(
 )
 
 # Authenticated routes: who may call them and which test proves another organization cannot.
+_ALL_ROLES = frozenset({Role.ADMIN, Role.EDITOR, Role.MEMBER})
+_PROFILE_TEST = "integration/test_profile.py::test_one_organization_never_sees_anothers_profiles"
+
 ROLE_MATRIX: dict[Route, Rule] = {
+    ("GET", "/api/me/profile"): Rule(_ALL_ROLES, _PROFILE_TEST),
+    ("PUT", "/api/me/profile"): Rule(_ALL_ROLES, _PROFILE_TEST),
+    ("POST", "/api/me/onboarding/complete"): Rule(_ALL_ROLES, _PROFILE_TEST),
+    ("GET", "/api/me/profile/options"): Rule(_ALL_ROLES, _PROFILE_TEST),
+    ("GET", "/api/professions"): Rule(_ALL_ROLES, _PROFILE_TEST),
+    ("GET", "/api/departments"): Rule(_ALL_ROLES, _PROFILE_TEST),
     ("GET", "/api/me"): Rule(
         frozenset({Role.ADMIN, Role.EDITOR, Role.MEMBER}),
         "integration/test_local_auth.py::test_me_never_shows_another_organizations_user",

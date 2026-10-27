@@ -58,6 +58,8 @@ class Settings(BaseSettings):
     # Root secret. Separate keys for separate purposes are derived from it (see core/secrets.py).
     secret_key: SecretStr = SecretStr(_DEVELOPMENT_SECRET_KEY)
 
+    # The language shown to people who have not chosen one and whose browser asks for none we offer.
+    default_locale: Literal["en", "az", "tr", "ru"] = "en"
     # Local (password) sign-in: "off", "break-glass" (administrators only) or "on" (everyone).
     local_login: Literal["off", "break-glass", "on"] = "break-glass"
     # Argon2id cost. The defaults follow OWASP's guidance with a margin; production refuses less.
