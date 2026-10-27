@@ -14,11 +14,14 @@ from fastapi import FastAPI
 from redis.asyncio import Redis
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from pharos.core.auth import NoSessions
 from pharos.core.config import Settings, get_settings
-from pharos.core.db import create_engine
+from pharos.core.db import create_engine, create_session_factory
+from pharos.core.errors import REQUEST_ID_STATE_KEY, install_error_handlers
 from pharos.core.health import Readiness, expected_migration_heads
 from pharos.core.health import router as health_router
 from pharos.core.logging import configure_logging, request_id_var
+from pharos.core.organization import OrganizationResolver
 
 logger = logging.getLogger(__name__)
 
@@ -42,10 +45,15 @@ class RequestIdMiddleware:
         # Anything else (spaces, quotes, control characters, overlong values) is replaced.
         request_id = incoming if _VALID_REQUEST_ID.fullmatch(incoming) else uuid.uuid4().hex
         token = request_id_var.set(request_id)
+        # Error handlers that run outside this middleware (unhandled exceptions) read it from here.
+        scope.setdefault("state", {})[REQUEST_ID_STATE_KEY] = request_id
 
         async def send_with_id(message: Message) -> None:
             if message["type"] == "http.response.start":
-                message.setdefault("headers", []).append((REQUEST_ID_HEADER, request_id.encode()))
+                headers = message.setdefault("headers", [])
+                # Error responses from handlers outside this middleware already carry it.
+                if not any(name.lower() == REQUEST_ID_HEADER for name, _ in headers):
+                    headers.append((REQUEST_ID_HEADER, request_id.encode()))
             await send(message)
 
         try:
@@ -62,8 +70,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         engine = create_engine(settings.database_url.get_secret_value())
         redis = Redis.from_url(settings.redis_url.get_secret_value())
+        app.state.session_factory = create_session_factory(engine)
+        app.state.organization = OrganizationResolver(engine, settings.org_slug)
+        app.state.sessions = NoSessions()
         app.state.readiness = Readiness(
-            engine, redis, expected_migration_heads(settings.alembic_dir)
+            engine,
+            redis,
+            expected_migration_heads(settings.alembic_dir),
+            app.state.organization,
         )
         logger.info("started", extra={"environment": settings.environment})
         try:
@@ -80,6 +94,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         redoc_url=None,
         openapi_url=f"{API_PREFIX}/openapi.json" if show_docs else None,
     )
+    app.state.settings = settings
+    install_error_handlers(app)
     app.add_middleware(RequestIdMiddleware)
     app.include_router(health_router, prefix=API_PREFIX)
     return app

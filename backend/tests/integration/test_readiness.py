@@ -10,11 +10,12 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from pharos.core.config import DEFAULT_ALEMBIC_DIR, Settings
 from pharos.core.health import Readiness, expected_migration_heads
 from pharos.core.heartbeat import HEARTBEAT_KEY, HEARTBEAT_MAX_AGE_SECONDS
+from pharos.core.organization import OrganizationResolver
 from pharos.main import create_app
 
 from .conftest import TestDatabase
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("organization")]
 
 ALL_OK = {
     "database": "ok",
@@ -22,7 +23,9 @@ ALL_OK = {
     "redis": "ok",
     "worker": "ok",
     "migrations": "ok",
+    "organization": "ok",
 }
+SLUG = "readiness-test"
 
 
 @pytest.fixture
@@ -39,8 +42,32 @@ async def heartbeat(redis: Redis) -> None:
     await redis.set(HEARTBEAT_KEY, repr(time.time()))
 
 
+async def drop_organization(owner_engine: AsyncEngine) -> None:
+    async with owner_engine.begin() as connection:
+        await connection.execute(
+            text("DELETE FROM organizations WHERE slug = :slug"), {"slug": SLUG}
+        )
+
+
+@pytest.fixture
+async def organization(owner_engine: AsyncEngine) -> AsyncIterator[None]:
+    await drop_organization(owner_engine)
+    async with owner_engine.begin() as connection:
+        await connection.execute(
+            text("INSERT INTO organizations (name, slug) VALUES ('Readiness', :slug)"),
+            {"slug": SLUG},
+        )
+    yield
+    await drop_organization(owner_engine)
+
+
 def readiness(engine: AsyncEngine, redis: Redis) -> Readiness:
-    return Readiness(engine, redis, expected_migration_heads(DEFAULT_ALEMBIC_DIR))
+    return Readiness(
+        engine,
+        redis,
+        expected_migration_heads(DEFAULT_ALEMBIC_DIR),
+        OrganizationResolver(engine, SLUG),
+    )
 
 
 @pytest.mark.anyio
@@ -109,6 +136,7 @@ async def test_readyz_through_the_real_application(
         environment="test",
         database_url=database.app_url,  # type: ignore[arg-type]
         redis_url=redis_url,  # type: ignore[arg-type]
+        org_slug=SLUG,
     )
     app = create_app(settings)
     async with app.router.lifespan_context(app):
@@ -117,3 +145,14 @@ async def test_readyz_through_the_real_application(
             response = await client.get("/api/readyz")
     assert response.status_code == 200
     assert response.json() == {"status": "ok", "checks": ALL_OK}
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("heartbeat")
+async def test_readiness_fails_until_the_organization_is_created(
+    app_engine: AsyncEngine, owner_engine: AsyncEngine, redis: Redis
+) -> None:
+    await drop_organization(owner_engine)
+    report = await readiness(app_engine, redis).check()
+    assert report.status == "unavailable"
+    assert report.checks == {**ALL_OK, "organization": "fail"}

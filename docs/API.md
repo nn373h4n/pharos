@@ -9,7 +9,8 @@ Run the server with `uvicorn --factory pharos.main:create_app`. There is no modu
 - All routes live under `/api`; Caddy sends `/api` to the backend and everything else to the web app.
 - Every response carries an `X-Request-ID` header. A client may send its own (1-64 characters of `A-Z a-z 0-9 . _ -`); anything else is replaced with a generated id. The same id appears in the logs of that request. Behind Caddy the header should be overwritten at the edge, because a client can otherwise choose the id.
 - The organization is never taken from the request. It comes from the authenticated session (ADR-0003, ADR-0005).
-- Errors use one format; it is defined together with the first authenticated endpoint (M2).
+- Errors use one format, described in [Errors](#errors).
+- Objects that belong to another organization answer `404 not_found`, never `403`: their existence is not revealed.
 
 ## Endpoints
 
@@ -27,7 +28,7 @@ Run the server with `uvicorn --factory pharos.main:create_app`. There is no modu
 `200` when every check passes, `503` otherwise. The body names the failed checks and nothing else; the reason is written to the log.
 
 ```json
-{"status": "ok", "checks": {"database": "ok", "database_role": "ok", "redis": "ok", "worker": "ok", "migrations": "ok"}}
+{"status": "ok", "checks": {"database": "ok", "database_role": "ok", "redis": "ok", "worker": "ok", "migrations": "ok", "organization": "ok"}}
 ```
 
 | Check | Passes when |
@@ -37,5 +38,45 @@ Run the server with `uvicorn --factory pharos.main:create_app`. There is no modu
 | `redis` | `PING` succeeds |
 | `worker` | the worker heartbeat in Redis is at most 210 seconds old (three missed beats plus slack) |
 | `migrations` | the revision in `alembic_version` equals the head of `backend/alembic/versions` |
+| `organization` | an organization with the slug `PHAROS_ORG_SLUG` exists (looked up through the `pharos_org_id_for_slug` function) |
 
 Each call opens database connections and pings Redis, and it is unauthenticated. Use it for the container healthcheck and the internal network; do not proxy it to the internet. A worker writes its first heartbeat as soon as it starts, but until one has, `worker` fails, so use `/healthz` for container restarts and `/readyz` for monitoring.
+
+## Errors
+
+Every error is an [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) document with the media type `application/problem+json`:
+
+```json
+{
+  "type": "urn:pharos:problem:forbidden",
+  "title": "Forbidden",
+  "status": 403,
+  "code": "forbidden",
+  "request_id": "9f2c1a6e5b7d4c0e8a3b2d1f6e4c7a90"
+}
+```
+
+`code` is the stable machine-readable identifier; the web app turns it into a translated message, so the API sends no user-facing text. `request_id` equals the `X-Request-ID` header and the id in the logs. Details never repeat request data (a rejected password must not come back in the response) or internal exception text.
+
+| Code | Status | Meaning |
+| --- | --- | --- |
+| `not_authenticated` | 401 | No valid session, or the user is disabled or removed. The answer is the same for every cause. |
+| `forbidden` | 403 | Signed in, but the role does not allow this. |
+| `not_found` | 404 | No such route or object, or the object belongs to another organization. |
+| `method_not_allowed` | 405 | The path exists but not for this method; `Allow` lists the methods. |
+| `validation_failed` | 422 | The body, query or path is not valid. `errors` lists `{loc, type}` for each problem, never the value. |
+| `organization_not_configured` | 503 | The organization of this installation has not been created yet. |
+| `service_unavailable` | 503 | A required dependency is down (for example Redis for sessions). Sign-in fails closed. |
+| `internal_error` | 500 | Unexpected failure. The cause is in the logs under the `request_id`. |
+| `http_error` | other | Any other HTTP error raised by the framework. |
+
+More codes (`rate_limited`, `csrf_failed`, sign-in failures) arrive with the endpoints that raise them and are added to this table in the same pull request.
+
+## Authentication and authorization (building blocks)
+
+Not endpoints yet; they are the parts every endpoint uses (ADR-0011):
+
+- `current_org` resolves the organization from `PHAROS_ORG_SLUG` and never from the request.
+- `UnitOfWorkDep` gives a transaction scoped to that organization. The service calls `commit()` before returning, so a failed commit becomes a 5xx and never a 200; anything not committed is rolled back.
+- `CurrentPrincipal` returns the signed-in user. The role and status are read from the `users` row on every request, so a demotion or a disabled account applies on the next request. `require_role(...)` adds the role check.
+- A route-coverage test fails when a route is neither on the public list nor in the role matrix with a cross-tenant test.

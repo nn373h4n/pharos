@@ -17,11 +17,11 @@ check() { # description, command...
 bash "$root/scripts/init-env.sh" "$target" >/dev/null 2>&1
 check "creates the file" test -f "$target"
 check "file mode is 600" test "$(stat -c %a "$target")" = 600
-secrets=$(grep -E '^(POSTGRES_PASSWORD|PHAROS_OWNER_PASSWORD|PHAROS_APP_PASSWORD|PHAROS_REDIS_PASSWORD)=' "$target")
-check "four secrets are present" test "$(echo "$secrets" | wc -l)" = 4
+secrets=$(grep -E '^(POSTGRES_PASSWORD|PHAROS_OWNER_PASSWORD|PHAROS_APP_PASSWORD|PHAROS_REDIS_PASSWORD|PHAROS_SECRET_KEY)=' "$target")
+check "five secrets are present" test "$(echo "$secrets" | wc -l)" = 5
 check "no placeholder is left in the secrets" test "$(echo "$secrets" | grep -c 'change-me')" = 0
-check "every secret is 48 hex characters" test "$(echo "$secrets" | grep -cE '=[0-9a-f]{48}$')" = 4
-check "the four secrets are all different" test "$(echo "$secrets" | cut -d= -f2 | sort -u | wc -l)" = 4
+check "every secret is 48 hex characters" test "$(echo "$secrets" | grep -cE '=[0-9a-f]{48}$')" = 5
+check "the five secrets are all different" test "$(echo "$secrets" | cut -d= -f2 | sort -u | wc -l)" = 5
 check "non-secret settings are copied unchanged" grep -q '^PHAROS_DOMAIN=localhost$' "$target"
 check "comments are kept" grep -q '^# --- Secrets' "$target"
 

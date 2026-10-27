@@ -43,6 +43,9 @@ git-ignored and written with mode 600.
 | `PHAROS_DOMAIN` | Host name users open. |
 | `PHAROS_TLS` | `internal`, an e-mail address (automatic certificate for a public domain), or paths of your own certificate and key. |
 | `PHAROS_HTTP_PORT`, `PHAROS_HTTPS_PORT` | Host ports. |
+| `PHAROS_PUBLIC_URL` | The address users open, as an origin (`https://pharos.example`, with `:PORT` if not 443). Production requires https. Redirects and the CSRF Origin check use it, never the Host header. |
+| `PHAROS_ORG_SLUG` | Short name of the one organization this installation serves (default `default`). Created by the operator after the stack is up; `/api/readyz` reports `organization: fail` until it exists. |
+| `PHAROS_SECRET_KEY` | Root secret (at least 32 random bytes; `make env` generates it). Keys for tokens and hashes are derived from it. Production refuses short or placeholder values. |
 | `PHAROS_ENVIRONMENT` | `production` when unset. Production refuses placeholder passwords and serves no API docs. |
 | `PHAROS_DEFAULT_LOCALE` | Language for visitors whose browser language is not supported: `en`, `az`, `tr` or `ru`. |
 | `PHAROS_MIGRATE_ON_START` | `true` migrates before the API starts; see below. |

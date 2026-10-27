@@ -19,6 +19,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from pharos.core.heartbeat import worker_is_alive
+from pharos.core.organization import OrganizationNotConfigured, OrganizationResolver
 
 logger = logging.getLogger(__name__)
 
@@ -45,10 +46,17 @@ def expected_migration_heads(alembic_dir: Path) -> frozenset[str]:
 
 
 class Readiness:
-    def __init__(self, engine: AsyncEngine, redis: Redis, expected_heads: frozenset[str]) -> None:
+    def __init__(
+        self,
+        engine: AsyncEngine,
+        redis: Redis,
+        expected_heads: frozenset[str],
+        organization: OrganizationResolver,
+    ) -> None:
         self._engine = engine
         self._redis = redis
         self._expected_heads = expected_heads
+        self._organization = organization
 
     async def _database(self) -> CheckResult:
         try:
@@ -119,6 +127,17 @@ class Readiness:
             return "fail"
         return "ok"
 
+    async def _organization_exists(self) -> CheckResult:
+        try:
+            await self._organization.resolve()
+        except OrganizationNotConfigured:
+            logger.error("readiness: the organization does not exist; run the create-org command")
+            return "fail"
+        except Exception:
+            logger.exception("readiness: organization check failed")
+            return "fail"
+        return "ok"
+
     async def check(self) -> ReadinessResponse:
         checks: dict[str, CheckResult] = {
             "database": await self._database(),
@@ -126,6 +145,7 @@ class Readiness:
             "redis": await self._redis_ping(),
             "worker": await self._worker(),
             "migrations": await self._migrations(),
+            "organization": await self._organization_exists(),
         }
         ok = all(result == "ok" for result in checks.values())
         return ReadinessResponse(status="ok" if ok else "unavailable", checks=checks)
