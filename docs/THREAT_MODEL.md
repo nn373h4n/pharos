@@ -40,6 +40,10 @@ Status: v0 (milestone M1). Every control below must gain an automated test befor
 
 Audited events: sign-in and sign-out, role changes, LLM settings and keys, source added or removed, exports, budget changes. Audit records never contain secrets or content.
 
+How it is built (M2): events come from a fixed catalogue (`AuditAction` in `backend/src/pharos/core/audit.py`; a new event is added there in the pull request that raises it). The application role can only INSERT and SELECT audit rows. A successful action writes its row in the same transaction as the change; a failed attempt writes its row in a transaction of its own so it survives the rollback (best effort: a failing audit write is logged and does not turn into an outage). The client address is stored only as an HMAC with a key derived from `PHAROS_SECRET_KEY`. Detail fields are short scalars, and a key that looks like a secret (`password`, `token`, `cookie`, ...) is refused as a programming error.
+
+Sign-in throttling (`backend/src/pharos/core/ratelimit.py`): counters live only in Redis, keyed by hashes of the account and address. Per address: 30 attempts a minute. Per account and address: three free failures, then waits of 2, 4, 8 ... seconds up to 5 minutes. Per account across addresses: ten free failures, then waits up to 1 minute. There is no hard lockout, so knowing someone's account name does not let an attacker lock them out; an operator can clear the counters. Unknown accounts are throttled exactly like known ones.
+
 ## Company-internal content (phase 2)
 
 Not sent to a cloud LLM by default. If an admin enables it, personal and sensitive data is masked first (email, phone, IBAN, national ID, personal names) and the setting change is audited. Privacy claims such as "anonymous" or "never leaves the network" are written only when the architecture and tests prove them.

@@ -27,6 +27,7 @@ class ErrorCode(StrEnum):
     METHOD_NOT_ALLOWED = "method_not_allowed"
     VALIDATION_FAILED = "validation_failed"
     CSRF_FAILED = "csrf_failed"
+    RATE_LIMITED = "rate_limited"
     ORGANIZATION_NOT_CONFIGURED = "organization_not_configured"
     SERVICE_UNAVAILABLE = "service_unavailable"
     INTERNAL_ERROR = "internal_error"
@@ -40,6 +41,7 @@ _TITLES = {
     ErrorCode.METHOD_NOT_ALLOWED: "Method not allowed",
     ErrorCode.VALIDATION_FAILED: "The request is not valid",
     ErrorCode.CSRF_FAILED: "The request was refused",
+    ErrorCode.RATE_LIMITED: "Too many attempts",
     ErrorCode.ORGANIZATION_NOT_CONFIGURED: "The organization is not set up yet",
     ErrorCode.SERVICE_UNAVAILABLE: "Service unavailable",
     ErrorCode.INTERNAL_ERROR: "Internal error",

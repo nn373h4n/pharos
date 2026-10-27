@@ -65,13 +65,14 @@ Every error is an [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) document wi
 | `not_found` | 404 | No such route or object, or the object belongs to another organization. |
 | `method_not_allowed` | 405 | The path exists but not for this method; `Allow` lists the methods. |
 | `csrf_failed` | 403 | A state-changing request had no `Origin` equal to the public address, or a signed-in request had no valid `X-CSRF-Token`. |
+| `rate_limited` | 429 | Too many attempts. `Retry-After` gives the seconds to wait; waiting is enough, there is no lockout. |
 | `validation_failed` | 422 | The body, query or path is not valid. `errors` lists `{loc, type}` for each problem, never the value. |
 | `organization_not_configured` | 503 | The organization of this installation has not been created yet. |
 | `service_unavailable` | 503 | A required dependency is down (for example Redis for sessions). Sign-in fails closed. |
 | `internal_error` | 500 | Unexpected failure. The cause is in the logs under the `request_id`. |
 | `http_error` | other | Any other HTTP error raised by the framework. |
 
-More codes (`rate_limited`, sign-in failures) arrive with the endpoints that raise them and are added to this table in the same pull request.
+More codes (sign-in failures) arrive with the endpoints that raise them and are added to this table in the same pull request.
 
 ## Authentication and authorization (building blocks)
 
