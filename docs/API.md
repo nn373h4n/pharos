@@ -66,6 +66,8 @@ Every error is an [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) document wi
 | `method_not_allowed` | 405 | The path exists but not for this method; `Allow` lists the methods. |
 | `csrf_failed` | 403 | A state-changing request had no `Origin` equal to the public address, or a signed-in request had no valid `X-CSRF-Token`. |
 | `onboarding_incomplete` | 409 | Onboarding was completed before all four answers existed; `missing` lists them. |
+| `own_account` | 409 | An administrator tried to change their own role or status. Ask another administrator. |
+| `status_locked` | 409 | The user was removed by the identity provider (`deprovisioned`); the status is not changed here. |
 | `rate_limited` | 429 | Too many attempts. `Retry-After` gives the seconds to wait; waiting is enough, there is no lockout. |
 | `validation_failed` | 422 | The body, query or path is not valid. `errors` lists `{loc, type}` for each problem, never the value. |
 | `organization_not_configured` | 503 | The organization of this installation has not been created yet. |
@@ -123,6 +125,20 @@ All of these need a session. Requests that change data also need `Origin` and `X
 The profile response contains `locale` (the saved choice) and `effective_locale`: the saved choice, else the best supported language of `Accept-Language`, else `PHAROS_DEFAULT_LOCALE`. `onboarding_started_at` is set by the first save and never changes; `onboarding_completed_at` is set once by completing.
 
 `POST /api/me/onboarding/complete` needs all four answers: a profession, at least one interest, a language and an AI level. Otherwise it answers `409 onboarding_incomplete` with `missing` listing the fields. `GET /api/me` also returns `onboarding_completed_at`, so the app can decide whether to show onboarding.
+
+## People (administrators)
+
+Administrators only; everyone else gets `403`, and a person of another organization answers `404 not_found`. Requests that change data also need `Origin` and `X-CSRF-Token`.
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/api/users` | The organization's people, by name. `limit` (1-100, default 50) and `offset`. Answers `{items, total}`. |
+| PATCH | `/api/users/{id}/role` | Body `{"role": "admin" \| "editor" \| "member"}`. |
+| PATCH | `/api/users/{id}/status` | Body `{"status": "active" \| "disabled"}`. `deprovisioned` is set only by the identity provider and is refused here. |
+
+Each person has `id`, `display_name`, `email`, `role`, `status`, `department`, `last_login_at` and `sign_in` (`local` or `sso`). No credential data is ever included.
+
+Rules: nobody changes their own role or status (`409 own_account`); the caller is checked again against the database after the administrator rows are locked, so two administrators changing each other at the same moment cannot leave the organization without one (the second gets `403`). A change ends every session of the person it concerns; a new role or status would apply on their next request anyway. A request that changes nothing answers `200` and writes nothing. Changes are recorded as `user.role_changed` and `user.status_changed` with the old and new value, plus `auth.sessions_revoked`; a refused change leaves a `failure` row with the reason. The role of a `deprovisioned` person cannot be changed either (`409 status_locked`).
 
 ## Single sign-on (OpenID Connect)
 

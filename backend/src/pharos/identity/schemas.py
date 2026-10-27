@@ -2,8 +2,9 @@
 
 import uuid
 from datetime import datetime
+from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from pharos.identity.service import LocalLoginMode
 
@@ -48,3 +49,35 @@ class SessionOut(BaseModel):
 
     user: UserOut
     csrf_token: str
+
+
+class AdminUserOut(BaseModel):
+    """One person as an administrator sees them."""
+
+    id: uuid.UUID
+    display_name: str
+    email: str | None
+    role: str
+    status: str
+    department: str | None
+    last_login_at: datetime | None
+    sign_in: str  # "local" or "sso"
+
+
+class UserListOut(BaseModel):
+    items: list[AdminUserOut]
+    total: int
+
+
+class RoleChange(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    role: Literal["admin", "editor", "member"]
+
+
+class StatusChange(BaseModel):
+    """`deprovisioned` is set only by the identity provider's sync, never through this API."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["active", "disabled"]
