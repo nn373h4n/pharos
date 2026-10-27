@@ -90,3 +90,16 @@ Not endpoints yet; they are the parts every endpoint uses (ADR-0011):
 - Every `POST`, `PUT`, `PATCH` and `DELETE` must send an `Origin` header equal to `PHAROS_PUBLIC_URL`; a missing header or `null` is refused with `403 csrf_failed`. This also protects sign-in, which has no session yet.
 - When the request carries a live session it must also send `X-CSRF-Token`, an HMAC bound to that session id and seed. A new token is issued whenever the session id is rotated; tokens of the old id stop working. The token reaches the browser in the response of the endpoint that returns the current user (M2-04).
 - Forwarded headers (`X-Forwarded-For` and friends) are honoured only from Caddy's pinned address; see `docs/DEPLOYMENT.md`.
+
+## Sign-in endpoints (local accounts)
+
+| Method | Path | Auth | Purpose |
+| --- | --- | --- | --- |
+| GET | `/api/auth/config` | none | What the sign-in page needs: `{"local_login": "off" \| "break-glass" \| "on"}`. |
+| POST | `/api/auth/local/login` | none | Sign in with a username and password. |
+| POST | `/api/auth/logout` | cookie | End the caller's own session. Idempotent. `204`, the cookie is cleared. |
+| GET | `/api/me` | session | The signed-in user and the CSRF token. |
+
+`POST /api/auth/local/login` takes `{"username": "...", "password": "..."}` and answers `200 {"user": {...}, "csrf_token": "..."}` with the session cookie. Every failure (wrong password, unknown user, disabled account, not allowed in `break-glass` mode, password too long) is the same `401 invalid_credentials`; the reason is only in the audit log. After a few failures the answer becomes `429 rate_limited` with `Retry-After`, even for the right password; waiting is enough. With `PHAROS_LOCAL_LOGIN=off` the endpoint answers `404`. Sending the request while already signed in needs the `X-CSRF-Token` of that session, like any other state-changing request; the old session is ended and a new id is issued.
+
+`GET /api/me` answers `{"user": {"id", "display_name", "email", "role", "locale", "department", "last_login_at"}, "csrf_token": "..."}`. The role is read from the database on every request, so a change applies at once; a disabled account gets `401`. The web app sends `csrf_token` back as `X-CSRF-Token` on every `POST`, `PUT`, `PATCH` and `DELETE`.

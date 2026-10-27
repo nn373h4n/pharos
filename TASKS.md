@@ -48,6 +48,8 @@ All ten tasks were merged through pull requests. The pipeline arrived with M1-09
 | F-12 | P3 | Todo | English version of `PHAROS_MASTER_PROMPT.md` before the public launch (G3) | Proposal decision 7 |
 | F-13 | P3 | Done | Trust `X-Forwarded-*` headers from the proxy in the API | Done in M2-03b: trusted from Caddy's pinned address only |
 | F-14 | P2 | Todo | Keep the worker out of session records in Redis (ACL users or a MAC on the record) | Before the worker handles untrusted content (M3); see THREAT_MODEL residual risks |
+| F-15 | P3 | Todo | Tie a session to how the user signed in (local or SSO) and end local sessions when `PHAROS_LOCAL_LOGIN` is switched off or an admin loses break-glass rights | Review of M2-04 (P3-3); decide with the OIDC work (M2-05) |
+| F-16 | P3 | Todo | Verification time of hashes made with older parameters differs from the dummy hash until they are rehashed | Review of M2-04 (P3-2); small timing signal, only for accounts not yet upgraded |
 
 ## Decisions waiting for the maintainer
 
@@ -67,7 +69,7 @@ Plan: [docs/plans/m2-sign-in-organization-onboarding.md](docs/plans/m2-sign-in-o
 | M2-03a | P0 | Done | Error format, clock, principal, unit of work, `current_user`, settings, lazy organization, route-coverage gate | 02 | A failing commit never returns 200; the gate fails on an uncovered route |
 | M2-03b | P0 | Done | Session store, CSRF, Origin check, cookies, pinned proxy trust | 03a | Revocation, fixation, Origin and forged forwarded-header tests |
 | M2-03c | P1 | Done | Rate limiter, audit service, event catalogue | 03b | Concurrent attempts counted exactly; audit entries without secrets |
-| M2-04 | P0 | Todo | Local accounts: login, logout, `/me`, operator CLI | 03c | Break-glass admin can sign in; no user enumeration; no hard lockout |
+| M2-04 | P0 | Done | Local accounts: login, logout, `/me`, operator CLI | 03c | Break-glass admin can sign in; no user enumeration; no hard lockout |
 | M2-08 | P1 | Todo | Profile and onboarding API, professions, interest codes | 03a | Profile validated against its organization; timestamps stored |
 | M2-05 | P0 | Todo | Generic OIDC with a fake-IdP negative suite, user creation on first sign-in | 03c | Every negative case in the plan is rejected; the first sign-in upsert never writes `role` or `status`; display names are truncated to 200 characters |
 | M2-06 | P1 | Todo | Entra ID preset (tenant-pinned issuer, Graph prefill) | 05 | Tested against recorded or mocked Entra shapes; real Entra NOT TESTED |

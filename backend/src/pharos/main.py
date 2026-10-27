@@ -28,6 +28,9 @@ from pharos.core.ratelimit import LoginThrottle, RateLimiter
 from pharos.core.redis import url_for_database
 from pharos.core.secrets import KeyPurpose, derive_key
 from pharos.core.sessions import SessionIdentityResolver, SessionStore
+from pharos.identity.passwords import PasswordHasher
+from pharos.identity.router import router as identity_router
+from pharos.identity.service import LocalAuthService, LocalLoginMode
 
 logger = logging.getLogger(__name__)
 
@@ -96,6 +99,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.audit = AuditLog(
             app.state.session_factory, derive_key(settings.secret_key, KeyPurpose.AUDIT_IP)
         )
+        app.state.local_auth = LocalAuthService(
+            hasher=PasswordHasher(
+                memory_kib=settings.password_hash_memory_kib,
+                time_cost=settings.password_hash_time_cost,
+            ),
+            throttle=app.state.login_throttle,
+            audit=app.state.audit,
+            sessions=app.state.session_store,
+            mode=LocalLoginMode(settings.local_login),
+        )
         app.state.readiness = Readiness(
             engine,
             redis,
@@ -119,13 +132,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         openapi_url=f"{API_PREFIX}/openapi.json" if show_docs else None,
     )
     app.state.settings = settings
+    app.state.session_cookie = cookie
+    app.state.csrf_key = derive_key(settings.secret_key, KeyPurpose.CSRF)
     install_error_handlers(app)
     app.add_middleware(
         CsrfMiddleware,
         public_url=settings.public_url,
-        key=derive_key(settings.secret_key, KeyPurpose.CSRF),
+        key=app.state.csrf_key,
         cookie=cookie,
     )
     app.add_middleware(RequestIdMiddleware)
     app.include_router(health_router, prefix=API_PREFIX)
+    app.include_router(identity_router, prefix=API_PREFIX)
     return app

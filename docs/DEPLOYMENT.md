@@ -29,6 +29,21 @@ its own CA, so the browser warns until you trust that CA. The first build takes 
 
 `make down` stops the stack and keeps the data. `make dev` again starts it with the same data.
 
+### Create the organization and the first administrator
+
+The stack starts without an organization, and `/api/readyz` reports `organization: fail` until one exists. Create it once, then the first administrator (the password is read from a hidden prompt, never from the command line; the minimum is 15 characters):
+
+```bash
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml run --rm migrate \
+  python -m pharos.cli create-org --slug default --name "Your organization"
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml exec api \
+  python -m pharos.cli create-admin --username admin
+```
+
+The slug must equal `PHAROS_ORG_SLUG`. For scripts, add `--password-stdin` (and `-T` to `exec`) and pipe the password in. `set-password` changes a password and `unlock --username NAME` clears the sign-in delays of an account.
+
+`PHAROS_LOCAL_LOGIN` controls password sign-in: `break-glass` (default) lets administrators sign in with a password so you can always get in when the identity provider is down, `on` allows every local account, `off` disables it. After repeated wrong passwords an account and address are slowed down with growing waits (never locked out); `unlock` removes the waits at once.
+
 ## Configuration (`deploy/.env`)
 
 `deploy/.env.example` documents every variable. `make env` fills in the secrets. The file is
@@ -46,6 +61,7 @@ git-ignored and written with mode 600.
 | `PHAROS_PUBLIC_URL` | The address users open, as an origin (`https://pharos.example`, with `:PORT` if not 443). Production requires https. Redirects and the CSRF Origin check use it, never the Host header. |
 | `PHAROS_ORG_SLUG` | Short name of the one organization this installation serves (default `default`). Created by the operator after the stack is up; `/api/readyz` reports `organization: fail` until it exists. |
 | `PHAROS_APP_SUBNET`, `PHAROS_CADDY_IP` | The `app` network has a fixed address range (default `172.28.20.0/24`) and Caddy a fixed address in it (default `172.28.20.254`, at the high end because Docker hands out the low addresses to the other containers). The API trusts `X-Forwarded-For` only from that address. The web container can reach the API too, so trusting the whole network would let it choose the client address that rate limits and the audit log record. Change both together if the range clashes with a network on the host. |
+| `PHAROS_LOCAL_LOGIN` | `break-glass` (default: administrators may sign in with a password), `on` (every local account) or `off`. |
 | `PHAROS_SECRET_KEY` | Root secret (at least 32 random bytes; `make env` generates it). Keys for tokens and hashes are derived from it. Production refuses short or placeholder values. |
 | `PHAROS_ENVIRONMENT` | `production` when unset. Production refuses placeholder passwords and serves no API docs. |
 | `PHAROS_DEFAULT_LOCALE` | Language for visitors whose browser language is not supported: `en`, `az`, `tr` or `ru`. |

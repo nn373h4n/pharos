@@ -164,3 +164,24 @@ def test_org_slug_accepts_a_plain_slug() -> None:
 def test_idle_timeout_cannot_exceed_the_absolute_limit() -> None:
     with pytest.raises(ValidationError, match="session_idle_seconds"):
         production(session_idle_seconds=100, session_absolute_seconds=60)
+
+
+def test_local_login_defaults_to_break_glass_and_accepts_only_known_modes() -> None:
+    assert production().local_login == "break-glass"
+    assert production(local_login="on").local_login == "on"
+    with pytest.raises(ValidationError, match="local_login"):
+        production(local_login="yes")
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [{"password_hash_memory_kib": 1024}, {"password_hash_time_cost": 1}],
+)
+def test_production_refuses_cheap_password_hashing(overrides: dict[str, int]) -> None:
+    with pytest.raises(ValidationError, match="too cheap"):
+        production(**overrides)  # type: ignore[arg-type]
+
+
+def test_tests_may_use_cheap_password_hashing() -> None:
+    settings = Settings(environment="test", password_hash_memory_kib=64, password_hash_time_cost=1)
+    assert settings.password_hash_memory_kib == 64
