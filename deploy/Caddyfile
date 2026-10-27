@@ -9,11 +9,30 @@
 {
 	# The admin API is not needed and is not exposed.
 	admin off
+
+	# The automatic HTTP-to-HTTPS redirect reflects the request's Host header and leaves out a
+	# non-default HTTPS port; the explicit redirect below replaces it.
+	auto_https disable_redirects
+
+	# Caddy listens on the same port numbers the host publishes (see docker-compose.yml). A browser
+	# and another container then use one address, and the HTTP-to-HTTPS redirect names the right port.
+	http_port {$PHAROS_HTTP_PORT:80}
+	https_port {$PHAROS_HTTPS_PORT:443}
 }
 
 # Container health check, reachable on the internal network only (the port is not published).
 http://:2020 {
 	respond "ok" 200
+}
+
+# Optional extra sites, for example the development identity provider (docker-compose.sso-dev.yml).
+# The directory is empty unless an override file mounts something into it.
+import /etc/caddy/conf.d/*.caddy
+
+# HTTP to HTTPS, for any Host header. The target is the configured domain, never the request's
+# Host header (no open redirect). ACME HTTP challenges are answered before this site is reached.
+http://:{$PHAROS_HTTP_PORT:80} {
+	redir https://{$PHAROS_DOMAIN:localhost}:{$PHAROS_HTTPS_PORT:443}{uri} 308
 }
 
 {$PHAROS_DOMAIN:localhost} {

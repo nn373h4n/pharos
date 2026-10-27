@@ -1,7 +1,7 @@
 .DEFAULT_GOAL := help
 COMPOSE := docker compose -f deploy/docker-compose.yml --env-file deploy/.env
 
-.PHONY: help env dev down worker beat test test-e2e test-integration test-compose lint fmt migrate hooks secrets-scan
+.PHONY: help env dev down worker beat test test-e2e test-integration test-compose test-sso-dev lint fmt migrate hooks secrets-scan
 
 help: ## Show available targets
 	@grep -E '^[a-z0-9-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-17s %s\n", $$1, $$2}'
@@ -36,6 +36,9 @@ test-integration: ## Run integration tests against throwaway PostgreSQL and Redi
 
 test-compose: ## Build and check the Compose stack in a throwaway project (needs Docker, takes minutes)
 	bash scripts/compose-smoke.sh
+
+test-sso-dev: ## Check the development identity provider setup (Keycloak behind Caddy; needs Docker)
+	bash scripts/sso-dev-check.sh
 
 lint: ## Run linters and type checks
 	uv run ruff check .
