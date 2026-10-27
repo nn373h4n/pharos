@@ -35,6 +35,11 @@ PHAROS_APP_SUBNET=172.28.32.0/24
 PHAROS_APP_DYNAMIC_RANGE=172.28.32.0/25
 PHAROS_CADDY_IP=172.28.32.254
 PHAROS_KEYCLOAK_PUBLIC_URL=$KEYCLOAK
+PHAROS_OIDC_ISSUER=$ISSUER
+PHAROS_OIDC_CLIENT_ID=pharos
+PHAROS_OIDC_CLIENT_SECRET=dev-only-client-secret
+PHAROS_OIDC_PROVIDER_NAME=Keycloak (development)
+PHAROS_ORG_SLUG=ssodev
 EOF
 
 compose() {
@@ -129,6 +134,56 @@ clients=$(kc -H "Authorization: Bearer $token" "$KEYCLOAK/admin/realms/pharos/cl
 check "the client requires PKCE S256" grep -q '"pkce.code.challenge.method":"S256"' <<<"$clients"
 check "the client redirect URI is $PUBLIC/api/auth/oidc/callback" grep -q "\"$PUBLIC/api/auth/oidc/callback\"" <<<"$clients"
 check "direct access grants (password flow) are off for the client" grep -q '"directAccessGrantsEnabled":false' <<<"$clients"
+
+echo "== httpx in the API container trusts the proxy's certificate"
+httpx_probe='import httpx, sys; r = httpx.get(sys.argv[1] + "/.well-known/openid-configuration", timeout=10); print("status", r.status_code, r.json()["issuer"])'
+httpx_out=$(compose exec -T api python -c "$httpx_probe" "$ISSUER" 2>&1)
+echo "$httpx_out" | sed 's/^/      /'
+check "httpx reaches Keycloak through the proxy with the exported root certificate" grep -q "^status 200 $ISSUER" <<<"$httpx_out"
+if compose exec -T -e SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt api python -c "$httpx_probe" "$ISSUER" >/dev/null 2>&1; then
+  fail "httpx accepts the certificate without the exported root (the trust file has no effect)"
+else
+  pass "without that certificate httpx refuses the connection too"
+fi
+
+echo "== signing in through Keycloak, as a browser would"
+# The organization must exist before anyone can sign in.
+compose exec -T postgres psql -q -U postgres -d pharos \
+  -c "INSERT INTO organizations (name, slug) VALUES ('SSO dev', 'ssodev')" >/dev/null 2>&1
+jar="$WORK/browser"
+browser() { curl -sk --max-time 20 --resolve "localhost:$HTTPS_PORT:127.0.0.1" --resolve "auth.localhost:$HTTPS_PORT:127.0.0.1" -b "$jar" -c "$jar" "$@"; }
+config=$(browser "$PUBLIC/api/auth/config")
+check "the sign-in page is told about the provider" grep -q '"provider_name":"Keycloak (development)"' <<<"$config"
+start=$(browser -D - -o /dev/null "$PUBLIC/api/auth/oidc/login?next=/feed")
+auth_url=$(grep -i '^location:' <<<"$start" | tr -d '\r' | cut -d' ' -f2-)
+check "the login redirect goes to Keycloak's authorization endpoint" \
+  grep -q "^$KEYCLOAK/realms/pharos/protocol/openid-connect/auth?" <<<"$auth_url"
+check "the login redirect carries PKCE S256, a state and a nonce" \
+  bash -c "grep -q code_challenge_method=S256 <<<\"\$0\" && grep -q state= <<<\"\$0\" && grep -q nonce= <<<\"\$0\"" "$auth_url"
+login_page=$(browser -L "$auth_url")
+form_action=$(python3 -I -c "import html, re, sys; m = re.search(r'<form[^>]*action=\"([^\"]+)\"', sys.stdin.read()); print(html.unescape(m.group(1)) if m else '')" <<<"$login_page")
+check "Keycloak shows its login form" test -n "$form_action"
+callback=$(browser -D - -o /dev/null -d 'username=alice' -d 'password=dev-only-password' -d 'credentialId=' "$form_action")
+callback_url=$(grep -i '^location:' <<<"$callback" | tr -d '\r' | cut -d' ' -f2-)
+check "Keycloak sends the browser back to the callback" \
+  grep -q "^$PUBLIC/api/auth/oidc/callback?" <<<"$callback_url"
+check "the callback carries a code and a state" \
+  bash -c "grep -q code= <<<\"\$0\" && grep -q state= <<<\"\$0\"" "$callback_url"
+finished=$(browser -D - -o /dev/null "$callback_url")
+check "the callback goes to the page asked for" grep -qi '^location: /feed' <<<"$finished"
+check "the callback sets the session cookie" grep -qi '^set-cookie: __Host-pharos_session=' <<<"$finished"
+me=$(browser "$PUBLIC/api/me")
+check "the user was created from the token with the name from Keycloak" grep -q '"display_name":"Alice Example"' <<<"$me"
+check "the department came from the token" grep -q '"department":"Finance"' <<<"$me"
+check "a new single sign-on user is a plain member" grep -q '"role":"member"' <<<"$me"
+replay=$(browser -D - -o /dev/null "$callback_url")
+check "the same callback cannot be used a second time" grep -qi '^location: /login?error=sso_failed' <<<"$replay"
+csrf=$(python3 -I -c "import json, sys; print(json.load(sys.stdin)['csrf_token'])" <<<"$me")
+logout=$(browser -X POST -H "Origin: $PUBLIC" -H "X-CSRF-Token: $csrf" "$PUBLIC/api/auth/logout")
+check "signing out points to Keycloak's logout" grep -q 'protocol/openid-connect/logout' <<<"$logout"
+check "signing out names the page to return to" grep -q 'post_logout_redirect_uri' <<<"$logout"
+check "the session is gone after signing out" \
+  test "$(browser -o /dev/null -w '%{http_code}' "$PUBLIC/api/me")" = 401
 
 echo "== the main site still works with the shared port numbers"
 check "https://localhost serves the web app" curl -sk --max-time 10 --resolve "localhost:$HTTPS_PORT:127.0.0.1" -f "$PUBLIC/healthz"

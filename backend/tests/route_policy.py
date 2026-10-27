@@ -42,6 +42,8 @@ PUBLIC_ROUTES: frozenset[Route] = frozenset(
         ("GET", "/api/readyz"),  # readiness; Caddy does not serve it to the internet
         ("GET", "/api/auth/config"),  # the sign-in page needs it before anyone is signed in
         ("POST", "/api/auth/local/login"),  # this IS the sign-in; throttled and Origin-checked
+        ("GET", "/api/auth/oidc/login"),  # starts single sign-on; the person is not signed in yet
+        ("GET", "/api/auth/oidc/callback"),  # finishes it: state, binding cookie and PKCE decide
         ("POST", "/api/auth/logout"),  # acts only on the caller's own cookie; idempotent
     }
 )

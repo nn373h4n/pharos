@@ -153,10 +153,15 @@ class LocalAuthService:
     async def user_view(self, uow: UnitOfWork, user_id: uuid.UUID) -> repository.UserView | None:
         return await repository.get_user_view(uow.session, uow.org_id, user_id)
 
-    async def logout(self, uow: UnitOfWork, *, session_id: str | None, ip: str | None) -> None:
-        """End the caller's own session. Idempotent: no session, nothing to do."""
+    async def logout(
+        self, uow: UnitOfWork, *, session_id: str | None, ip: str | None
+    ) -> str | None:
+        """End the caller's own session. Idempotent: no session, nothing to do.
+
+        Returns how that session was created ("local" or "oidc"), or None if there was none.
+        """
         if not session_id:
-            return
+            return None
         record = await self._sessions.get(session_id)
         await self._sessions.delete(session_id)
         if record is not None and record.org_id == uow.org_id:
@@ -168,3 +173,4 @@ class LocalAuthService:
                 ip=ip,
             )
             await uow.commit()
+        return record.method if record is not None else None

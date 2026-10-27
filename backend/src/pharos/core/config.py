@@ -66,10 +66,27 @@ class Settings(BaseSettings):
     password_hash_memory_kib: int = Field(default=65_536, ge=8)
     password_hash_time_cost: int = Field(default=3, ge=1)
 
+    # Single sign-on through any OpenID Connect provider (ADR-0003, ADR-0011). Off unless both the
+    # issuer and the client id are set.
+    oidc_issuer: str | None = None
+    oidc_client_id: str | None = Field(default=None, max_length=256)
+    oidc_client_secret: SecretStr | None = None
+    oidc_scopes: str = "openid profile email"
+    # Shown on the sign-in button.
+    oidc_provider_name: str = Field(default="Single sign-on", min_length=1, max_length=60)
+    # Which ID-token claim holds the department, if the provider sends one.
+    oidc_department_claim: str | None = Field(default="department", max_length=64)
+
     # Sessions live in their own Redis database (Celery uses database 0 of the same server).
     session_redis_db: int = Field(default=1, ge=0, le=15)
     session_idle_seconds: int = Field(default=8 * 3600, ge=60)
     session_absolute_seconds: int = Field(default=24 * 3600, ge=60)
+
+    @field_validator("oidc_issuer", "oidc_client_id", "oidc_client_secret", mode="before")
+    @classmethod
+    def _empty_means_unset(cls, value: object) -> object:
+        """Compose passes unset variables as empty strings; they mean "not configured"."""
+        return None if isinstance(value, str) and not value.strip() else value
 
     @field_validator("public_url")
     @classmethod
@@ -105,6 +122,24 @@ class Settings(BaseSettings):
         return value
 
     @model_validator(mode="after")
+    def _oidc_is_all_or_nothing(self) -> Self:
+        if (self.oidc_issuer is None) != (self.oidc_client_id is None):
+            raise ValueError("oidc_issuer and oidc_client_id must be set together")
+        if self.oidc_issuer is not None:
+            parts = urlsplit(self.oidc_issuer)
+            if parts.scheme not in ("http", "https") or not parts.hostname:
+                raise ValueError("oidc_issuer must be an http(s) URL")
+            if parts.query or parts.fragment or parts.username or parts.password:
+                raise ValueError("oidc_issuer cannot contain credentials, a query or a fragment")
+            if "openid" not in self.oidc_scopes.split():
+                raise ValueError("oidc_scopes must include openid")
+        return self
+
+    @property
+    def oidc_enabled(self) -> bool:
+        return self.oidc_issuer is not None
+
+    @model_validator(mode="after")
     def _idle_is_not_longer_than_absolute(self) -> Self:
         if self.session_idle_seconds > self.session_absolute_seconds:
             raise ValueError("session_idle_seconds cannot exceed session_absolute_seconds")
@@ -125,6 +160,11 @@ class Settings(BaseSettings):
                 "password hashing is too cheap for production (Argon2id needs at least "
                 "19456 KiB and 2 iterations)"
             )
+        if self.oidc_issuer is not None:
+            if not self.oidc_issuer.startswith("https://"):
+                raise ValueError("oidc_issuer must use https in production")
+            if self.oidc_client_secret is None or not self.oidc_client_secret.get_secret_value():
+                raise ValueError("oidc_client_secret is required in production")
         key = self.secret_key.get_secret_value()
         if (
             key == _DEVELOPMENT_SECRET_KEY
