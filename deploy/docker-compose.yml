@@ -26,6 +26,14 @@ networks:
   edge: {}
   app:
     internal: true
+    # Pinned, so the API can trust forwarded headers from Caddy's address only (see PHAROS_CADDY_IP).
+    # Change both when the range clashes with a network on the host. Caddy takes a high address of the
+    # range, outside ip_range: Docker hands out dynamic addresses only from ip_range, so no other
+    # container can ever take it.
+    ipam:
+      config:
+        - subnet: ${PHAROS_APP_SUBNET:-172.28.20.0/24}
+          ip_range: ${PHAROS_APP_DYNAMIC_RANGE:-172.28.20.0/25}
   data:
     internal: true
   egress: {}
@@ -76,7 +84,10 @@ services:
       - caddy_data:/data
       - caddy_config:/config
     tmpfs: [/tmp]
-    networks: [edge, app]
+    networks:
+      edge: {}
+      app:
+        ipv4_address: ${PHAROS_CADDY_IP:-172.28.20.254}
     depends_on:
       web: { condition: service_healthy }
       api: { condition: service_healthy }
@@ -113,7 +124,20 @@ services:
     build: *backend-build
     image: pharos-backend:${PHAROS_IMAGE_TAG:-local}
     <<: *hardening
-    command: ["uvicorn", "--factory", "pharos.main:create_app", "--host", "0.0.0.0", "--port", "8000"]
+    # X-Forwarded-For and friends are honoured only from Caddy. The web container can reach this port
+    # too, so trusting the whole network ("*") would let it, or anything that takes it over, choose
+    # the client address that rate limits and the audit log record.
+    command:
+      - uvicorn
+      - --factory
+      - pharos.main:create_app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --proxy-headers
+      - --forwarded-allow-ips
+      - ${PHAROS_CADDY_IP:-172.28.20.254}
     environment: *backend-env
     tmpfs: [/tmp]
     networks: [app, data, egress]
@@ -217,7 +241,9 @@ services:
     command:
       - sh
       - -c
-      - 'exec redis-server --requirepass "$$REDIS_PASSWORD" --appendonly yes'
+      # noeviction: sessions and rate-limit counters must never be dropped to make room; a full
+      # Redis refuses writes instead (and sign-in then fails closed).
+      - 'exec redis-server --requirepass "$$REDIS_PASSWORD" --appendonly yes --maxmemory-policy noeviction'
     environment:
       REDIS_PASSWORD: ${PHAROS_REDIS_PASSWORD:?set PHAROS_REDIS_PASSWORD}
       # Lets redis-cli authenticate in the health check without the password on its command line.

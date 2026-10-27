@@ -164,7 +164,11 @@ async def plumbing(
         return {"ok": "yes"}
 
     transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
-    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+    # The default PHAROS_PUBLIC_URL of development; state-changing requests must send it as Origin.
+    origin = {"Origin": "http://localhost:3000"}
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://test", headers=origin
+    ) as client:
         yield Plumbing(client, app, app_engine, owner_engine, org_a, org_b)
     async with owner_engine.begin() as connection:
         ids = {"ids": [org_a, org_b]}

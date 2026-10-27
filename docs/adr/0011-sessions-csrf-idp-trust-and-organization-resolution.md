@@ -47,9 +47,13 @@ open, and an independent review of the first M2 design found that the obvious ch
   the configured one. Sessions and counters use their own Redis database and key prefix, and Redis
   being down means sign-in and session checks fail closed.
 - **CSRF.** The token is an HMAC of the session id with a key derived from `PHAROS_SECRET_KEY`.
-  Every `POST`, `PUT`, `PATCH` and `DELETE`, sign-in and sign-out included, needs the token in
-  `X-CSRF-Token` and an `Origin` header equal to `PHAROS_PUBLIC_URL` (never compared with `Host`,
-  which the proxy rewrites). A missing or `null` `Origin` is rejected.
+  Every `POST`, `PUT`, `PATCH` and `DELETE` needs an `Origin` header equal to `PHAROS_PUBLIC_URL`
+  (never compared with `Host`, which the proxy rewrites); a missing or `null` `Origin` is rejected.
+  A request that carries a live session also needs the token in `X-CSRF-Token`. Before a session
+  exists (sign-in) the exact `Origin` match is the protection against login CSRF; a request whose
+  cookie names no live session is treated the same way. WebSocket handshakes get the same `Origin`
+  check. Session creation, rotation and revocation run as single Redis scripts, so "sign out
+  everywhere" cannot fall between the steps of a sign-in.
 - **OIDC.** Authorization code flow with PKCE (S256), `nonce` and `response_mode=query`. The
   `state` is bound to the browser by a short-lived `__Host-pharos_oidc` cookie, stored in Redis under
   a key that includes it, and consumed once with `GETDEL`; the PKCE verifier and the post-login

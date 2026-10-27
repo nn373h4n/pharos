@@ -26,6 +26,7 @@ class ErrorCode(StrEnum):
     NOT_FOUND = "not_found"
     METHOD_NOT_ALLOWED = "method_not_allowed"
     VALIDATION_FAILED = "validation_failed"
+    CSRF_FAILED = "csrf_failed"
     ORGANIZATION_NOT_CONFIGURED = "organization_not_configured"
     SERVICE_UNAVAILABLE = "service_unavailable"
     INTERNAL_ERROR = "internal_error"
@@ -38,6 +39,7 @@ _TITLES = {
     ErrorCode.NOT_FOUND: "Not found",
     ErrorCode.METHOD_NOT_ALLOWED: "Method not allowed",
     ErrorCode.VALIDATION_FAILED: "The request is not valid",
+    ErrorCode.CSRF_FAILED: "The request was refused",
     ErrorCode.ORGANIZATION_NOT_CONFIGURED: "The organization is not set up yet",
     ErrorCode.SERVICE_UNAVAILABLE: "Service unavailable",
     ErrorCode.INTERNAL_ERROR: "Internal error",
@@ -61,6 +63,10 @@ class ApiError(Exception):
         self.status = status
         self.headers = headers or {}
         self.extra = extra
+
+
+class DependencyUnavailable(Exception):
+    """A required service (Redis, ...) did not answer. The request fails closed with a 503."""
 
 
 def not_authenticated() -> ApiError:
@@ -122,6 +128,11 @@ def install_error_handlers(app: FastAPI) -> None:
         }.get(exc.status_code, ErrorCode.HTTP_ERROR)
         headers = {k: v for k, v in (exc.headers or {}).items() if k.lower() == "allow"}
         return problem_response(request, code, exc.status_code, headers)
+
+    @app.exception_handler(DependencyUnavailable)
+    async def _unavailable(request: Request, exc: DependencyUnavailable) -> JSONResponse:
+        logger.error("dependency unavailable", exc_info=(type(exc), exc, exc.__traceback__))
+        return problem_response(request, ErrorCode.SERVICE_UNAVAILABLE, 503)
 
     @app.exception_handler(Exception)
     async def _unexpected(request: Request, exc: Exception) -> JSONResponse:

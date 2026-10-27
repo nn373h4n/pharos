@@ -64,13 +64,14 @@ Every error is an [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) document wi
 | `forbidden` | 403 | Signed in, but the role does not allow this. |
 | `not_found` | 404 | No such route or object, or the object belongs to another organization. |
 | `method_not_allowed` | 405 | The path exists but not for this method; `Allow` lists the methods. |
+| `csrf_failed` | 403 | A state-changing request had no `Origin` equal to the public address, or a signed-in request had no valid `X-CSRF-Token`. |
 | `validation_failed` | 422 | The body, query or path is not valid. `errors` lists `{loc, type}` for each problem, never the value. |
 | `organization_not_configured` | 503 | The organization of this installation has not been created yet. |
 | `service_unavailable` | 503 | A required dependency is down (for example Redis for sessions). Sign-in fails closed. |
 | `internal_error` | 500 | Unexpected failure. The cause is in the logs under the `request_id`. |
 | `http_error` | other | Any other HTTP error raised by the framework. |
 
-More codes (`rate_limited`, `csrf_failed`, sign-in failures) arrive with the endpoints that raise them and are added to this table in the same pull request.
+More codes (`rate_limited`, sign-in failures) arrive with the endpoints that raise them and are added to this table in the same pull request.
 
 ## Authentication and authorization (building blocks)
 
@@ -80,3 +81,11 @@ Not endpoints yet; they are the parts every endpoint uses (ADR-0011):
 - `UnitOfWorkDep` gives a transaction scoped to that organization. The service calls `commit()` before returning, so a failed commit becomes a 5xx and never a 200; anything not committed is rolled back.
 - `CurrentPrincipal` returns the signed-in user. The role and status are read from the `users` row on every request, so a demotion or a disabled account applies on the next request. `require_role(...)` adds the role check.
 - A route-coverage test fails when a route is neither on the public list nor in the role matrix with a cross-tenant test.
+
+## Sessions and CSRF
+
+- The session cookie is `__Host-pharos_session` (Secure, HttpOnly, SameSite=Lax, Path=/, no Domain, no expiry date). When `PHAROS_PUBLIC_URL` is plain http (local development only) the browser would reject that prefix, so the name is `pharos_session` and the cookie is not Secure.
+- The cookie holds an opaque 256-bit id. The server keeps who it belongs to and a CSRF seed in Redis (database 1, own key prefix); role and status are read from the database on every request. The idle timeout is 8 hours and slides, the absolute limit is 24 hours (`PHAROS_SESSION_IDLE_SECONDS`, `PHAROS_SESSION_ABSOLUTE_SECONDS`). If Redis does not answer, requests fail with `503 service_unavailable`.
+- Every `POST`, `PUT`, `PATCH` and `DELETE` must send an `Origin` header equal to `PHAROS_PUBLIC_URL`; a missing header or `null` is refused with `403 csrf_failed`. This also protects sign-in, which has no session yet.
+- When the request carries a live session it must also send `X-CSRF-Token`, an HMAC bound to that session id and seed. A new token is issued whenever the session id is rotated; tokens of the old id stop working. The token reaches the browser in the response of the endpoint that returns the current user (M2-04).
+- Forwarded headers (`X-Forwarded-For` and friends) are honoured only from Caddy's pinned address; see `docs/DEPLOYMENT.md`.
