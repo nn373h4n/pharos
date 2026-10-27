@@ -128,8 +128,8 @@ probe_in_service() {
 # The same tool on a plain Docker network, where the connection is allowed.
 probe_on_plain_network() {
   case $1 in
-    postgres) docker run --rm --entrypoint timeout pgvector/pgvector:pg16 5 bash -c "exec 3<>/dev/tcp/$2/$3" ;;
-    redis | caddy) docker run --rm --entrypoint nc redis:8.8.3-alpine -w 5 -z "$2" "$3" ;;
+    postgres) docker run --rm --entrypoint timeout "$(scripts/compose-image.sh postgres)" 5 bash -c "exec 3<>/dev/tcp/$2/$3" ;;
+    redis | caddy) docker run --rm --entrypoint nc "$(scripts/compose-image.sh redis)" -w 5 -z "$2" "$3" ;;
     web) docker run --rm --entrypoint node "pharos-web:$TAG" -e "$NODE_PROBE" "$2" "$3" ;;
   esac
 }

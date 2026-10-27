@@ -33,7 +33,7 @@ Status: v0 (milestone M1). Every control below must gain an automated test befor
 | Data leaving through a compromised container (SSRF, exfiltration) | `postgres`, `redis` and `web` have no route to the internet (Docker `internal: true` networks); `caddy` and `web` are not on the `data` network, so they cannot reach the database or Redis; only `api`, `worker` and `beat` join `egress`; no database or Redis port is published; the database superuser cannot log in over the network; all containers drop every capability, forbid privilege escalation and have a read-only root file system | `make test-compose` (isolation checks, each with a positive control; database login checks; hardening checks) |
 | Code execution through the task queue | Celery accepts JSON only (no pickle); Redis is reachable from the internal network only and requires a password in production; a task payload is data, never code | `tests/workers/test_app.py` (serializer and `accept_content`) |
 | DoS and cost abuse | Per-user and per-organization rate limits (Redis); LLM budget with 80% warning and 100% stop; queue backpressure | Limit-exceeded tests |
-| Supply chain | Lockfiles, Dependabot, CodeQL, Trivy, SBOM, pinned container digests and action SHAs; signed images by M5 | Required CI checks |
+| Supply chain | In place: lockfiles installed with `--frozen`, Dependabot, CodeQL, gitleaks and Trivy as required CI checks, GitHub Actions pinned to commit SHAs, CI tools run as digest-pinned images, DCO sign-off, protected `main`. Planned (TASKS F-05, F-07): digest-pinned base images, SBOM and signed images by M5 | Required CI checks |
 | Misuse of the development agent | PreToolUse guard hook, deny rules, gitleaks pre-commit; planned devcontainer | `tests/hooks/test_guard.sh` |
 
 ## Audit

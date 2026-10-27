@@ -106,7 +106,8 @@ volumes and ports, and removes it afterwards.
 
 - Backup and restore are not defined or tested yet. A plain `pg_dump` of the `pharos` database is
   possible; it has not been rehearsed.
-- Images are pinned by tag, not by digest, and are not scanned yet (M1-09). The build downloads
+- Images are pinned by tag, not by digest. CI scans the two images we build (and, weekly, the
+  proxy, database and cache images) with Trivy; Dependabot proposes updates. The build downloads
   `uv` (pinned by version) and `pnpm` (pinned by version in `package.json`) without a hash check;
   the Python and Node dependencies themselves are verified against `uv.lock` and `pnpm-lock.yaml`.
 - The settings in `deploy/.env` are trusted. They are inserted into connection URLs and into the

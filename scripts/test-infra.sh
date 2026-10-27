@@ -10,8 +10,10 @@ PG_NAME=pharos-test-pg
 REDIS_NAME=pharos-test-redis
 PG_PORT=${PHAROS_TEST_PG_PORT:-55432}
 REDIS_PORT=${PHAROS_TEST_REDIS_PORT:-56379}
-PG_IMAGE=pgvector/pgvector:pg16
-REDIS_IMAGE=redis:8.8.3-alpine
+# The same images as the Compose stack, so the tests run against what is deployed.
+root="$(cd "$(dirname "$0")/.." && pwd)"
+PG_IMAGE=$("$root/scripts/compose-image.sh" postgres)
+REDIS_IMAGE=$("$root/scripts/compose-image.sh" redis)
 # Throwaway password for a container that listens on 127.0.0.1 only and is deleted afterwards.
 PG_PASSWORD=pharos-test-only
 

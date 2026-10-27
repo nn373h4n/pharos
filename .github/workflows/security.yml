@@ -7,6 +7,7 @@ on:
   schedule:
     # New vulnerabilities are published every day, so scan even when nothing changed.
     - cron: "17 4 * * 1"
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -100,7 +101,7 @@ jobs:
     # The images we do not build (proxy, database, cache) change independently of our code, so they
     # are checked on a schedule and on demand, not on every pull request.
     name: Trivy (upstream images)
-    if: github.event_name == 'schedule'
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -109,7 +110,8 @@ jobs:
           persist-credentials: false
       - name: Scan caddy, postgres and redis
         run: |
-          for image in caddy:2-alpine pgvector/pgvector:pg16 redis:8.8.3-alpine; do
+          for service in caddy postgres redis; do
+            image=$(scripts/compose-image.sh "$service")
             echo "== $image"
             docker pull -q "$image"
             docker save "$image" -o "$RUNNER_TEMP/image.tar"

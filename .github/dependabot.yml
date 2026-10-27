@@ -41,6 +41,13 @@ updates:
       interval: weekly
     commit-message:
       prefix: build
+    ignore:
+      # The project follows the Node and Python LTS lines and moves to the next one deliberately,
+      # with a test run (Dependabot's Node 26 proposal failed the Compose and image checks).
+      - dependency-name: node
+        update-types: ["version-update:semver-major"]
+      - dependency-name: python
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
 
   - package-ecosystem: docker-compose
     directory: /deploy

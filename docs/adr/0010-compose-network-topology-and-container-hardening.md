@@ -63,7 +63,7 @@ Option 2, with option 3 documented as the next step.
   and a sysctl for ports below 1024, and is left for later. Images are pinned by tag, not by
   digest. Containers on an `internal` network can still reach host services on the bridge gateway
   address; a host firewall rule is needed (documented, not tested).
-- Follow-up: digest pinning and image scanning with CI (M1-09); an optional egress proxy profile; a
+- Follow-up: digest pinning of the base images (image scanning runs in CI since M1-09); an optional egress proxy profile; a
   non-root `caddy`; HSTS once there is a real domain; a check that passwords are URL-safe; backup
   and restore.
 - Tests: `scripts/compose-smoke.sh` checks health, TLS, the hidden `readyz` under several path
