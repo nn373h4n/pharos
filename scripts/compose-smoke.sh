@@ -90,7 +90,12 @@ check "the home page is served in the installation default language (az)" grep -
 check "web health check is reachable" https -f "$base/healthz"
 check "API liveness is reachable under /api" https -f "$base/api/healthz"
 check "HTTP redirects to HTTPS" \
-  test "$(curl -s --max-time 10 -o /dev/null -w '%{http_code}' -H 'Host: localhost' "http://127.0.0.1:$HTTP_PORT/")" = 308
+  test "$(curl -s --max-time 10 -o /dev/null -w '%{http_code}' -H "Host: localhost:$HTTP_PORT" "http://127.0.0.1:$HTTP_PORT/")" = 308
+check "the redirect names the configured domain and HTTPS port" \
+  test "$(curl -s --max-time 10 -o /dev/null -w '%{redirect_url}' -H "Host: localhost:$HTTP_PORT" "http://127.0.0.1:$HTTP_PORT/x?y=1")" = "https://localhost:$HTTPS_PORT/x?y=1"
+foreign=$(curl -s --max-time 10 -D - -o /dev/null -H 'Host: evil.example' "http://127.0.0.1:$HTTP_PORT/x"; true)
+echo "$foreign" | sed 's/^/      /'
+check_blocked "a foreign Host header is never reflected into a redirect" grep -qi 'evil.example' <<<"$foreign"
 headers=$(https -D - -o /dev/null -H 'X-Request-ID: client-chosen' "$base/api/healthz")
 check_blocked "a client-chosen X-Request-ID is replaced by the proxy" grep -qi 'x-request-id: client-chosen' <<<"$headers"
 

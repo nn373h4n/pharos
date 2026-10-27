@@ -1,0 +1,6 @@
+# Development identity provider (Keycloak), served on its own host name so that the browser and
+# the API container use exactly the same issuer URL. Mounted by docker-compose.sso-dev.yml only.
+auth.localhost {
+	tls internal
+	reverse_proxy keycloak:8080
+}
