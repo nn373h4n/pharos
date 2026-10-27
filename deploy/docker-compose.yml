@@ -205,7 +205,7 @@ services:
     mem_limit: 1g
 
   redis:
-    image: redis:8.8.3-alpine
+    image: redis:8.10.0-alpine
     <<: *hardening
     user: redis
     command:
