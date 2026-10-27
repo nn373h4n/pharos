@@ -31,6 +31,10 @@ select = ["E", "F", "I", "B", "UP", "S", "ASYNC", "SIM", "RUF"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101", "S105", "S106"]
+# Integration tests write SQL against fixed table names and long statements.
+"tests/integration/**" = ["E501", "S608"]
+# Migrations hold long SQL lines and seed text in several scripts (for example Turkish "ı").
+"alembic/versions/*.py" = ["E501", "RUF001"]
 
 [tool.mypy]
 python_version = "3.12"

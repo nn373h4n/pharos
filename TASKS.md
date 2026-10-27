@@ -60,8 +60,8 @@ Plan: [docs/plans/m2-sign-in-organization-onboarding.md](docs/plans/m2-sign-in-o
 
 | ID | P | Status | Task | Depends on | Acceptance criterion |
 | --- | --- | --- | --- | --- | --- |
-| M2-01 | P0 | In Progress | ADR-0011, plan copied into the repository, dependency approval | — | ADR in the template; plan and tasks recorded |
-| M2-02 | P0 | Todo | Migration 0002: departments, professions, users, local credentials, profiles, audit log, org lookup function | 01 | RLS test per table; cross-organization foreign keys rejected; audit log append-only; column grants; downgrade round trip |
+| M2-01 | P0 | Done | ADR-0011, plan copied into the repository, dependency approval | — | ADR in the template; plan and tasks recorded |
+| M2-02 | P0 | Done | Migration 0002: departments, professions, users, local credentials, profiles, audit log, org lookup function | 01 | RLS test per table; cross-organization foreign keys rejected; audit log append-only; column grants; downgrade round trip |
 | M2-10a | P1 | Todo | Keycloak spike: dev profile behind Caddy, issuer hostname, CA trust | 01 | The API validates a Keycloak token through the proxy hostname |
 | M2-03a | P0 | Todo | Error format, clock, principal, unit of work, `current_user`, settings, lazy organization, route-coverage gate | 02 | A failing commit never returns 200; the gate fails on an uncovered route |
 | M2-03b | P0 | Todo | Session store, CSRF, Origin check, cookies, pinned proxy trust | 03a | Revocation, fixation, Origin and forged forwarded-header tests |
