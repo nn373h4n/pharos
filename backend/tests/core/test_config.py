@@ -263,3 +263,108 @@ def test_empty_oidc_values_from_compose_mean_not_configured() -> None:
     settings = production(oidc_issuer="", oidc_client_id="", oidc_client_secret="")
     assert settings.oidc_enabled is False
     assert settings.oidc_client_secret is None
+
+
+# --- Microsoft Entra ID preset -----------------------------------------------------------------
+
+TENANT = "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d"
+ENTRA = {
+    "oidc_preset": "entra",
+    "entra_tenant_id": TENANT,
+    "oidc_client_id": "11111111-2222-4333-8444-555555555555",
+    "oidc_client_secret": "a-real-looking-client-secret-1234",
+}
+
+
+def test_the_entra_preset_derives_everything_from_the_tenant() -> None:
+    settings = production(**ENTRA)
+    assert settings.oidc_enabled is True
+    assert settings.oidc_issuer == f"https://login.microsoftonline.com/{TENANT}/v2.0"
+    assert settings.oidc_scopes == "openid profile email User.Read"
+    assert settings.oidc_department_claim is None  # Graph supplies it
+    assert settings.oidc_provider_name == "Microsoft"
+
+
+def test_the_tenant_id_is_normalized_to_lower_case() -> None:
+    assert production(**{**ENTRA, "entra_tenant_id": TENANT.upper()}).entra_tenant_id == TENANT
+
+
+def test_the_defaults_compose_passes_along_do_not_hide_the_preset() -> None:
+    settings = production(
+        **ENTRA,
+        oidc_scopes="openid profile email",
+        oidc_provider_name="Single sign-on",
+        oidc_department_claim="department",
+        oidc_issuer="",
+    )
+    assert settings.oidc_provider_name == "Microsoft"
+    assert settings.oidc_scopes.endswith("User.Read")
+    assert settings.oidc_department_claim is None
+
+
+def test_explicit_scopes_and_name_are_kept() -> None:
+    settings = production(**ENTRA, oidc_scopes="openid email", oidc_provider_name="Contoso")
+    assert settings.oidc_scopes == "openid email"
+    assert settings.oidc_provider_name == "Contoso"
+
+
+@pytest.mark.parametrize(
+    "tenant",
+    [
+        "common",
+        "organizations",
+        "consumers",
+        "contoso.onmicrosoft.com",
+        "7c6b5a49-3827-4615-9a03-b1c2d3e4f506/../common",
+        "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4",
+        "{tenantid}",
+    ],
+)
+def test_only_one_directory_by_its_guid_is_accepted(tenant: str) -> None:
+    with pytest.raises(ValidationError, match="entra_tenant_id"):
+        production(**{**ENTRA, "entra_tenant_id": tenant})
+
+
+def test_the_tenant_of_personal_microsoft_accounts_is_refused_by_its_guid_too() -> None:
+    with pytest.raises(ValidationError, match="personal Microsoft accounts"):
+        production(**{**ENTRA, "entra_tenant_id": "9188040d-6c67-4c5b-b112-36a304b66dad"})
+
+
+def test_guests_are_refused_unless_allowed() -> None:
+    assert production(**ENTRA).entra_allow_guests is False
+    assert production(**ENTRA, entra_allow_guests="true").entra_allow_guests is True
+
+
+def test_the_entra_preset_needs_a_tenant_and_a_client_id() -> None:
+    without_tenant = {k: v for k, v in ENTRA.items() if k != "entra_tenant_id"}
+    with pytest.raises(ValidationError, match="entra_tenant_id"):
+        production(**without_tenant)
+    without_client = {k: v for k, v in ENTRA.items() if k != "oidc_client_id"}
+    with pytest.raises(ValidationError, match="oidc_client_id"):
+        production(**without_client)
+
+
+def test_an_issuer_that_disagrees_with_the_tenant_is_refused() -> None:
+    other = "https://login.microsoftonline.com/7c6b5a49-3827-4615-9a03-b1c2d3e4f506/v2.0"
+    with pytest.raises(ValidationError, match="does not match"):
+        production(**ENTRA, oidc_issuer=other)
+    with pytest.raises(ValidationError, match="does not match"):
+        production(**ENTRA, oidc_issuer="https://login.microsoftonline.com/common/v2.0")
+    same = f"https://login.microsoftonline.com/{TENANT}/v2.0"
+    assert production(**ENTRA, oidc_issuer=same).oidc_issuer == same
+
+
+def test_a_tenant_without_the_preset_is_a_mistake() -> None:
+    with pytest.raises(ValidationError, match="oidc_preset"):
+        production(**OIDC, entra_tenant_id=TENANT)
+
+
+def test_production_still_wants_the_client_secret_with_the_preset() -> None:
+    without = {k: v for k, v in ENTRA.items() if k != "oidc_client_secret"}
+    with pytest.raises(ValidationError, match="oidc_client_secret"):
+        production(**without)
+
+
+def test_an_empty_tenant_from_compose_means_not_configured() -> None:
+    settings = production(entra_tenant_id="")
+    assert settings.entra_tenant_id is None and settings.oidc_enabled is False

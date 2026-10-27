@@ -51,7 +51,7 @@ All ten tasks were merged through pull requests. The pipeline arrived with M1-09
 | F-15 | P3 | Partly done | Tie a session to how the user signed in (local or SSO) and end local sessions when `PHAROS_LOCAL_LOGIN` is switched off or an admin loses break-glass rights | Review of M2-04 (P3-3). Done in M2-05: the session records the method and local sessions end when password sign-in is switched off; done in M2-07: demoting or disabling a person ends their sessions. Still open: a sign-in racing a demotion can leave a member with a password session under `break-glass` (found in the M2-07 review), and under `break-glass` members' password sessions made before the switch last until they expire (up to 24 hours). Fix idea: refuse `local` sessions of non-admins in the session resolver. |
 | F-16 | P3 | Todo | Verification time of hashes made with older parameters differs from the dummy hash until they are rehashed | Review of M2-04 (P3-2); small timing signal, only for accounts not yet upgraded |
 | F-17 | P3 | Todo | OIDC client hardening: refetch the signing keys on a TTL (a withdrawn key stays trusted until restart) and put one overall deadline on each provider call (the 10 s timeout is per chunk) | Security review of M2-05 (P3-2, P3-4) |
-| F-18 | P3 | Todo | Negative test for the Entra `common` tenant issuer | Security review of M2-05 (P3-7); belongs to M2-06 |
+| F-18 | P3 | Done | Negative test for the Entra `common` tenant issuer | Security review of M2-05 (P3-7); done in M2-06: config tests refuse `common` and an issuer that disagrees with the tenant |
 
 ## Decisions waiting for the maintainer
 
@@ -74,7 +74,7 @@ Plan: [docs/plans/m2-sign-in-organization-onboarding.md](docs/plans/m2-sign-in-o
 | M2-04 | P0 | Done | Local accounts: login, logout, `/me`, operator CLI | 03c | Break-glass admin can sign in; no user enumeration; no hard lockout |
 | M2-08 | P1 | Done | Profile and onboarding API, professions, interest codes | 03a | Profile validated against its organization; timestamps stored |
 | M2-05 | P0 | Done | Generic OIDC with a fake-IdP negative suite, user creation on first sign-in | 03c | Every negative case in the plan is rejected; the first sign-in upsert never writes `role` or `status`; display names are truncated to 200 characters |
-| M2-06 | P1 | Todo | Entra ID preset (tenant-pinned issuer, Graph prefill) | 05 | Tested against recorded or mocked Entra shapes; real Entra NOT TESTED |
+| M2-06 | P1 | Done | Entra ID preset (tenant-pinned issuer, Graph prefill) | 05 | Tested against recorded or mocked Entra shapes; real Entra NOT TESTED |
 | M2-07 | P0 | Done | RBAC dependency, role and status endpoints, user list | 04 | Role × endpoint matrix; role change and disabling apply on the next request; two admins cannot demote each other concurrently (row lock) |
 | M2-09a | P1 | Todo | Frontend: login page, app shell, 401 handling | 04 | Keyboard-only sign-in; axe clean in 4 languages |
 | M2-09b | P1 | Todo | Frontend: onboarding stepper | 08, 09a | Keyboard-only; completes in under 2 minutes in a timed run |

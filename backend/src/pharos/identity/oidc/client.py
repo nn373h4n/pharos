@@ -21,7 +21,7 @@ import json
 import logging
 import os
 import ssl
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import quote_plus, urlsplit
 
@@ -36,6 +36,9 @@ MAX_RESPONSE_BYTES = 1_048_576
 DISCOVERY_TTL_SECONDS = 3600
 JWKS_REFETCH_MIN_INTERVAL_SECONDS = 60
 TIMEOUT = httpx.Timeout(10.0, connect=5.0)
+# The department is a nicety: do not hold a sign-in (and its database connection) for long.
+GRAPH_TIMEOUT = httpx.Timeout(4.0, connect=2.0)
+GRAPH_ME_URL = "https://graph.microsoft.com/v1.0/me?$select=department"
 
 
 class IdpUnavailable(Exception):
@@ -44,6 +47,13 @@ class IdpUnavailable(Exception):
 
 class IdpRejected(Exception):
     """The provider refused the request (for example an invalid or reused authorization code)."""
+
+
+@dataclass(frozen=True, slots=True)
+class TokenSet:
+    # Neither token appears in a repr: an error report showing local variables must not leak them.
+    id_token: str = field(repr=False)
+    access_token: str | None = field(repr=False)  # for Microsoft Graph; never stored
 
 
 @dataclass(frozen=True, slots=True)
@@ -158,7 +168,14 @@ class IdpClient:
     # --- plumbing -----------------------------------------------------------------------------
 
     async def _fetch_json(
-        self, method: str, url: str, *, data: dict[str, str] | None = None, auth: Any = None
+        self,
+        method: str,
+        url: str,
+        *,
+        data: dict[str, str] | None = None,
+        auth: Any = None,
+        bearer: str | None = None,
+        time_limit: httpx.Timeout = TIMEOUT,
     ) -> dict[str, Any]:
         try:
             async with self._http.stream(
@@ -168,9 +185,13 @@ class IdpClient:
                 auth=auth,
                 # No compression: a small compressed answer could inflate far past the size limit
                 # before it is counted.
-                headers={"Accept": "application/json", "Accept-Encoding": "identity"},
+                headers={
+                    "Accept": "application/json",
+                    "Accept-Encoding": "identity",
+                    **({"Authorization": f"Bearer {bearer}"} if bearer else {}),
+                },
                 follow_redirects=False,
-                timeout=TIMEOUT,
+                timeout=time_limit,
             ) as response:
                 if 300 <= response.status_code < 400:
                     raise IdpUnavailable("the provider answered with a redirect")
@@ -243,8 +264,10 @@ class IdpClient:
 
     # --- the code exchange --------------------------------------------------------------------
 
-    async def exchange_code(self, code: str, code_verifier: str, redirect_uri: str) -> str:
-        """Trade the authorization code for the ID token. Returns only the ID token."""
+    async def exchange_code_tokens(
+        self, code: str, code_verifier: str, redirect_uri: str
+    ) -> "TokenSet":
+        """Trade the authorization code for the tokens."""
         discovery = await self.discovery()
         form = {
             "grant_type": "authorization_code",
@@ -265,4 +288,25 @@ class IdpClient:
         id_token = response.get("id_token")
         if not isinstance(id_token, str) or not id_token:
             raise IdpUnavailable("the token response has no ID token")
-        return id_token
+        access_token = response.get("access_token")
+        return TokenSet(id_token, access_token if isinstance(access_token, str) else None)
+
+    async def exchange_code(self, code: str, code_verifier: str, redirect_uri: str) -> str:
+        """Like `exchange_code_tokens`, but returns only the ID token."""
+        return (await self.exchange_code_tokens(code, code_verifier, redirect_uri)).id_token
+
+    async def graph_department(self, access_token: str) -> str | None:
+        """Microsoft Graph: the department of the person who just signed in (Entra only).
+
+        The address is a constant of ours, never taken from a token or a discovery document. The
+        access token is the provider's, issued for Graph, and is not validated here: it is only
+        handed back to Graph, which does that itself. Any failure means "no department".
+        """
+        try:
+            profile = await self._fetch_json(
+                "GET", GRAPH_ME_URL, bearer=access_token, time_limit=GRAPH_TIMEOUT
+            )
+        except (IdpUnavailable, IdpRejected):
+            return None
+        department = profile.get("department")
+        return department if isinstance(department, str) else None

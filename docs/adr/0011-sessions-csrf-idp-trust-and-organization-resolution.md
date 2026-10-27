@@ -67,7 +67,7 @@ open, and an independent review of the first M2 design found that the obvious ch
   to one tenant (`common` and `organizations` are refused) and the subject is the object id.
 - **Identity-provider HTTP client.** A small dedicated client may talk only to the endpoints listed
   in the validated discovery document (whose `issuer` must equal the configured value) and to
-  explicitly configured extras such as Microsoft Graph. It requires https outside development,
+  one fixed extra: with the Entra preset, `https://graph.microsoft.com/v1.0/me` (a constant, never read from a token or document) to read the department with the sign-in's access token. It requires https outside development,
   sets timeouts and a response size limit and refuses redirects to other hosts. It is the only
   module allowed to import `httpx`, enforced by an import-linter contract. This is the one
   exception to the `SafeHttpClient` rule: that client is for untrusted public sources, and the

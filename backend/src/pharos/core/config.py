@@ -18,6 +18,12 @@ _PLACEHOLDER_PASSWORDS = {"changeme", "password", "secret", "pharos", "postgres"
 _SLUG = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")
 _DEVELOPMENT_SECRET_KEY = "development-only-secret-key-never-use-in-production"  # noqa: S105  (the published development default; production refuses it)
 MIN_SECRET_KEY_BYTES = 32
+_GUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+ENTRA_ISSUER = "https://login.microsoftonline.com/{tenant}/v2.0"
+_DEFAULT_SCOPES = "openid profile email"
+# The directory behind the "consumers" alias: personal Microsoft accounts, never an organization.
+_ENTRA_CONSUMERS_TENANT = "9188040d-6c67-4c5b-b112-36a304b66dad"
+_DEFAULT_PROVIDER_NAME = "Single sign-on"
 
 
 def _password(url: SecretStr) -> str:
@@ -68,12 +74,20 @@ class Settings(BaseSettings):
 
     # Single sign-on through any OpenID Connect provider (ADR-0003, ADR-0011). Off unless both the
     # issuer and the client id are set.
+    #
+    # `oidc_preset="entra"` is Microsoft Entra ID: set `entra_tenant_id` (a directory GUID) and the
+    # issuer is derived from it. The multi-tenant aliases (common, organizations, consumers) are
+    # refused, so only people of that one directory can sign in.
+    oidc_preset: Literal["generic", "entra"] = "generic"
+    entra_tenant_id: str | None = None
+    # Guests (B2B users invited from another directory) are refused unless this is set.
+    entra_allow_guests: bool = False
     oidc_issuer: str | None = None
     oidc_client_id: str | None = Field(default=None, max_length=256)
     oidc_client_secret: SecretStr | None = None
-    oidc_scopes: str = "openid profile email"
+    oidc_scopes: str = _DEFAULT_SCOPES
     # Shown on the sign-in button.
-    oidc_provider_name: str = Field(default="Single sign-on", min_length=1, max_length=60)
+    oidc_provider_name: str = Field(default=_DEFAULT_PROVIDER_NAME, min_length=1, max_length=60)
     # Which ID-token claim holds the department, if the provider sends one.
     oidc_department_claim: str | None = Field(default="department", max_length=64)
 
@@ -82,7 +96,9 @@ class Settings(BaseSettings):
     session_idle_seconds: int = Field(default=8 * 3600, ge=60)
     session_absolute_seconds: int = Field(default=24 * 3600, ge=60)
 
-    @field_validator("oidc_issuer", "oidc_client_id", "oidc_client_secret", mode="before")
+    @field_validator(
+        "oidc_issuer", "oidc_client_id", "oidc_client_secret", "entra_tenant_id", mode="before"
+    )
     @classmethod
     def _empty_means_unset(cls, value: object) -> object:
         """Compose passes unset variables as empty strings; they mean "not configured"."""
@@ -120,6 +136,34 @@ class Settings(BaseSettings):
         if not _SLUG.fullmatch(value):
             raise ValueError("org_slug may contain lower-case letters, digits and hyphens only")
         return value
+
+    @model_validator(mode="after")
+    def _entra_preset(self) -> Self:
+        if self.oidc_preset != "entra":
+            if self.entra_tenant_id is not None:
+                raise ValueError("entra_tenant_id needs oidc_preset=entra")
+            return self
+        tenant = (self.entra_tenant_id or "").lower()
+        if not _GUID.fullmatch(tenant):
+            raise ValueError(
+                "entra_tenant_id must be the directory (tenant) id, a GUID; "
+                "'common', 'organizations', 'consumers' and domain names are refused"
+            )
+        if tenant == _ENTRA_CONSUMERS_TENANT:
+            raise ValueError("entra_tenant_id is the tenant of personal Microsoft accounts")
+        issuer = ENTRA_ISSUER.format(tenant=tenant)
+        if self.oidc_issuer is not None and self.oidc_issuer != issuer:
+            raise ValueError("oidc_issuer does not match entra_tenant_id; leave it unset")
+        if self.oidc_client_id is None:
+            raise ValueError("oidc_client_id is required with oidc_preset=entra")
+        self.entra_tenant_id = tenant
+        self.oidc_issuer = issuer
+        if self.oidc_scopes == _DEFAULT_SCOPES:
+            self.oidc_scopes = f"{_DEFAULT_SCOPES} User.Read"  # User.Read: department from Graph
+        if self.oidc_provider_name == _DEFAULT_PROVIDER_NAME:  # Compose passes the default along
+            self.oidc_provider_name = "Microsoft"
+        self.oidc_department_claim = None  # Entra does not put it in the ID token
+        return self
 
     @model_validator(mode="after")
     def _oidc_is_all_or_nothing(self) -> Self:

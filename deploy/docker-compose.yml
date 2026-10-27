@@ -65,7 +65,12 @@ x-backend-env: &backend-env
   PHAROS_SECRET_KEY: ${PHAROS_SECRET_KEY:?set PHAROS_SECRET_KEY}
   PHAROS_LOCAL_LOGIN: ${PHAROS_LOCAL_LOGIN:-break-glass}
   PHAROS_DEFAULT_LOCALE: ${PHAROS_DEFAULT_LOCALE:-en}
-  # Single sign-on stays off until both PHAROS_OIDC_ISSUER and PHAROS_OIDC_CLIENT_ID are set.
+  # Single sign-on is off while PHAROS_OIDC_ISSUER and PHAROS_OIDC_CLIENT_ID are empty. With
+  # PHAROS_OIDC_PRESET=entra the tenant id replaces the issuer, and a missing tenant or client id
+  # stops the API from starting (it never falls back to a wider setting).
+  PHAROS_OIDC_PRESET: ${PHAROS_OIDC_PRESET:-generic}
+  PHAROS_ENTRA_TENANT_ID: ${PHAROS_ENTRA_TENANT_ID:-}
+  PHAROS_ENTRA_ALLOW_GUESTS: ${PHAROS_ENTRA_ALLOW_GUESTS:-false}
   PHAROS_OIDC_ISSUER: ${PHAROS_OIDC_ISSUER:-}
   PHAROS_OIDC_CLIENT_ID: ${PHAROS_OIDC_CLIENT_ID:-}
   PHAROS_OIDC_CLIENT_SECRET: ${PHAROS_OIDC_CLIENT_SECRET:-}
