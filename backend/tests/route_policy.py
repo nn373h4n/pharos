@@ -40,11 +40,19 @@ PUBLIC_ROUTES: frozenset[Route] = frozenset(
     {
         ("GET", "/api/healthz"),  # liveness, touches nothing
         ("GET", "/api/readyz"),  # readiness; Caddy does not serve it to the internet
+        ("GET", "/api/auth/config"),  # the sign-in page needs it before anyone is signed in
+        ("POST", "/api/auth/local/login"),  # this IS the sign-in; throttled and Origin-checked
+        ("POST", "/api/auth/logout"),  # acts only on the caller's own cookie; idempotent
     }
 )
 
 # Authenticated routes: who may call them and which test proves another organization cannot.
-ROLE_MATRIX: dict[Route, Rule] = {}
+ROLE_MATRIX: dict[Route, Rule] = {
+    ("GET", "/api/me"): Rule(
+        frozenset({Role.ADMIN, Role.EDITOR, Role.MEMBER}),
+        "integration/test_local_auth.py::test_me_never_shows_another_organizations_user",
+    ),
+}
 
 
 def _depends_on(dependant: Dependant, target: object) -> bool:

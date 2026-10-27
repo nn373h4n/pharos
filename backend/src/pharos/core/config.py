@@ -58,6 +58,12 @@ class Settings(BaseSettings):
     # Root secret. Separate keys for separate purposes are derived from it (see core/secrets.py).
     secret_key: SecretStr = SecretStr(_DEVELOPMENT_SECRET_KEY)
 
+    # Local (password) sign-in: "off", "break-glass" (administrators only) or "on" (everyone).
+    local_login: Literal["off", "break-glass", "on"] = "break-glass"
+    # Argon2id cost. The defaults follow OWASP's guidance with a margin; production refuses less.
+    password_hash_memory_kib: int = Field(default=65_536, ge=8)
+    password_hash_time_cost: int = Field(default=3, ge=1)
+
     # Sessions live in their own Redis database (Celery uses database 0 of the same server).
     session_redis_db: int = Field(default=1, ge=0, le=15)
     session_idle_seconds: int = Field(default=8 * 3600, ge=60)
@@ -112,6 +118,11 @@ class Settings(BaseSettings):
             raise ValueError("redis_url needs a password in production")
         if not self.public_url.startswith("https://"):
             raise ValueError("public_url must use https in production")
+        if self.password_hash_memory_kib < 19_456 or self.password_hash_time_cost < 2:
+            raise ValueError(
+                "password hashing is too cheap for production (Argon2id needs at least "
+                "19456 KiB and 2 iterations)"
+            )
         key = self.secret_key.get_secret_value()
         if (
             key == _DEVELOPMENT_SECRET_KEY

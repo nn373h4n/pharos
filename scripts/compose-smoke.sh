@@ -156,6 +156,46 @@ ready=$(readyz)
 echo "      $ready"
 check "readyz reports database, application role, redis, worker, migrations and organization all ok" grep -q '"status":"ok"' <<<"$ready"
 
+echo "== signing in through the proxy"
+ADMIN_PASSWORD=$(secret)
+printf '%s\n' "$ADMIN_PASSWORD" |
+  compose exec -T api python -m pharos.cli create-admin --username smoke-admin --password-stdin >/dev/null 2>&1
+check "the operator command creates an administrator" test "$?" = 0
+jar="$WORK/cookies"
+login_json=$(printf '{"username":"smoke-admin","password":"%s"}' "$ADMIN_PASSWORD")
+bad_json=$(printf '{"username":"smoke-admin","password":"%s-wrong"}' "$ADMIN_PASSWORD")
+post_json() { # json, extra curl args...
+  local body=$1
+  shift
+  https -H 'Content-Type: application/json' -d "$body" "$@" "$base/api/auth/local/login"
+}
+check "a sign-in without an Origin header is refused (403)" \
+  test "$(post_json "$login_json" -o /dev/null -w '%{http_code}')" = 403
+check "a sign-in from another origin is refused (403)" \
+  test "$(post_json "$login_json" -H 'Origin: https://evil.example' -o /dev/null -w '%{http_code}')" = 403
+check "a wrong password is refused (401)" \
+  test "$(post_json "$bad_json" -H "Origin: $base" -o /dev/null -w '%{http_code}')" = 401
+signed_in=$(post_json "$login_json" -H "Origin: $base" -c "$jar" -D "$WORK/login-headers" -w '\n%{http_code}')
+check "the right password signs in (200)" test "$(tail -1 <<<"$signed_in")" = 200
+cookie_line=$(grep -i '^set-cookie:' "$WORK/login-headers" | head -1)
+for attribute in '__Host-pharos_session=' 'Secure' 'HttpOnly' 'SameSite=lax' 'Path=/'; do
+  check "the session cookie has $attribute" grep -qi -- "$attribute" <<<"$cookie_line"
+done
+check_blocked "the session cookie has no Domain attribute" grep -qi 'domain=' <<<"$cookie_line"
+check "the session works through the proxy" \
+  test "$(https -b "$jar" -o /dev/null -w '%{http_code}' "$base/api/me")" = 200
+csrf=$(head -n -1 <<<"$signed_in" | python3 -I -c "import json, sys; print(json.load(sys.stdin)['csrf_token'])")
+check "a sign-out without the CSRF token is refused (403)" \
+  test "$(https -b "$jar" -X POST -H "Origin: $base" -o /dev/null -w '%{http_code}' "$base/api/auth/logout")" = 403
+check "a sign-out with the CSRF token works (204)" \
+  test "$(https -b "$jar" -X POST -H "Origin: $base" -H "X-CSRF-Token: $csrf" -o /dev/null -w '%{http_code}' "$base/api/auth/logout")" = 204
+check "the old cookie no longer works (401)" \
+  test "$(https -b "$jar" -o /dev/null -w '%{http_code}' "$base/api/me")" = 401
+all_logs=$(compose logs --no-log-prefix 2>&1)
+check "the container logs record the sign-in requests (positive control)" \
+  grep -q '/api/auth/local/login' <<<"$all_logs"
+check_blocked "the password appears in no container log" grep -qF -- "$ADMIN_PASSWORD" <<<"$all_logs"
+
 echo "== network isolation"
 # Every probe is a plain TCP connection made with a tool the image already has. A probe only counts
 # when the same command succeeds where the connection is allowed (the control); otherwise

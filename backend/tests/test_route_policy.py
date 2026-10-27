@@ -58,7 +58,7 @@ def test_a_route_that_is_not_authenticated_cannot_hide_in_the_matrix() -> None:
         return {}
 
     matrix = {("GET", "/api/secret"): Rule(frozenset({Role.ADMIN}), f"{THIS_TEST}")}
-    assert find_problems(app, matrix=matrix) == [
+    assert find_problems(app, matrix={**ROLE_MATRIX, **matrix}) == [
         "GET /api/secret is in the role matrix but does not require sign-in"
     ]
 
@@ -72,8 +72,8 @@ def test_an_authenticated_route_needs_roles_and_a_real_cross_tenant_test() -> No
 
     key = ("GET", "/api/mine")
     ok = {key: Rule(frozenset({Role.MEMBER}), THIS_TEST)}
-    assert find_problems(app, matrix=ok) == []
-    assert find_problems(app, matrix={key: Rule(frozenset(), THIS_TEST)}) == [
+    assert find_problems(app, matrix={**ROLE_MATRIX, **ok}) == []
+    assert find_problems(app, matrix={**ROLE_MATRIX, key: Rule(frozenset(), THIS_TEST)}) == [
         "GET /api/mine has no roles in the matrix"
     ]
     for missing in (
@@ -81,7 +81,9 @@ def test_an_authenticated_route_needs_roles_and_a_real_cross_tenant_test() -> No
         "test_route_policy.py::test_not_there",
         "test_route_policy.py",
     ):
-        problems = find_problems(app, matrix={key: Rule(frozenset({Role.MEMBER}), missing)})
+        problems = find_problems(
+            app, matrix={**ROLE_MATRIX, key: Rule(frozenset({Role.MEMBER}), missing)}
+        )
         assert len(problems) == 1
         assert "cross-tenant test" in problems[0]
 
@@ -94,7 +96,7 @@ def test_role_checked_routes_count_as_authenticated() -> None:
         return None
 
     matrix = {("GET", "/api/admin-only"): Rule(frozenset({Role.ADMIN}), THIS_TEST)}
-    assert find_problems(app, matrix=matrix) == []
+    assert find_problems(app, matrix={**ROLE_MATRIX, **matrix}) == []
 
 
 def test_a_public_route_cannot_secretly_require_sign_in_or_be_stale() -> None:
@@ -113,7 +115,7 @@ def test_a_public_route_cannot_secretly_require_sign_in_or_be_stale() -> None:
 
 def test_a_route_cannot_be_public_and_in_the_matrix() -> None:
     both = {("GET", "/api/healthz"): Rule(frozenset({Role.ADMIN}), THIS_TEST)}
-    problems = find_problems(build("production"), matrix=both)
+    problems = find_problems(build("production"), matrix={**ROLE_MATRIX, **both})
     assert "GET /api/healthz is both public and in the role matrix" in problems
 
 

@@ -4,9 +4,11 @@ Counters live only in Redis and are changed by single Redis scripts, so parallel
 slip past a limit between a read and a write. Two mechanisms:
 
 * `hit`: a fixed window per key ("at most N attempts per minute from one address").
-* `record_failure` / `retry_after`: a failure counter that makes every further failed attempt wait
-  longer (exponential, capped). There is no hard lockout: an attacker who knows an account name must
-  not be able to lock its owner out, only to slow guessing down. An operator can `clear` a key.
+* `reserve` / `refund`: every attempt is booked atomically BEFORE the password is checked and a
+  correct password gives it back, so the waits grow with every wrong guess (exponential, capped)
+  and a burst of parallel guesses cannot all pass. There is no hard lockout: an attacker who
+  knows an account name must not be able to lock its owner out, only to slow guessing down. An
+  operator can `clear` a key.
 
 The login policy built from these parts (`LoginThrottle`) throttles per address, per
 account-and-address pair (strict) and per account across all addresses (soft). Identifiers are
@@ -16,6 +18,7 @@ exist. When Redis does not answer the request fails closed (503): no limiter, no
 """
 
 import hashlib
+import ipaddress
 from dataclasses import dataclass
 from typing import Any
 
@@ -35,23 +38,54 @@ if n == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end
 return {n, redis.call('TTL', KEYS[1])}
 """
 
-# KEYS: failure counter, "wait until" marker.
-# ARGV: now (ms), window (s), free failures, base delay (ms), maximum delay (ms).
-# The counter's window restarts at every failure. Returns {failures, delay in ms}.
-_FAIL = """
+# KEYS: attempt counter, "wait until" marker.
+# ARGV: now (ms), window (s), free attempts, base delay (ms), maximum delay (ms).
+# One atomic step does both the check and the booking: if a wait is still running the attempt is
+# refused ({0, ms left}); otherwise it is counted AT ONCE and, after the free attempts, sets the
+# wait that the next attempt must respect. Counting before the password is checked is what stops a
+# burst of parallel requests from all passing a check that only later failures would have tightened.
+# A correct password gives its attempt back (see _REFUND). The counter's window restarts at every
+# attempt. Returns {1, 0} when allowed.
+_RESERVE = """
+local until_ms = redis.call('GET', KEYS[2])
+local now = tonumber(ARGV[1])
+if until_ms and tonumber(until_ms) > now then
+  return {0, tonumber(until_ms) - now}
+end
 local n = redis.call('INCR', KEYS[1])
 redis.call('EXPIRE', KEYS[1], ARGV[2])
 local free = tonumber(ARGV[3])
-local delay = 0
 if n > free then
-  delay = math.min(tonumber(ARGV[5]), tonumber(ARGV[4]) * 2 ^ (n - free - 1))
-end
-if delay > 0 then
+  local delay = math.min(tonumber(ARGV[5]), tonumber(ARGV[4]) * 2 ^ (n - free - 1))
   local ttl = math.max(tonumber(ARGV[2]), math.ceil(delay / 1000))
-  redis.call('SET', KEYS[2], string.format('%d', tonumber(ARGV[1]) + delay), 'EX', ttl)
+  redis.call('SET', KEYS[2], string.format('%d', now + delay), 'EX', ttl)
 end
-return {n, math.floor(delay)}
+return {1, 0}
 """
+
+# KEYS: attempt counter. Gives one booked attempt back, never below zero.
+_REFUND = """
+local n = tonumber(redis.call('GET', KEYS[1]) or '0')
+if n > 0 then redis.call('DECR', KEYS[1]) end
+return n
+"""
+
+
+def network_of(address: str) -> str:
+    """The unit a client is limited as: an IPv4 address, or the /64 of an IPv6 address.
+
+    A single IPv6 customer holds a whole /64, so limiting single addresses would let one machine
+    rotate through billions of them. Anything that is not an IP address is used as it is.
+    """
+    try:
+        parsed = ipaddress.ip_address(address.strip().split("%")[0])
+    except ValueError:
+        return address
+    if isinstance(parsed, ipaddress.IPv6Address):
+        if parsed.ipv4_mapped:
+            return str(parsed.ipv4_mapped)
+        return str(ipaddress.ip_network(f"{parsed}/64", strict=False))
+    return str(parsed)
 
 
 def subject(*parts: str) -> str:
@@ -77,7 +111,8 @@ class RateLimiter:
         self._clock = clock
         self._prefix = prefix
         self._hit = redis.register_script(_HIT)
-        self._fail = redis.register_script(_FAIL)
+        self._reserve_script = redis.register_script(_RESERVE)
+        self._refund_script = redis.register_script(_REFUND)
 
     def _key(self, kind: str, name: str) -> str:
         return f"{self._prefix}{kind}:{name}"
@@ -94,7 +129,7 @@ class RateLimiter:
         allowed = int(count) <= limit
         return Decision(allowed, int(count), 0 if allowed else max(1, int(ttl)))
 
-    async def record_failure(
+    async def reserve(
         self,
         name: str,
         *,
@@ -103,15 +138,22 @@ class RateLimiter:
         base_ms: int,
         max_ms: int,
     ) -> int:
-        """Count a failed attempt. Returns the delay in milliseconds before the next one."""
+        """Book one attempt. Returns 0 when it may go ahead, else the seconds it must wait."""
         try:
-            _, delay = await self._fail(
+            allowed, wait_ms = await self._reserve_script(
                 keys=[self._key("fail", name), self._key("until", name)],
                 args=[self._now_ms(), window_seconds, free, base_ms, max_ms],
             )
         except RedisError as error:
             raise DependencyUnavailable from error
-        return int(delay)
+        return 0 if int(allowed) else max(1, -(-int(wait_ms) // 1000))
+
+    async def refund(self, name: str) -> None:
+        """Give back one booked attempt (the password turned out to be right)."""
+        try:
+            await self._refund_script(keys=[self._key("fail", name)])
+        except RedisError as error:
+            raise DependencyUnavailable from error
 
     async def retry_after(self, name: str) -> int:
         """Seconds the caller must still wait (0 = may try)."""
@@ -169,14 +211,20 @@ class LoginThrottle:
     @staticmethod
     def _names(account: str, ip: str) -> tuple[str, str, str]:
         account_part = subject(account)
+        source = subject(network_of(ip))
         return (
-            f"login:ip:{subject(ip)}",
+            f"login:ip:{source}",
             f"login:account:{account_part}",
-            f"login:pair:{account_part}:{subject(ip)}",
+            f"login:pair:{account_part}:{source}",
         )
 
     async def check(self, account: str, ip: str) -> None:
-        """Raise 429 when this attempt must wait. Call it BEFORE any expensive password work."""
+        """Book this attempt, or raise 429 when it must wait.
+
+        Call it BEFORE any expensive password work. The attempt is counted here, not after the
+        password has been checked, so parallel requests cannot all slip through before the first
+        failure is recorded. `succeeded` gives the attempt back.
+        """
         ip_name, account_name, pair_name = self._names(account, ip)
         policy = self._policy
         decision = await self._limiter.hit(
@@ -184,35 +232,31 @@ class LoginThrottle:
         )
         if not decision.allowed:
             raise rate_limited(decision.retry_after)
-        wait = max(
-            await self._limiter.retry_after(pair_name),
-            await self._limiter.retry_after(account_name),
-        )
-        if wait:
-            raise rate_limited(wait)
-
-    async def failed(self, account: str, ip: str) -> None:
-        _, account_name, pair_name = self._names(account, ip)
-        policy = self._policy
-        await self._limiter.record_failure(
+        wait = await self._limiter.reserve(
             pair_name,
             window_seconds=policy.window_seconds,
             free=policy.pair_free,
             base_ms=policy.pair_base_ms,
             max_ms=policy.pair_max_ms,
         )
-        await self._limiter.record_failure(
+        if wait:
+            raise rate_limited(wait)
+        wait = await self._limiter.reserve(
             account_name,
             window_seconds=policy.window_seconds,
             free=policy.account_free,
             base_ms=policy.account_base_ms,
             max_ms=policy.account_max_ms,
         )
+        if wait:
+            await self._limiter.refund(pair_name)  # this attempt never reached the password
+            raise rate_limited(wait)
 
     async def succeeded(self, account: str, ip: str) -> None:
-        """A correct password clears the pair counter; the account-wide one fades by itself."""
-        _, _, pair_name = self._names(account, ip)
+        """A correct password gives its attempt back and clears the pair's counter."""
+        _, account_name, pair_name = self._names(account, ip)
         await self._limiter.clear(pair_name)
+        await self._limiter.refund(account_name)
 
     async def unlock(self, account: str) -> int:
         """Operator action: forget every failure and delay recorded for one account."""
