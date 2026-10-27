@@ -60,17 +60,17 @@ Plan: [docs/plans/m2-sign-in-organization-onboarding.md](docs/plans/m2-sign-in-o
 
 | ID | P | Status | Task | Depends on | Acceptance criterion |
 | --- | --- | --- | --- | --- | --- |
-| M2-01 | P0 | In Progress | ADR-0011, plan copied into the repository, dependency approval | — | ADR in the template; plan and tasks recorded |
-| M2-02 | P0 | Todo | Migration 0002: departments, professions, users, local credentials, profiles, audit log, org lookup function | 01 | RLS test per table; cross-organization foreign keys rejected; audit log append-only; column grants; downgrade round trip |
+| M2-01 | P0 | Done | ADR-0011, plan copied into the repository, dependency approval | — | ADR in the template; plan and tasks recorded |
+| M2-02 | P0 | Done | Migration 0002: departments, professions, users, local credentials, profiles, audit log, org lookup function | 01 | RLS test per table; cross-organization foreign keys rejected; audit log append-only; column grants; downgrade round trip |
 | M2-10a | P1 | Todo | Keycloak spike: dev profile behind Caddy, issuer hostname, CA trust | 01 | The API validates a Keycloak token through the proxy hostname |
 | M2-03a | P0 | Todo | Error format, clock, principal, unit of work, `current_user`, settings, lazy organization, route-coverage gate | 02 | A failing commit never returns 200; the gate fails on an uncovered route |
 | M2-03b | P0 | Todo | Session store, CSRF, Origin check, cookies, pinned proxy trust | 03a | Revocation, fixation, Origin and forged forwarded-header tests |
 | M2-03c | P1 | Todo | Rate limiter, audit service, event catalogue | 03b | Concurrent attempts counted exactly; audit entries without secrets |
 | M2-04 | P0 | Todo | Local accounts: login, logout, `/me`, operator CLI | 03c | Break-glass admin can sign in; no user enumeration; no hard lockout |
 | M2-08 | P1 | Todo | Profile and onboarding API, professions, interest codes | 03a | Profile validated against its organization; timestamps stored |
-| M2-05 | P0 | Todo | Generic OIDC with a fake-IdP negative suite, user creation on first sign-in | 03c | Every negative case in the plan is rejected |
+| M2-05 | P0 | Todo | Generic OIDC with a fake-IdP negative suite, user creation on first sign-in | 03c | Every negative case in the plan is rejected; the first sign-in upsert never writes `role` or `status`; display names are truncated to 200 characters |
 | M2-06 | P1 | Todo | Entra ID preset (tenant-pinned issuer, Graph prefill) | 05 | Tested against recorded or mocked Entra shapes; real Entra NOT TESTED |
-| M2-07 | P0 | Todo | RBAC dependency, role and status endpoints, user list | 04 | Role × endpoint matrix; role change and disabling apply on the next request |
+| M2-07 | P0 | Todo | RBAC dependency, role and status endpoints, user list | 04 | Role × endpoint matrix; role change and disabling apply on the next request; two admins cannot demote each other concurrently (row lock) |
 | M2-09a | P1 | Todo | Frontend: login page, app shell, 401 handling | 04 | Keyboard-only sign-in; axe clean in 4 languages |
 | M2-09b | P1 | Todo | Frontend: onboarding stepper | 08, 09a | Keyboard-only; completes in under 2 minutes in a timed run |
 | M2-10b | P1 | Todo | Compose wiring, `make env` additions, identity-provider guides | 10a, 05 | `make test-compose` still passes with the new settings |

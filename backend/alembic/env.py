@@ -23,9 +23,12 @@ def _run_migrations(connection: Connection) -> None:
 
 async def _run_async_migrations() -> None:
     engine = create_async_engine(_url(), hide_parameters=True)
-    async with engine.connect() as connection:
-        await connection.run_sync(_run_migrations)
-    await engine.dispose()
+    try:
+        async with engine.connect() as connection:
+            await connection.run_sync(_run_migrations)
+    finally:
+        # Also when a migration raises: otherwise the connection stays open until the process ends.
+        await engine.dispose()
 
 
 def run_migrations_offline() -> None:

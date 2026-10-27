@@ -74,12 +74,17 @@ async def test_readiness_fails_when_the_database_is_on_another_revision(
     app_engine: AsyncEngine, owner_engine: AsyncEngine, redis: Redis
 ) -> None:
     async with owner_engine.begin() as connection:
+        original = (
+            await connection.execute(text("SELECT version_num FROM alembic_version"))
+        ).scalar_one()
         await connection.execute(text("UPDATE alembic_version SET version_num = 'bogus'"))
     try:
         report = await readiness(app_engine, redis).check()
     finally:
         async with owner_engine.begin() as connection:
-            await connection.execute(text("UPDATE alembic_version SET version_num = '0001'"))
+            await connection.execute(
+                text("UPDATE alembic_version SET version_num = :version"), {"version": original}
+            )
     assert report.status == "unavailable"
     assert report.checks == {**ALL_OK, "migrations": "fail"}
 

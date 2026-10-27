@@ -1,6 +1,5 @@
 import asyncio
 import uuid
-from collections.abc import AsyncIterator
 
 import pytest
 from alembic import command
@@ -11,29 +10,9 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from pharos.core.db import create_session_factory
 from pharos.core.rls import content_policy_sql, tenant_policy_sql, tenant_session
 
-from .conftest import APP_ROLE, TestDatabase
+from .conftest import APP_ROLE, Orgs, TestDatabase
 
 pytestmark = pytest.mark.integration
-
-Orgs = tuple[uuid.UUID, uuid.UUID]
-
-
-@pytest.fixture
-async def orgs(owner_engine: AsyncEngine) -> AsyncIterator[Orgs]:
-    """Two organizations created by the owner role (the operator task)."""
-    ids: list[uuid.UUID] = []
-    async with owner_engine.begin() as connection:
-        for slug in ("alpha", "beta"):
-            row = await connection.execute(
-                text("INSERT INTO organizations (name, slug) VALUES (:name, :slug) RETURNING id"),
-                {"name": f"Org {slug}", "slug": f"{slug}-{uuid.uuid4().hex[:8]}"},
-            )
-            ids.append(row.scalar_one())
-    yield ids[0], ids[1]
-    async with owner_engine.begin() as connection:
-        await connection.execute(
-            text("DELETE FROM organizations WHERE id = ANY(:ids)"), {"ids": ids}
-        )
 
 
 @pytest.mark.anyio
@@ -135,7 +114,7 @@ async def test_application_cannot_change_immutable_organization_columns(
     app_engine: AsyncEngine, orgs: Orgs, assignment: str
 ) -> None:
     factory = create_session_factory(app_engine)
-    statement = f"UPDATE organizations SET {assignment} WHERE id = :id"  # noqa: S608
+    statement = f"UPDATE organizations SET {assignment} WHERE id = :id"
     with pytest.raises(DBAPIError, match="permission denied"):
         async with tenant_session(factory, orgs[0]) as session:
             await session.execute(text(statement), {"id": orgs[0]})

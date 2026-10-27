@@ -84,7 +84,7 @@ def database() -> Iterator[TestDatabase]:
                   PASSWORD '{APP_PASSWORD}';
               END IF;
             END $$
-            """,  # noqa: S608 - constants and a generated name, test database only
+            """,
             f"CREATE DATABASE {name} OWNER {OWNER_ROLE}",
             f"GRANT CONNECT ON DATABASE {name} TO {APP_ROLE}",
         )
@@ -117,3 +117,28 @@ async def app_engine(database: TestDatabase) -> AsyncIterator[AsyncEngine]:
     engine = create_engine(database.app_url)
     yield engine
     await engine.dispose()
+
+
+Orgs = tuple[uuid.UUID, uuid.UUID]
+
+
+@pytest.fixture
+async def orgs(owner_engine: AsyncEngine) -> AsyncIterator[Orgs]:
+    """Two organizations created by the owner role (the operator task)."""
+    ids: list[uuid.UUID] = []
+    async with owner_engine.begin() as connection:
+        for slug in ("alpha", "beta"):
+            row = await connection.execute(
+                text("INSERT INTO organizations (name, slug) VALUES (:name, :slug) RETURNING id"),
+                {"name": f"Org {slug}", "slug": f"{slug}-{uuid.uuid4().hex[:8]}"},
+            )
+            ids.append(row.scalar_one())
+    yield ids[0], ids[1]
+    async with owner_engine.begin() as connection:
+        # The audit log keeps its rows when an organization goes away unless they are removed first.
+        await connection.execute(
+            text("DELETE FROM audit_logs WHERE org_id = ANY(:ids)"), {"ids": ids}
+        )
+        await connection.execute(
+            text("DELETE FROM organizations WHERE id = ANY(:ids)"), {"ids": ids}
+        )
