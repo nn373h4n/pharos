@@ -35,7 +35,7 @@ from pharos.core.sessions import SessionRecord, SessionStore
 from pharos.core.unit_of_work import UnitOfWork
 from pharos.identity import repository
 from pharos.identity.oidc.client import IdpClient, IdpRejected, IdpUnavailable
-from pharos.identity.oidc.tokens import TokenInvalid, validate_id_token
+from pharos.identity.oidc.tokens import TokenInvalid, clean_text, validate_id_token
 
 logger = logging.getLogger(__name__)
 
@@ -132,8 +132,12 @@ class OidcService:
         scopes: str,
         provider_name: str,
         department_claim: str | None,
+        entra_tenant: str | None = None,
+        entra_allow_guests: bool = False,
     ) -> None:
         self.idp = idp
+        self._entra_tenant = entra_tenant
+        self._entra_allow_guests = entra_allow_guests
         self.provider_name = provider_name
         self._redis = redis
         self._clock = clock
@@ -265,7 +269,9 @@ class OidcService:
             raise OidcFailure(FAILED, "issuer_parameter_missing")
 
         try:
-            id_token = await self.idp.exchange_code(code, stored["verifier"], self.redirect_uri)
+            tokens = await self.idp.exchange_code_tokens(
+                code, stored["verifier"], self.redirect_uri
+            )
         except IdpRejected as error_:
             raise OidcFailure(FAILED, "code_rejected") from error_
         except IdpUnavailable as error_:
@@ -273,15 +279,23 @@ class OidcService:
         try:
             claims = await validate_id_token(
                 self.idp,
-                id_token,
+                tokens.id_token,
                 nonce=stored["nonce"],
                 clock=self._clock,
                 department_claim=self._department_claim,
+                entra_tenant=self._entra_tenant,
+                entra_allow_guests=self._entra_allow_guests,
             )
         except TokenInvalid as invalid:
             raise OidcFailure(FAILED, f"token:{invalid.reason}") from invalid
         except IdpUnavailable as error_:
             raise OidcFailure(UNAVAILABLE, "keys_unavailable") from error_
+
+        department = claims.department
+        if self._entra_tenant and tokens.access_token and department is None:
+            # Best effort: a Graph failure must never stop a sign-in.
+            # Same cleaning as for an ID-token claim: control characters out, blank means none.
+            department = clean_text(await self.idp.graph_department(tokens.access_token), 200)
 
         user = await repository.upsert_oidc_user(
             uow.session,
@@ -304,9 +318,9 @@ class OidcService:
                 ip=ip,
                 details={"method": "oidc"},
             )
-        if claims.department:
+        if department:
             await repository.apply_idp_department(
-                uow.session, uow.org_id, user.id, claims.department
+                uow.session, uow.org_id, user.id, department[:200]
             )
         await repository.touch_last_login(uow.session, uow.org_id, user.id)
         await self._audit.record(

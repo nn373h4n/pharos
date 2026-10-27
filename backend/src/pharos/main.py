@@ -131,6 +131,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 scopes=settings.oidc_scopes,
                 provider_name=settings.oidc_provider_name,
                 department_claim=settings.oidc_department_claim,
+                entra_tenant=settings.entra_tenant_id,
+                entra_allow_guests=settings.entra_allow_guests,
             )
         app.state.user_admin = UserAdminService(
             audit=app.state.audit, sessions=app.state.session_store
