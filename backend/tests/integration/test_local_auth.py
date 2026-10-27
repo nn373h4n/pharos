@@ -148,7 +148,7 @@ async def test_the_config_endpoint_is_public_and_reports_the_mode(
     stack = await make_stack(mode)
     response = await stack.client.get("/api/auth/config")
     assert response.status_code == 200
-    assert response.json() == {"local_login": mode}
+    assert response.json() == {"local_login": mode, "oidc": None}
 
 
 # --- signing in --------------------------------------------------------------------------------

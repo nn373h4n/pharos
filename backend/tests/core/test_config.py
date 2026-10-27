@@ -185,3 +185,81 @@ def test_production_refuses_cheap_password_hashing(overrides: dict[str, int]) ->
 def test_tests_may_use_cheap_password_hashing() -> None:
     settings = Settings(environment="test", password_hash_memory_kib=64, password_hash_time_cost=1)
     assert settings.password_hash_memory_kib == 64
+
+
+# --- single sign-on settings -------------------------------------------------------------------
+
+OIDC = {
+    "oidc_issuer": "https://login.example/realms/acme",
+    "oidc_client_id": "pharos",
+    "oidc_client_secret": "a-real-looking-client-secret-1234",
+}
+
+
+def test_single_sign_on_is_off_by_default() -> None:
+    settings = production()
+    assert settings.oidc_enabled is False
+    assert settings.oidc_issuer is None
+
+
+def test_single_sign_on_is_on_when_issuer_and_client_are_set() -> None:
+    settings = production(**OIDC)
+    assert settings.oidc_enabled is True
+    assert settings.oidc_scopes == "openid profile email"
+
+
+@pytest.mark.parametrize("missing", ["oidc_issuer", "oidc_client_id"])
+def test_issuer_and_client_id_come_together(missing: str) -> None:
+    values = {k: v for k, v in OIDC.items() if k != missing}
+    with pytest.raises(ValidationError, match="set together"):
+        production(**values)
+
+
+@pytest.mark.parametrize(
+    "issuer",
+    [
+        "ftp://login.example",
+        "login.example",
+        "https://",
+        "https://user:pw@login.example",
+        "https://login.example/realm?x=1",
+        "https://login.example/realm#frag",
+    ],
+)
+def test_the_issuer_must_be_a_plain_http_url(issuer: str) -> None:
+    with pytest.raises(ValidationError, match="oidc_issuer"):
+        production(**{**OIDC, "oidc_issuer": issuer})
+
+
+def test_production_needs_an_https_issuer_and_a_client_secret() -> None:
+    with pytest.raises(ValidationError, match="https in production"):
+        production(**{**OIDC, "oidc_issuer": "http://login.example/realms/acme"})
+    without_secret = {k: v for k, v in OIDC.items() if k != "oidc_client_secret"}
+    with pytest.raises(ValidationError, match="oidc_client_secret"):
+        production(**without_secret)
+    with pytest.raises(ValidationError, match="oidc_client_secret"):
+        production(**{**OIDC, "oidc_client_secret": ""})
+
+
+def test_development_may_use_plain_http_and_no_secret() -> None:
+    settings = Settings(
+        environment="development",
+        oidc_issuer="http://localhost:8080/realms/dev",
+        oidc_client_id="pharos",
+    )
+    assert settings.oidc_enabled
+
+
+def test_the_scopes_must_include_openid() -> None:
+    with pytest.raises(ValidationError, match="openid"):
+        production(**{**OIDC, "oidc_scopes": "profile email"})
+
+
+def test_the_client_secret_does_not_appear_in_repr() -> None:
+    assert OIDC["oidc_client_secret"] not in repr(production(**OIDC))
+
+
+def test_empty_oidc_values_from_compose_mean_not_configured() -> None:
+    settings = production(oidc_issuer="", oidc_client_id="", oidc_client_secret="")
+    assert settings.oidc_enabled is False
+    assert settings.oidc_client_secret is None

@@ -8,10 +8,22 @@ from pydantic import BaseModel, Field
 from pharos.identity.service import LocalLoginMode
 
 
+class OidcConfig(BaseModel):
+    provider_name: str
+    login_url: str
+
+
 class AuthConfig(BaseModel):
     """What the sign-in page needs to know. Public."""
 
     local_login: LocalLoginMode
+    oidc: OidcConfig | None = None
+
+
+class LogoutOut(BaseModel):
+    """Answer for a single sign-on session: where to go to end the provider's session too."""
+
+    end_session_url: str | None
 
 
 class LoginRequest(BaseModel):

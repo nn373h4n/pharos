@@ -123,3 +123,20 @@ All of these need a session. Requests that change data also need `Origin` and `X
 The profile response contains `locale` (the saved choice) and `effective_locale`: the saved choice, else the best supported language of `Accept-Language`, else `PHAROS_DEFAULT_LOCALE`. `onboarding_started_at` is set by the first save and never changes; `onboarding_completed_at` is set once by completing.
 
 `POST /api/me/onboarding/complete` needs all four answers: a profession, at least one interest, a language and an AI level. Otherwise it answers `409 onboarding_incomplete` with `missing` listing the fields. `GET /api/me` also returns `onboarding_completed_at`, so the app can decide whether to show onboarding.
+
+## Single sign-on (OpenID Connect)
+
+Off unless `PHAROS_OIDC_ISSUER` and `PHAROS_OIDC_CLIENT_ID` are set; then `GET /api/auth/config` returns `"oidc": {"provider_name": "...", "login_url": "/api/auth/oidc/login"}` (otherwise `null`) and the routes below exist (without a provider they answer `404`). Register `{PHAROS_PUBLIC_URL}/api/auth/oidc/callback` as the redirect URI at the provider.
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/api/auth/oidc/login?next=/page` | Start: `303` to the provider's authorization endpoint (authorization code flow, PKCE S256, `state`, `nonce`, `response_mode=query`). Sets the one-time cookie `__Host-pharos_oidc` (10 minutes) that ties the flow to this browser. |
+| GET | `/api/auth/oidc/callback` | Finish: `303` to `next` (a path on this site; anything else becomes `/`) with the session cookie, or to `/login?error=CODE`. |
+
+Both answer with redirects and `Cache-Control: no-store`, because a browser navigates to them. Error codes in `/login?error=`: `sso_failed` (anything wrong with the response: state, code, token), `sso_denied` (the person or the provider said no), `sso_unavailable` (provider or Redis not reachable), `account_disabled` (the account is disabled; it is not re-activated), `rate_limited`. The precise reason is only in the audit log.
+
+How a person is identified: by `(organization, issuer, subject)` from the validated ID token, never by e-mail (e-mail is not unique and two accounts with the same address stay separate). The first sign-in creates the user as a plain `member`; roles are set by administrators. Name and e-mail are refreshed at each sign-in (a claim that is missing does not erase what is stored). The department claim (`PHAROS_OIDC_DEPARTMENT_CLAIM`, default `department`) creates or selects the department, unless the person chose their own.
+
+What is checked on the ID token: signature (RS256, PS256 or ES256 only, key chosen by `kid` from the provider's key set, one refetch for an unknown key), `iss` equal to the configured issuer, `aud` containing the client id, `azp`, `exp`, `iat` (60 seconds leeway), `nonce` and `sub`. The optional RFC 9207 `iss` response parameter must match too. A callback works once, only in the browser that started the flow, and only for ten minutes.
+
+`POST /api/auth/logout` answers `200 {"end_session_url": "..."}` instead of `204` when the session was created by single sign-on: the web app sends the person to the provider's own logout (`client_id` and `post_logout_redirect_uri={PHAROS_PUBLIC_URL}/login`) so the provider session ends too. The URL is `null` if the provider has no end-session endpoint.

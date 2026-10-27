@@ -39,8 +39,8 @@ open, and an independent review of the first M2 design found that the obvious ch
 ## Decision
 
 - **Session.** An opaque 256-bit id in the cookie `__Host-pharos_session` (Secure, HttpOnly,
-  SameSite=Lax, Path=/). The Redis record holds `user_id`, `org_id`, `auth_time` and a CSRF seed
-  only. Idle timeout 8 hours (sliding, in Redis), absolute 24 hours. The id is rotated at sign-in
+  SameSite=Lax, Path=/). The Redis record holds `user_id`, `org_id`, `auth_time`, a CSRF seed and
+  the sign-in `method` (`local` or `oidc`) only. Idle timeout 8 hours (sliding, in Redis), absolute 24 hours. The id is rotated at sign-in
   and on any privilege change. A per-user index of session ids lets "disable user", "change role"
   and "sign out everywhere" delete them. On every request the user row is read inside the tenant
   transaction; the request is refused unless the user is `active` and the session's organization is

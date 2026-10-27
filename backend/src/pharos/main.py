@@ -28,6 +28,10 @@ from pharos.core.ratelimit import LoginThrottle, RateLimiter
 from pharos.core.redis import url_for_database
 from pharos.core.secrets import KeyPurpose, derive_key
 from pharos.core.sessions import SessionIdentityResolver, SessionStore
+from pharos.identity.oidc.client import IdpClient
+from pharos.identity.oidc.cookies import BindingCookie
+from pharos.identity.oidc.router import router as oidc_router
+from pharos.identity.oidc.service import OidcService
 from pharos.identity.passwords import PasswordHasher
 from pharos.identity.router import router as identity_router
 from pharos.identity.service import LocalAuthService, LocalLoginMode
@@ -96,12 +100,36 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             idle_seconds=settings.session_idle_seconds,
             absolute_seconds=settings.session_absolute_seconds,
         )
-        app.state.sessions = SessionIdentityResolver(app.state.session_store, cookie.name)
+        app.state.sessions = SessionIdentityResolver(
+            app.state.session_store, cookie.name, allow_local=settings.local_login != "off"
+        )
         app.state.login_throttle = LoginThrottle(RateLimiter(session_redis, SystemClock()))
         app.state.audit = AuditLog(
             app.state.session_factory, derive_key(settings.secret_key, KeyPurpose.AUDIT_IP)
         )
         app.state.profile = ProfileService(settings.default_locale)
+        app.state.oidc = None
+        if settings.oidc_issuer and settings.oidc_client_id:
+            secret = settings.oidc_client_secret
+            app.state.oidc = OidcService(
+                idp=IdpClient(
+                    None,
+                    SystemClock(),
+                    issuer=settings.oidc_issuer,
+                    client_id=settings.oidc_client_id,
+                    client_secret=secret.get_secret_value() if secret else None,
+                    allow_http=settings.environment != "production",
+                ),
+                redis=session_redis,
+                clock=SystemClock(),
+                audit=app.state.audit,
+                sessions=app.state.session_store,
+                limiter=app.state.login_throttle._limiter,
+                public_url=settings.public_url,
+                scopes=settings.oidc_scopes,
+                provider_name=settings.oidc_provider_name,
+                department_claim=settings.oidc_department_claim,
+            )
         app.state.local_auth = LocalAuthService(
             hasher=PasswordHasher(
                 memory_kib=settings.password_hash_memory_kib,
@@ -122,6 +150,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         try:
             yield
         finally:
+            if app.state.oidc is not None:
+                await app.state.oidc.idp.aclose()
             await session_redis.aclose()
             await redis.aclose()
             await engine.dispose()
@@ -136,6 +166,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.state.settings = settings
     app.state.session_cookie = cookie
+    app.state.oidc_binding = BindingCookie(settings.public_url)
+    app.state.oidc = None
     app.state.csrf_key = derive_key(settings.secret_key, KeyPurpose.CSRF)
     install_error_handlers(app)
     app.add_middleware(
@@ -148,4 +180,5 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(health_router, prefix=API_PREFIX)
     app.include_router(identity_router, prefix=API_PREFIX)
     app.include_router(profile_router, prefix=API_PREFIX)
+    app.include_router(oidc_router, prefix=API_PREFIX)
     return app
