@@ -5,8 +5,9 @@ import unicodedata
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
 
-from sqlalchemy import text
+from sqlalchemy import Row, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 LOCAL_ISSUER = "local"
@@ -240,3 +241,121 @@ async def apply_idp_department(
         ),
         {"org": org_id, "user": user_id, "department": department_id},
     )
+
+
+@dataclass(frozen=True, slots=True)
+class AdminUserView:
+    id: uuid.UUID
+    display_name: str
+    email: str | None
+    role: str
+    status: str
+    department: str | None
+    last_login_at: datetime | None
+    sign_in: str  # "local" or "sso"
+
+
+@dataclass(frozen=True, slots=True)
+class UserState:
+    id: uuid.UUID
+    role: str
+    status: str
+
+
+_ADMIN_VIEW = (
+    "SELECT u.id, u.display_name, u.email, u.role, u.status, d.name AS department, "
+    "u.last_login_at, (u.issuer = :local) AS is_local FROM users u "
+    "LEFT JOIN departments d ON d.org_id = u.org_id AND d.id = u.department_id"
+)
+
+
+def _admin_view(row: Row[Any]) -> AdminUserView:
+    return AdminUserView(
+        row.id,
+        row.display_name,
+        row.email,
+        row.role,
+        row.status,
+        row.department,
+        row.last_login_at,
+        "local" if row.is_local else "sso",
+    )
+
+
+async def list_users(
+    session: AsyncSession, org_id: uuid.UUID, *, limit: int, offset: int
+) -> tuple[list[AdminUserView], int]:
+    rows = (
+        await session.execute(
+            text(
+                f"{_ADMIN_VIEW} WHERE u.org_id = :org "
+                "ORDER BY lower(u.display_name), u.id LIMIT :limit OFFSET :offset"
+            ),
+            {"org": org_id, "local": LOCAL_ISSUER, "limit": limit, "offset": offset},
+        )
+    ).all()
+    total = (
+        await session.execute(
+            text("SELECT count(*) FROM users WHERE org_id = :org"), {"org": org_id}
+        )
+    ).scalar_one()
+    return [_admin_view(r) for r in rows], int(total)
+
+
+async def lock_active_admins(session: AsyncSession, org_id: uuid.UUID) -> set[uuid.UUID]:
+    """Lock every active administrator row, always in the same order, and return their ids.
+
+    Two administrators changing each other at the same moment queue up here, so the second one
+    decides on what the first one left behind (and cannot leave the organization without an
+    administrator)."""
+    rows = await session.execute(
+        text(
+            "SELECT id FROM users WHERE org_id = :org AND role = 'admin' AND status = 'active' "
+            "ORDER BY id FOR NO KEY UPDATE"
+        ),
+        {"org": org_id},
+    )
+    return {r.id for r in rows}
+
+
+async def lock_user(
+    session: AsyncSession, org_id: uuid.UUID, user_id: uuid.UUID
+) -> UserState | None:
+    row = (
+        await session.execute(
+            text(
+                "SELECT id, role, status FROM users WHERE org_id = :org AND id = :id "
+                "FOR NO KEY UPDATE"
+            ),
+            {"org": org_id, "id": user_id},
+        )
+    ).one_or_none()
+    return None if row is None else UserState(row.id, row.role, row.status)
+
+
+async def set_role(session: AsyncSession, org_id: uuid.UUID, user_id: uuid.UUID, role: str) -> None:
+    await session.execute(
+        text("UPDATE users SET role = :role WHERE org_id = :org AND id = :id"),
+        {"org": org_id, "id": user_id, "role": role},
+    )
+
+
+async def set_status(
+    session: AsyncSession, org_id: uuid.UUID, user_id: uuid.UUID, status: str
+) -> None:
+    await session.execute(
+        text("UPDATE users SET status = :status WHERE org_id = :org AND id = :id"),
+        {"org": org_id, "id": user_id, "status": status},
+    )
+
+
+async def get_admin_view(
+    session: AsyncSession, org_id: uuid.UUID, user_id: uuid.UUID
+) -> AdminUserView | None:
+    row = (
+        await session.execute(
+            text(f"{_ADMIN_VIEW} WHERE u.org_id = :org AND u.id = :id"),
+            {"org": org_id, "local": LOCAL_ISSUER, "id": user_id},
+        )
+    ).one_or_none()
+    return None if row is None else _admin_view(row)

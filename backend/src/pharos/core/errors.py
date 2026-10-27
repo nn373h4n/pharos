@@ -30,6 +30,8 @@ class ErrorCode(StrEnum):
     RATE_LIMITED = "rate_limited"
     INVALID_CREDENTIALS = "invalid_credentials"
     ONBOARDING_INCOMPLETE = "onboarding_incomplete"
+    OWN_ACCOUNT = "own_account"
+    STATUS_LOCKED = "status_locked"
     ORGANIZATION_NOT_CONFIGURED = "organization_not_configured"
     SERVICE_UNAVAILABLE = "service_unavailable"
     INTERNAL_ERROR = "internal_error"
@@ -46,6 +48,8 @@ _TITLES = {
     ErrorCode.RATE_LIMITED: "Too many attempts",
     ErrorCode.INVALID_CREDENTIALS: "Sign-in failed",
     ErrorCode.ONBOARDING_INCOMPLETE: "The profile is not complete",
+    ErrorCode.OWN_ACCOUNT: "Not allowed on your own account",
+    ErrorCode.STATUS_LOCKED: "The status is managed by the identity provider",
     ErrorCode.ORGANIZATION_NOT_CONFIGURED: "The organization is not set up yet",
     ErrorCode.SERVICE_UNAVAILABLE: "Service unavailable",
     ErrorCode.INTERNAL_ERROR: "Internal error",

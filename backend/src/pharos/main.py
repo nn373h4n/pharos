@@ -28,6 +28,7 @@ from pharos.core.ratelimit import LoginThrottle, RateLimiter
 from pharos.core.redis import url_for_database
 from pharos.core.secrets import KeyPurpose, derive_key
 from pharos.core.sessions import SessionIdentityResolver, SessionStore
+from pharos.identity.admin import UserAdminService
 from pharos.identity.oidc.client import IdpClient
 from pharos.identity.oidc.cookies import BindingCookie
 from pharos.identity.oidc.router import router as oidc_router
@@ -35,6 +36,7 @@ from pharos.identity.oidc.service import OidcService
 from pharos.identity.passwords import PasswordHasher
 from pharos.identity.router import router as identity_router
 from pharos.identity.service import LocalAuthService, LocalLoginMode
+from pharos.identity.users_router import router as users_router
 from pharos.profile.router import router as profile_router
 from pharos.profile.service import ProfileService
 
@@ -130,6 +132,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 provider_name=settings.oidc_provider_name,
                 department_claim=settings.oidc_department_claim,
             )
+        app.state.user_admin = UserAdminService(
+            audit=app.state.audit, sessions=app.state.session_store
+        )
         app.state.local_auth = LocalAuthService(
             hasher=PasswordHasher(
                 memory_kib=settings.password_hash_memory_kib,
@@ -180,5 +185,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(health_router, prefix=API_PREFIX)
     app.include_router(identity_router, prefix=API_PREFIX)
     app.include_router(profile_router, prefix=API_PREFIX)
+    app.include_router(users_router, prefix=API_PREFIX)
     app.include_router(oidc_router, prefix=API_PREFIX)
     return app

@@ -52,7 +52,15 @@ PUBLIC_ROUTES: frozenset[Route] = frozenset(
 _ALL_ROLES = frozenset({Role.ADMIN, Role.EDITOR, Role.MEMBER})
 _PROFILE_TEST = "integration/test_profile.py::test_one_organization_never_sees_anothers_profiles"
 
+_USERS_TEST = (
+    "integration/test_user_admin.py::test_administrators_never_reach_another_organizations_people"
+)
+_ADMIN_ONLY = frozenset({Role.ADMIN})
+
 ROLE_MATRIX: dict[Route, Rule] = {
+    ("GET", "/api/users"): Rule(_ADMIN_ONLY, _USERS_TEST),
+    ("PATCH", "/api/users/{user_id}/role"): Rule(_ADMIN_ONLY, _USERS_TEST),
+    ("PATCH", "/api/users/{user_id}/status"): Rule(_ADMIN_ONLY, _USERS_TEST),
     ("GET", "/api/me/profile"): Rule(_ALL_ROLES, _PROFILE_TEST),
     ("PUT", "/api/me/profile"): Rule(_ALL_ROLES, _PROFILE_TEST),
     ("POST", "/api/me/onboarding/complete"): Rule(_ALL_ROLES, _PROFILE_TEST),
