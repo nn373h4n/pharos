@@ -12,6 +12,7 @@ the audit log is append-only for it.
 """
 
 import json
+import os
 
 import sqlalchemy as sa
 from alembic import op
@@ -89,7 +90,7 @@ PROFESSIONS: list[tuple[str, dict[str, str]]] = [
             "en": "Recruiter",
             "az": "İşə qəbul mütəxəssisi",
             "tr": "İşe alım uzmanı",
-            "ru": "Рекрутёр",
+            "ru": "Рекрутер",
         },
     ),
     (
@@ -114,7 +115,7 @@ PROFESSIONS: list[tuple[str, dict[str, str]]] = [
         "data_analyst",
         {
             "en": "Data analyst",
-            "az": "Verilənlər analitiki",
+            "az": "Məlumat analitiki",
             "tr": "Veri analisti",
             "ru": "Аналитик данных",
         },
@@ -157,13 +158,37 @@ def _run(statements: list[str]) -> None:
 
 
 def upgrade() -> None:
+    # --- Preconditions ---------------------------------------------------------------------------
+    # The definer function below runs with its owner's rights, so the owner must be the role that
+    # owns the tables and not a superuser. The department names are folded with lower(), which only
+    # works for non-ASCII letters when the database is not in the C locale.
+    op.execute(
+        """
+        DO $$
+        BEGIN
+            IF (SELECT rolsuper FROM pg_roles WHERE rolname = current_user) THEN
+                RAISE EXCEPTION 'run this migration as the table owner role, not as a superuser';
+            END IF;
+            IF (SELECT tableowner FROM pg_tables
+                WHERE schemaname = 'public' AND tablename = 'organizations') <> current_user THEN
+                RAISE EXCEPTION 'run this migration as the owner of public.organizations';
+            END IF;
+            IF (SELECT datctype FROM pg_database WHERE datname = current_database())
+                IN ('C', 'POSIX') THEN
+                RAISE EXCEPTION 'the database uses the C locale; use a UTF-8 locale such as en_US.utf8';
+            END IF;
+        END
+        $$
+        """
+    )
+
     # --- Organization lookup before sign-in ------------------------------------------------------
     # At sign-in the application does not know the organization yet, and RLS hides every row until
     # `app.org_id` is set. This function answers one question, "which id has this slug?", and
     # nothing else. A view would bypass RLS for every column and every organization.
     op.execute(
         """
-        CREATE FUNCTION pharos_org_id_for_slug(p_slug text) RETURNS uuid
+        CREATE FUNCTION public.pharos_org_id_for_slug(p_slug text) RETURNS uuid
         LANGUAGE sql STABLE SECURITY DEFINER
         SET search_path = pg_catalog, pg_temp
         AS $$ SELECT id FROM public.organizations WHERE slug = p_slug $$
@@ -174,7 +199,7 @@ def upgrade() -> None:
 
     op.execute(
         """
-        CREATE FUNCTION pharos_set_updated_at() RETURNS trigger
+        CREATE FUNCTION public.pharos_set_updated_at() RETURNS trigger
         LANGUAGE plpgsql
         SET search_path = pg_catalog, pg_temp
         AS $$ BEGIN NEW.updated_at = pg_catalog.now(); RETURN NEW; END $$
@@ -192,11 +217,15 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.Column("name", sa.Text(), nullable=False),
-        # Names that differ only in case, spacing or Unicode form are the same department.
+        # Names that differ only in case, surrounding white space (space, tab, line breaks and the
+        # no-break space) or Unicode form are the same department.
         sa.Column(
             "normalized_name",
             sa.Text(),
-            sa.Computed("lower(normalize(btrim(name), NFC))", persisted=True),
+            sa.Computed(
+                "lower(normalize(btrim(name, ' ' || chr(9) || chr(10) || chr(13) || chr(160)), NFC))",
+                persisted=True,
+            ),
         ),
         sa.Column(
             "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
@@ -204,7 +233,11 @@ def upgrade() -> None:
         sa.Column(
             "updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
         ),
-        sa.CheckConstraint("length(btrim(name)) BETWEEN 1 AND 200", name="departments_name_check"),
+        sa.CheckConstraint(
+            "length(name) <= 200 AND "
+            "length(btrim(name, ' ' || chr(9) || chr(10) || chr(13) || chr(160))) >= 1",
+            name="departments_name_check",
+        ),
         sa.UniqueConstraint("org_id", "normalized_name", name="departments_org_name_key"),
         sa.UniqueConstraint("org_id", "id", name="departments_org_id_id_key"),
     )
@@ -230,7 +263,8 @@ def upgrade() -> None:
         ),
         sa.CheckConstraint("code ~ '^[a-z][a-z0-9_]{1,63}$'", name="professions_code_check"),
         sa.CheckConstraint(
-            "jsonb_typeof(names) = 'object' AND jsonb_exists_all(names, ARRAY['en','az','tr','ru'])",
+            "jsonb_typeof(names) = 'object' AND jsonb_exists_all(names, ARRAY['en','az','tr','ru']) "
+            'AND NOT jsonb_path_exists(names, \'strict $.* ? (@.type() != "string" || @ == "")\')',
             name="professions_names_check",
         ),
         sa.UniqueConstraint(
@@ -241,6 +275,27 @@ def upgrade() -> None:
         ),
     )
     _run(content_policy_sql("professions"))
+    # A profession must not move between the global set and an organization after profiles refer
+    # to it, so its scope and owner are frozen.
+    op.execute(
+        """
+        CREATE FUNCTION public.pharos_freeze_profession_scope() RETURNS trigger
+        LANGUAGE plpgsql
+        SET search_path = pg_catalog, pg_temp
+        AS $$
+        BEGIN
+            IF NEW.scope IS DISTINCT FROM OLD.scope OR NEW.owner_org_id IS DISTINCT FROM OLD.owner_org_id THEN
+                RAISE EXCEPTION 'the scope and owner of a profession cannot change' USING ERRCODE = '23514';
+            END IF;
+            RETURN NEW;
+        END
+        $$
+        """
+    )
+    op.execute(
+        "CREATE TRIGGER professions_freeze_scope BEFORE UPDATE OF scope, owner_org_id ON professions "
+        "FOR EACH ROW EXECUTE FUNCTION public.pharos_freeze_profession_scope()"
+    )
     # Reading only: global professions are seeded below, organization-owned ones come with the
     # admin panel.
     op.execute(f"GRANT SELECT ON professions TO {APP_ROLE}")
@@ -279,7 +334,11 @@ def upgrade() -> None:
         sa.Column(
             "updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
         ),
-        sa.CheckConstraint("length(issuer) BETWEEN 1 AND 512", name="users_issuer_check"),
+        # An OIDC issuer is a URL, so it can never collide with the issuer "local".
+        sa.CheckConstraint(
+            "length(issuer) BETWEEN 1 AND 512 AND (issuer = 'local' OR issuer ~ '^https?://')",
+            name="users_issuer_check",
+        ),
         sa.CheckConstraint("length(subject) BETWEEN 1 AND 256", name="users_subject_check"),
         sa.CheckConstraint("email IS NULL OR length(email) <= 320", name="users_email_check"),
         sa.CheckConstraint("length(display_name) <= 200", name="users_display_name_check"),
@@ -307,7 +366,7 @@ def upgrade() -> None:
     # --- local credentials -----------------------------------------------------------------------
     op.create_table(
         "local_credentials",
-        sa.Column("user_id", sa.Uuid(), primary_key=True),
+        sa.Column("user_id", sa.Uuid(), nullable=False),
         sa.Column("org_id", sa.Uuid(), nullable=False),
         sa.Column("password_hash", sa.Text(), nullable=False),
         sa.Column(
@@ -315,6 +374,14 @@ def upgrade() -> None:
             sa.DateTime(timezone=True),
             nullable=False,
             server_default=sa.func.now(),
+        ),
+        # The key includes the organization, so a duplicate-key error cannot reveal that a user id
+        # exists in another organization.
+        sa.PrimaryKeyConstraint("org_id", "user_id", name="local_credentials_pkey"),
+        # Only an Argon2id hash may be stored, never a password by mistake.
+        sa.CheckConstraint(
+            "password_hash LIKE '$argon2id$%' AND length(password_hash) <= 512",
+            name="local_credentials_hash_check",
         ),
         sa.ForeignKeyConstraint(
             ["org_id", "user_id"],
@@ -327,9 +394,14 @@ def upgrade() -> None:
     # --- profiles --------------------------------------------------------------------------------
     op.create_table(
         "user_profiles",
-        sa.Column("user_id", sa.Uuid(), primary_key=True),
+        sa.Column("user_id", sa.Uuid(), nullable=False),
         sa.Column("org_id", sa.Uuid(), nullable=False),
-        sa.Column("profession_id", sa.Uuid(), sa.ForeignKey("professions.id"), nullable=True),
+        sa.Column(
+            "profession_id",
+            sa.Uuid(),
+            sa.ForeignKey("professions.id", ondelete="SET NULL"),
+            nullable=True,
+        ),
         sa.Column("ai_level", sa.Text(), nullable=True),
         sa.Column(
             "interests",
@@ -349,8 +421,11 @@ def upgrade() -> None:
             "ai_level IS NULL OR ai_level IN ('beginner', 'intermediate', 'advanced')",
             name="user_profiles_ai_level_check",
         ),
+        sa.PrimaryKeyConstraint("org_id", "user_id", name="user_profiles_pkey"),
         sa.CheckConstraint(
-            "jsonb_typeof(interests) = 'array' AND jsonb_array_length(interests) <= 12",
+            "jsonb_typeof(interests) = 'array' AND jsonb_array_length(interests) <= 12 "
+            "AND pg_column_size(interests) <= 1024 "
+            "AND NOT jsonb_path_exists(interests, 'strict $[*] ? (@.type() != \"string\")')",
             name="user_profiles_interests_check",
         ),
         sa.CheckConstraint(
@@ -369,7 +444,7 @@ def upgrade() -> None:
     # belongs to the profile's own organization.
     op.execute(
         """
-        CREATE FUNCTION pharos_check_profession_scope() RETURNS trigger
+        CREATE FUNCTION public.pharos_check_profession_scope() RETURNS trigger
         LANGUAGE plpgsql
         SET search_path = pg_catalog, pg_temp
         AS $$
@@ -468,12 +543,27 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # Going back removes every user, credential, profile and the whole audit history. Refuse to do
+    # that silently: the operator must say so.
+    has_data = (
+        op.get_bind()
+        .execute(
+            sa.text("SELECT EXISTS (SELECT 1 FROM users) OR EXISTS (SELECT 1 FROM audit_logs)")
+        )
+        .scalar()
+    )
+    if has_data and os.environ.get("PHAROS_ALLOW_DATA_LOSS") != "yes":
+        raise RuntimeError(
+            "Downgrading 0002 would delete all users, credentials, profiles and audit entries. "
+            "Back up first, then set PHAROS_ALLOW_DATA_LOSS=yes to proceed."
+        )
     op.drop_table("audit_logs")
     op.drop_table("user_profiles")
     op.execute("DROP FUNCTION pharos_check_profession_scope()")
     op.drop_table("local_credentials")
     op.drop_table("users")
     op.drop_table("professions")
+    op.execute("DROP FUNCTION pharos_freeze_profession_scope()")
     op.drop_table("departments")
     op.execute("DROP FUNCTION pharos_set_updated_at()")
     op.execute("DROP FUNCTION pharos_org_id_for_slug(text)")

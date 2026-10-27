@@ -19,6 +19,7 @@ pytestmark = pytest.mark.integration
 
 TENANT_TABLES = ["departments", "users", "local_credentials", "user_profiles", "audit_logs"]
 NEW_TABLES = {*TENANT_TABLES, "professions"}
+HASH = "$argon2id$v=19$m=65536,t=3,p=4$c29tZXNhbHQ$ZmFrZWhhc2g"
 
 
 @dataclass(frozen=True)
@@ -47,9 +48,9 @@ async def make_org_data(connection: AsyncConnection, org: uuid.UUID, label: str)
     ).scalar_one()
     await connection.execute(
         text(
-            "INSERT INTO local_credentials (user_id, org_id, password_hash) VALUES (:u, :org, 'x')"
+            "INSERT INTO local_credentials (user_id, org_id, password_hash) VALUES (:u, :org, :hash)"
         ),
-        {"u": user, "org": org},
+        {"u": user, "org": org, "hash": HASH},
     )
     await connection.execute(
         text("INSERT INTO user_profiles (user_id, org_id) VALUES (:u, :org)"),
@@ -186,7 +187,7 @@ async def test_foreign_keys_cannot_point_into_another_organization(
             "INSERT INTO users (org_id, issuer, subject, department_id) VALUES (:alpha, 'local', 'x', :beta_dept)"
         ),
         "a credential for another organization's user": (
-            "INSERT INTO local_credentials (user_id, org_id, password_hash) VALUES (:beta_user, :alpha, 'x')"
+            "INSERT INTO local_credentials (user_id, org_id, password_hash) VALUES (:beta_user, :alpha, :hash)"
         ),
         "a profile for another organization's user": (
             "INSERT INTO user_profiles (user_id, org_id) VALUES (:beta_user, :alpha)"
@@ -197,7 +198,12 @@ async def test_foreign_keys_cannot_point_into_another_organization(
             async with owner_engine.begin() as connection:
                 await connection.execute(
                     text(statement),
-                    {"alpha": alpha.org, "beta_dept": beta.department, "beta_user": beta_user},
+                    {
+                        "alpha": alpha.org,
+                        "beta_dept": beta.department,
+                        "beta_user": beta_user,
+                        "hash": HASH,
+                    },
                 )
         assert description  # keeps the failing case readable in the report
 
@@ -245,8 +251,8 @@ async def test_the_application_can_manage_users_within_its_limits(
             {"id": new_id},
         )
         await session.execute(
-            text("UPDATE local_credentials SET password_hash = 'y' WHERE user_id = :id"),
-            {"id": alpha.user},
+            text("UPDATE local_credentials SET password_hash = :hash WHERE user_id = :id"),
+            {"id": alpha.user, "hash": HASH + "2"},
         )
     async with tenant_session(factory, alpha.org) as session:
         row = (
@@ -476,41 +482,536 @@ async def test_a_profile_may_only_use_global_or_own_organization_professions(
 
 # --- value constraints ---------------------------------------------------------------------------
 
+LONG = "a" * 10
+
+
+def ascii_url(length: int) -> str:
+    return "https://" + "a" * (length - len("https://"))
+
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    "statement",
+    ("statement", "constraint"),
     [
-        "UPDATE users SET role = 'owner'",
-        "UPDATE users SET status = 'banned'",
-        "UPDATE users SET locale = 'de'",
-        "UPDATE users SET department_source = 'guess'",
-        "UPDATE users SET email = repeat('a', 321)",
-        "UPDATE users SET issuer = ''",
-        "UPDATE user_profiles SET ai_level = 'expert'",
-        "UPDATE user_profiles SET interests = '{\"a\": 1}'::jsonb",
-        "UPDATE user_profiles SET interests = (SELECT jsonb_agg(i) FROM generate_series(1, 13) i)",
-        "UPDATE user_profiles SET onboarding_completed_at = now()",
-        "UPDATE user_profiles SET onboarding_started_at = now(), onboarding_completed_at = now() - interval '1 hour'",
-        "UPDATE audit_logs SET actor_type = 'robot'",
-        "UPDATE audit_logs SET action = 'Bad Action'",
-        "UPDATE audit_logs SET outcome = 'maybe'",
-        "UPDATE audit_logs SET details = '[]'::jsonb",
-        "UPDATE departments SET name = '   '",
-        'UPDATE professions SET names = \'{"en": "only english"}\'::jsonb',
-        "UPDATE professions SET code = 'Bad Code'",
-        "UPDATE professions SET scope = 'org'",
+        ("UPDATE users SET role = 'owner'", "users_role_check"),
+        ("UPDATE users SET status = 'banned'", "users_status_check"),
+        ("UPDATE users SET locale = 'de'", "users_locale_check"),
+        ("UPDATE users SET department_source = 'guess'", "users_department_source_check"),
+        ("UPDATE users SET email = repeat('a', 321)", "users_email_check"),
+        ("UPDATE users SET issuer = ''", "users_issuer_check"),
+        ("UPDATE users SET issuer = 'ldap://directory'", "users_issuer_check"),
+        ("UPDATE users SET issuer = 'LOCAL'", "users_issuer_check"),
+        ("UPDATE users SET subject = ''", "users_subject_check"),
+        ("UPDATE user_profiles SET ai_level = 'expert'", "user_profiles_ai_level_check"),
+        (
+            "UPDATE user_profiles SET interests = '{\"a\": 1}'::jsonb",
+            "user_profiles_interests_check",
+        ),
+        ("UPDATE user_profiles SET interests = '[1, 2]'::jsonb", "user_profiles_interests_check"),
+        (
+            "UPDATE user_profiles SET interests = '[[\"x\"]]'::jsonb",
+            "user_profiles_interests_check",
+        ),
+        (
+            "UPDATE user_profiles SET interests = (SELECT jsonb_agg(i::text) FROM generate_series(1, 13) i)",
+            "user_profiles_interests_check",
+        ),
+        (
+            "UPDATE user_profiles SET interests = jsonb_build_array(repeat('x', 2000))",
+            "user_profiles_interests_check",
+        ),
+        (
+            "UPDATE user_profiles SET onboarding_completed_at = now()",
+            "user_profiles_onboarding_check",
+        ),
+        (
+            "UPDATE user_profiles SET onboarding_started_at = now(), "
+            "onboarding_completed_at = now() - interval '1 hour'",
+            "user_profiles_onboarding_check",
+        ),
+        (
+            "UPDATE local_credentials SET password_hash = 'plaintext-password'",
+            "local_credentials_hash_check",
+        ),
+        (
+            "UPDATE local_credentials SET password_hash = '$argon2i$v=19$x'",
+            "local_credentials_hash_check",
+        ),
+        ("UPDATE audit_logs SET actor_type = 'robot'", "audit_logs_actor_type_check"),
+        ("UPDATE audit_logs SET action = 'Bad Action'", "audit_logs_action_check"),
+        ("UPDATE audit_logs SET action = 'ab'", "audit_logs_action_check"),
+        ("UPDATE audit_logs SET outcome = 'maybe'", "audit_logs_outcome_check"),
+        ("UPDATE audit_logs SET details = '[]'::jsonb", "audit_logs_details_check"),
+        (
+            "UPDATE audit_logs SET details = jsonb_build_object('k', repeat('x', 5000))",
+            "audit_logs_details_check",
+        ),
+        ("UPDATE audit_logs SET target = repeat('t', 201)", "audit_logs_target_check"),
+        ("UPDATE audit_logs SET ip_hash = repeat('h', 65)", "audit_logs_ip_hash_check"),
+        ("UPDATE departments SET name = '   '", "departments_name_check"),
+        ("UPDATE departments SET name = E'\\t\\n'", "departments_name_check"),
+        ("UPDATE departments SET name = repeat('d', 201)", "departments_name_check"),
+        (
+            'UPDATE professions SET names = \'{"en": "only english"}\'::jsonb',
+            "professions_names_check",
+        ),
+        (
+            'UPDATE professions SET names = \'{"en": "a", "az": "a", "tr": "a", "ru": ""}\'::jsonb',
+            "professions_names_check",
+        ),
+        (
+            'UPDATE professions SET names = \'{"en": "a", "az": "a", "tr": "a", "ru": 1}\'::jsonb',
+            "professions_names_check",
+        ),
+        (
+            "UPDATE professions SET names = "
+            '\'{"en": "a", "az": "a", "tr": "a", "ru": ["nested"]}\'::jsonb',
+            "professions_names_check",
+        ),
+        ("UPDATE professions SET code = 'Bad Code'", "professions_code_check"),
     ],
 )
-async def test_invalid_values_are_rejected_by_the_database(
-    owner_engine: AsyncEngine, data: tuple[OrgData, OrgData], statement: str
+async def test_invalid_values_are_rejected_by_the_named_constraint(
+    owner_engine: AsyncEngine, data: tuple[OrgData, OrgData], statement: str, constraint: str
 ) -> None:
-    with pytest.raises(IntegrityError, match="violates check constraint"):
+    with pytest.raises(IntegrityError, match=constraint):
         async with owner_engine.begin() as connection:
             await connection.execute(text(statement))
 
 
-# --- the migration itself ------------------------------------------------------------------------
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("column", "limit"),
+    [("issuer", 512), ("subject", 256), ("email", 320), ("display_name", 200)],
+)
+async def test_user_text_limits_accept_the_limit_and_reject_one_more(
+    owner_engine: AsyncEngine, data: tuple[OrgData, OrgData], column: str, limit: int
+) -> None:
+    alpha, _ = data
+
+    def value(length: int) -> str:
+        return ascii_url(length) if column == "issuer" else "a" * length
+
+    async with owner_engine.begin() as connection:
+        await connection.execute(
+            text(f"UPDATE users SET {column} = :v WHERE id = :id"),
+            {"v": value(limit), "id": alpha.user},
+        )
+    with pytest.raises(IntegrityError, match=f"users_{column}_check"):
+        async with owner_engine.begin() as connection:
+            await connection.execute(
+                text(f"UPDATE users SET {column} = :v WHERE id = :id"),
+                {"v": value(limit + 1), "id": alpha.user},
+            )
+
+
+@pytest.mark.anyio
+async def test_department_names_ignore_all_surrounding_white_space_and_have_a_length_limit(
+    owner_engine: AsyncEngine, orgs: Orgs
+) -> None:
+    alpha, _ = orgs
+    async with owner_engine.begin() as connection:
+        await connection.execute(
+            text("INSERT INTO departments (org_id, name) VALUES (:org, 'Finance')"), {"org": alpha}
+        )
+        await connection.execute(
+            text("INSERT INTO departments (org_id, name) VALUES (:org, :name)"),
+            {"org": alpha, "name": "d" * 200},
+        )
+    for variant in ("Finance\t", "\nFinance\r\n", "\u00a0Finance\u00a0", " \tFINANCE\t "):
+        with pytest.raises(IntegrityError, match="departments_org_name_key"):
+            async with owner_engine.begin() as connection:
+                await connection.execute(
+                    text("INSERT INTO departments (org_id, name) VALUES (:org, :name)"),
+                    {"org": alpha, "name": variant},
+                )
+    with pytest.raises(IntegrityError, match="departments_name_check"):
+        async with owner_engine.begin() as connection:
+            await connection.execute(
+                text("INSERT INTO departments (org_id, name) VALUES (:org, :name)"),
+                {"org": alpha, "name": "Finance" + " " * 10_000_000},
+            )
+
+
+# --- upserts, races and the existence oracle ----------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_user_upsert_by_identity_returns_one_user_and_keeps_role_and_status(
+    app_engine: AsyncEngine, owner_engine: AsyncEngine, data: tuple[OrgData, OrgData]
+) -> None:
+    alpha, _ = data
+    upsert = text(
+        "INSERT INTO users (org_id, issuer, subject, email, display_name) "
+        "VALUES (:org, 'https://idp.test', 'sub-1', :email, :name) "
+        "ON CONFLICT (org_id, issuer, subject) DO UPDATE "
+        "SET email = EXCLUDED.email, display_name = EXCLUDED.display_name, last_login_at = now() "
+        "RETURNING id"
+    )
+    factory = create_session_factory(app_engine)
+    async with tenant_session(factory, alpha.org) as session:
+        first = (
+            await session.execute(upsert, {"org": alpha.org, "email": "a@x.test", "name": "A"})
+        ).scalar_one()
+    async with owner_engine.begin() as connection:
+        await connection.execute(
+            text("UPDATE users SET role = 'editor', status = 'disabled' WHERE id = :id"),
+            {"id": first},
+        )
+    async with tenant_session(factory, alpha.org) as session:
+        again = (
+            await session.execute(upsert, {"org": alpha.org, "email": "b@x.test", "name": "B"})
+        ).scalar_one()
+        row = (
+            await session.execute(
+                text("SELECT email, display_name, role, status FROM users WHERE id = :id"),
+                {"id": first},
+            )
+        ).one()
+    assert again == first
+    assert tuple(row) == (
+        "b@x.test",
+        "B",
+        "editor",
+        "disabled",
+    )  # the upsert did not touch role or status
+
+
+@pytest.mark.anyio
+async def test_parallel_first_sign_ins_create_one_user_and_one_department(
+    app_engine: AsyncEngine, data: tuple[OrgData, OrgData]
+) -> None:
+    alpha, _ = data
+    factory = create_session_factory(app_engine)
+
+    async def sign_in() -> tuple[uuid.UUID, uuid.UUID]:
+        async with tenant_session(factory, alpha.org) as session:
+            department = (
+                await session.execute(
+                    text(
+                        "INSERT INTO departments (org_id, name) VALUES (:org, 'Parallel Dept') "
+                        "ON CONFLICT (org_id, normalized_name) DO UPDATE SET name = departments.name RETURNING id"
+                    ),
+                    {"org": alpha.org},
+                )
+            ).scalar_one()
+            user = (
+                await session.execute(
+                    text(
+                        "INSERT INTO users (org_id, issuer, subject, department_id) "
+                        "VALUES (:org, 'https://idp.test', 'parallel', :dept) "
+                        "ON CONFLICT (org_id, issuer, subject) DO UPDATE SET last_login_at = now() RETURNING id"
+                    ),
+                    {"org": alpha.org, "dept": department},
+                )
+            ).scalar_one()
+            return department, user
+
+    results = await asyncio.gather(*(sign_in() for _ in range(8)))
+    assert len({department for department, _ in results}) == 1
+    assert len({user for _, user in results}) == 1
+
+
+@pytest.mark.anyio
+async def test_foreign_key_errors_do_not_reveal_whether_an_id_exists_in_another_organization(
+    app_engine: AsyncEngine, data: tuple[OrgData, OrgData]
+) -> None:
+    alpha, beta = data
+    factory = create_session_factory(app_engine)
+    messages = []
+    for user_id in (beta.user, uuid.uuid4()):  # a real user of another organization, a random id
+        with pytest.raises(DBAPIError, match="foreign key") as caught:
+            async with tenant_session(factory, alpha.org) as session:
+                await session.execute(
+                    text(
+                        "INSERT INTO local_credentials (user_id, org_id, password_hash) "
+                        "VALUES (:u, :org, :hash)"
+                    ),
+                    {"u": user_id, "org": alpha.org, "hash": HASH},
+                )
+        messages.append(str(caught.value.orig).split("DETAIL")[0])
+    assert messages[0] == messages[1]
+
+
+@pytest.mark.anyio
+async def test_a_profile_cannot_be_created_with_a_profession_of_another_organization(
+    app_engine: AsyncEngine, owner_engine: AsyncEngine, data: tuple[OrgData, OrgData]
+) -> None:
+    alpha, beta = data
+    async with owner_engine.begin() as connection:
+        alpha_only = (
+            await connection.execute(
+                text(
+                    "INSERT INTO professions (scope, owner_org_id, code, names) VALUES "
+                    "('org', :org, 'alpha_private', CAST(:n AS jsonb)) RETURNING id"
+                ),
+                {"org": alpha.org, "n": '{"en": "A", "az": "A", "tr": "A", "ru": "A"}'},
+            )
+        ).scalar_one()
+        bare = (
+            await connection.execute(
+                text(
+                    "INSERT INTO users (org_id, issuer, subject) VALUES (:org, 'local', 'bare2') RETURNING id"
+                ),
+                {"org": beta.org},
+            )
+        ).scalar_one()
+    factory = create_session_factory(app_engine)
+    errors = []
+    for profession in (
+        alpha_only,
+        uuid.uuid4(),
+    ):  # another organization's, and one that does not exist
+        with pytest.raises(DBAPIError, match="not available") as caught:
+            async with tenant_session(factory, beta.org) as session:
+                await session.execute(
+                    text(
+                        "INSERT INTO user_profiles (user_id, org_id, profession_id) VALUES (:u, :org, :p)"
+                    ),
+                    {"u": bare, "org": beta.org, "p": profession},
+                )
+        errors.append(str(caught.value.orig).split(" is not available")[1])
+    assert errors[0] == errors[1]
+
+
+@pytest.mark.anyio
+async def test_a_profession_cannot_change_scope_and_deleting_it_clears_profiles(
+    owner_engine: AsyncEngine, data: tuple[OrgData, OrgData]
+) -> None:
+    alpha, _ = data
+    async with owner_engine.begin() as connection:
+        profession = (
+            await connection.execute(
+                text(
+                    "INSERT INTO professions (scope, owner_org_id, code, names) VALUES "
+                    "('org', :org, 'temp_role', CAST(:n AS jsonb)) RETURNING id"
+                ),
+                {"org": alpha.org, "n": '{"en": "T", "az": "T", "tr": "T", "ru": "T"}'},
+            )
+        ).scalar_one()
+        await connection.execute(
+            text("UPDATE user_profiles SET profession_id = :p WHERE user_id = :u"),
+            {"p": profession, "u": alpha.user},
+        )
+    for statement in (
+        "UPDATE professions SET scope = 'public', owner_org_id = NULL WHERE code = 'temp_role'",
+        "UPDATE professions SET owner_org_id = (SELECT id FROM organizations WHERE id <> :org LIMIT 1) WHERE code = 'temp_role'",
+        "UPDATE professions SET scope = 'org', owner_org_id = :org WHERE code = 'accountant'",
+    ):
+        with pytest.raises(DBAPIError, match="cannot change"):
+            async with owner_engine.begin() as connection:
+                await connection.execute(text(statement), {"org": alpha.org})
+    async with owner_engine.begin() as connection:
+        await connection.execute(text("DELETE FROM professions WHERE id = :p"), {"p": profession})
+        cleared = (
+            await connection.execute(
+                text("SELECT profession_id FROM user_profiles WHERE user_id = :u"),
+                {"u": alpha.user},
+            )
+        ).scalar_one()
+    assert cleared is None
+
+
+# --- privileges, functions and the migration itself ---------------------------------------------
+
+
+async def privilege_snapshot(engine: AsyncEngine) -> dict[str, set[tuple[str, ...]]]:
+    """Everything the application role may do in the public schema, as plain data."""
+    app = "(SELECT oid FROM pg_roles WHERE rolname = :app)"
+    async with engine.connect() as connection:
+        tables = (
+            await connection.execute(
+                text(
+                    "SELECT c.relname, c.relkind::text, x.privilege_type FROM pg_class c "
+                    "CROSS JOIN LATERAL aclexplode(c.relacl) x "
+                    f"WHERE c.relnamespace = 'public'::regnamespace AND x.grantee = {app}"
+                ),
+                {"app": APP_ROLE},
+            )
+        ).all()
+        columns = (
+            await connection.execute(
+                text(
+                    "SELECT c.relname, a.attname, x.privilege_type FROM pg_attribute a "
+                    "JOIN pg_class c ON c.oid = a.attrelid "
+                    "CROSS JOIN LATERAL aclexplode(a.attacl) x "
+                    f"WHERE c.relnamespace = 'public'::regnamespace AND x.grantee = {app}"
+                ),
+                {"app": APP_ROLE},
+            )
+        ).all()
+        functions = (
+            await connection.execute(
+                text(
+                    # Functions the application may call although PUBLIC may not. (A NULL ACL means
+                    # the default, which lets PUBLIC execute, as trigger functions do.)
+                    "SELECT p.proname FROM pg_proc p "
+                    "WHERE p.pronamespace = 'public'::regnamespace "
+                    "AND p.proacl IS NOT NULL "
+                    "AND has_function_privilege(:app, p.oid, 'EXECUTE') "
+                    "AND NOT EXISTS (SELECT 1 FROM aclexplode(p.proacl) x WHERE x.grantee = 0)"
+                ),
+                {"app": APP_ROLE},
+            )
+        ).all()
+    return {
+        "tables": {tuple(row) for row in tables},
+        "columns": {tuple(row) for row in columns},
+        "functions": {(row[0],) for row in functions},
+    }
+
+
+EXPECTED_TABLE_PRIVILEGES = {
+    (table, "r", "SELECT")
+    for table in (
+        "organizations",
+        "alembic_version",
+        "departments",
+        "professions",
+        "users",
+        "local_credentials",
+        "user_profiles",
+        "audit_logs",
+    )
+}
+EXPECTED_COLUMN_PRIVILEGES = (
+    {("organizations", c, "UPDATE") for c in ("name", "settings", "updated_at")}
+    | {("departments", c, "INSERT") for c in ("org_id", "name")}
+    | {("departments", "name", "UPDATE")}
+    | {
+        ("users", c, "INSERT")
+        for c in (
+            "org_id",
+            "issuer",
+            "subject",
+            "email",
+            "display_name",
+            "role",
+            "status",
+            "department_id",
+            "department_source",
+            "locale",
+            "last_login_at",
+        )
+    }
+    | {
+        ("users", c, "UPDATE")
+        for c in (
+            "email",
+            "display_name",
+            "role",
+            "status",
+            "department_id",
+            "department_source",
+            "locale",
+            "last_login_at",
+        )
+    }
+    | {("local_credentials", c, "INSERT") for c in ("user_id", "org_id", "password_hash")}
+    | {("local_credentials", c, "UPDATE") for c in ("password_hash", "password_changed_at")}
+    | {
+        ("user_profiles", c, "INSERT")
+        for c in (
+            "user_id",
+            "org_id",
+            "profession_id",
+            "ai_level",
+            "interests",
+            "onboarding_started_at",
+            "onboarding_completed_at",
+        )
+    }
+    | {
+        ("user_profiles", c, "UPDATE")
+        for c in (
+            "profession_id",
+            "ai_level",
+            "interests",
+            "onboarding_started_at",
+            "onboarding_completed_at",
+        )
+    }
+    | {
+        ("audit_logs", c, "INSERT")
+        for c in (
+            "org_id",
+            "actor_type",
+            "actor_id",
+            "action",
+            "target",
+            "outcome",
+            "ip_hash",
+            "details",
+        )
+    }
+)
+
+
+@pytest.mark.anyio
+async def test_the_application_role_has_exactly_the_intended_privileges(
+    owner_engine: AsyncEngine,
+) -> None:
+    snapshot = await privilege_snapshot(owner_engine)
+    assert snapshot["tables"] == EXPECTED_TABLE_PRIVILEGES  # no privilege on any sequence either
+    assert snapshot["columns"] == EXPECTED_COLUMN_PRIVILEGES
+    assert snapshot["functions"] == {("pharos_org_id_for_slug",)}
+
+
+@pytest.mark.anyio
+async def test_the_helper_functions_live_in_public_and_belong_to_the_table_owner(
+    owner_engine: AsyncEngine,
+) -> None:
+    async with owner_engine.connect() as connection:
+        rows = (
+            await connection.execute(
+                text(
+                    "SELECT p.proname, n.nspname, r.rolname, r.rolsuper FROM pg_proc p "
+                    "JOIN pg_namespace n ON n.oid = p.pronamespace "
+                    "JOIN pg_roles r ON r.oid = p.proowner WHERE p.proname LIKE 'pharos\\_%'"
+                )
+            )
+        ).all()
+        table_owner = (
+            await connection.execute(
+                text("SELECT tableowner FROM pg_tables WHERE tablename = 'organizations'")
+            )
+        ).scalar_one()
+    assert {row.proname for row in rows} >= {
+        "pharos_current_org",
+        "pharos_org_id_for_slug",
+        "pharos_set_updated_at",
+        "pharos_check_profession_scope",
+        "pharos_freeze_profession_scope",
+    }
+    for row in rows:
+        assert (row.nspname, row.rolname, row.rolsuper) == ("public", table_owner, False)
+
+
+@pytest.mark.anyio
+async def test_downgrade_refuses_to_delete_data_unless_told_to(
+    database: TestDatabase,
+    owner_engine: AsyncEngine,
+    data: tuple[OrgData, OrgData],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("PHAROS_ALLOW_DATA_LOSS", raising=False)
+    with pytest.raises(RuntimeError, match="PHAROS_ALLOW_DATA_LOSS"):
+        await asyncio.to_thread(command.downgrade, database.alembic, "0001")
+    async with owner_engine.connect() as connection:
+        remaining = (await connection.execute(text("SELECT count(*) FROM users"))).scalar_one()
+        revision = (
+            await connection.execute(text("SELECT version_num FROM alembic_version"))
+        ).scalar_one()
+    assert remaining == 2 and revision == "0002"
+
+    monkeypatch.setenv("PHAROS_ALLOW_DATA_LOSS", "yes")
+    try:
+        await asyncio.to_thread(command.downgrade, database.alembic, "0001")
+    finally:
+        monkeypatch.delenv("PHAROS_ALLOW_DATA_LOSS")
+        await asyncio.to_thread(command.upgrade, database.alembic, "head")
+    async with owner_engine.connect() as connection:
+        assert (await connection.execute(text("SELECT count(*) FROM users"))).scalar_one() == 0
 
 
 @pytest.mark.anyio
@@ -527,10 +1028,11 @@ async def test_migration_0002_can_be_reverted_and_applied_again(
     async def functions() -> set[str]:
         async with owner_engine.connect() as connection:
             rows = await connection.execute(
-                text("SELECT proname FROM pg_proc WHERE proname LIKE 'pharos_%'")
+                text("SELECT proname FROM pg_proc WHERE proname LIKE 'pharos\\_%'")
             )
             return {row[0] for row in rows}
 
+    before = await privilege_snapshot(owner_engine)
     assert await tables() >= NEW_TABLES
     try:
         await asyncio.to_thread(command.downgrade, database.alembic, "0001")
@@ -540,6 +1042,9 @@ async def test_migration_0002_can_be_reverted_and_applied_again(
     finally:
         await asyncio.to_thread(command.upgrade, database.alembic, "head")
     assert await tables() >= NEW_TABLES
+    assert (
+        await privilege_snapshot(owner_engine) == before
+    )  # policies and grants come back identical
     async with owner_engine.connect() as connection:
         seeded = (await connection.execute(text("SELECT count(*) FROM professions"))).scalar_one()
     assert seeded >= 12

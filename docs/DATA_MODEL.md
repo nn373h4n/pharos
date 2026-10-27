@@ -1,6 +1,6 @@
 # Data model
 
-Status: v0 (milestone M1). Only `organizations` and the RLS helper exist in the first migration (M1-05); everything else is the target model and arrives with its milestone. Tenancy rules: [ADR-0005](adr/0005-tenancy-and-rls.md).
+Status: milestone M2. Migrations 0001 (`organizations`, the RLS helper) and 0002 (identity, profiles, audit log) exist; the other tables are the target model and arrive with their milestones. Rows marked **Built** below exist. Tenancy rules: [ADR-0005](adr/0005-tenancy-and-rls.md).
 
 ## Conventions
 
@@ -30,7 +30,7 @@ Two login roles are provisioned by the deployment before the first migration. Th
 | Role | Used by | Rights |
 | --- | --- | --- |
 | `pharos_owner` | Alembic migrations only; owns the schema objects | DDL; its credentials are not part of the API/worker settings |
-| `pharos_app` | API and worker | `NOSUPERUSER NOBYPASSRLS`, no ownership; only the grants a migration gives it (for `organizations`: `SELECT`, and `UPDATE` on `name`, `settings`, `updated_at`) |
+| `pharos_app` | API and worker | `NOSUPERUSER NOBYPASSRLS`, no ownership; only the grants a migration gives it, by column where it matters (for example `organizations`: `SELECT`, and `UPDATE` on `name`, `settings`, `updated_at`). `tests/integration/test_identity_schema.py` compares the complete list of its privileges with an expected set, so a grant added by mistake fails the build |
 
 ```sql
 CREATE ROLE pharos_owner LOGIN PASSWORD '<generated>';
@@ -81,6 +81,15 @@ At sign-in the application does not know the organization yet, and RLS hides eve
 ### Phase 2 (not in MVP)
 
 `ideas`, `idea_votes`, `success_stories`, `time_savings`, `badges`, `user_badges`, `challenges`. Company-internal content never goes to a cloud LLM by default; when an admin enables it, masking is applied and the choice is audited.
+
+## Known limits of the identity schema (0002)
+
+- **Case folding depends on the database locale.** `departments.normalized_name` uses `lower()`, which follows the database's `LC_CTYPE`. The migration refuses the `C` locale, but under `en_US.utf8` Turkish and Azerbaijani names that differ only in the dotted and dotless i (`SATIŞ` and `satış`) are two departments, and a glibc upgrade can change the stored values. Use a UTF-8 locale and do not change it on a live database.
+- **Downgrading 0002 deletes every user, credential, profile and audit entry.** The migration refuses unless `PHAROS_ALLOW_DATA_LOSS=yes` is set. Back up first.
+- **The application role can change `role` and `status` at the schema level**; the service layer decides who may (RBAC, M2-07). The first sign-in upsert must never write them, and removing or demoting an admin needs a lock so two admins cannot demote each other at once (both are tested in their tasks).
+- **Upserting a department** (`ON CONFLICT ... DO UPDATE SET name = departments.name`) writes a new row version, so `updated_at` changes on every sign-in. Treat `updated_at` on departments as "last seen", not "last edited".
+- **Display names over 200 characters** are rejected by the database; the sign-in code must truncate them.
+- **Anyone who can run arbitrary SQL as the application role** can turn a guessable slug into the organization id with `pharos_org_id_for_slug` and then set `app.org_id` themselves. That is the documented limit of RLS (see above) and does not matter in a one-organization installation, where the slug is in the environment anyway.
 
 ## Indexes and pagination
 
