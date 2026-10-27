@@ -4,7 +4,7 @@ Management view, kept short. Task detail is in [TASKS.md](TASKS.md).
 
 ## Where the project is
 
-- **Phase:** 1 (MVP), milestone **M1 complete** on 2026-10-27. Next: M2 (sign-in, organization, onboarding), not planned yet.
+- **Phase:** 1 (MVP), milestone **M1 complete** on 2026-10-27. **M2** (sign-in, organization, onboarding) has an approved plan ([docs/plans/m2-sign-in-organization-onboarding.md](docs/plans/m2-sign-in-organization-onboarding.md)) and is in progress: 0 of 15 tasks done.
 - **What exists:** a runnable but empty platform. A placeholder home page in four languages, `/api/healthz` and `/api/readyz`, a worker with a heartbeat, a database with row-level security and one table, the Docker Compose stack, and the delivery pipeline. There is no sign-in, no content, no LLM.
 - **Completion:** 10 of 10 M1 tasks done (measured). Overall, 1 of 5 milestones is complete; that is a count, not an effort estimate, because the milestones differ a lot in size.
 
@@ -37,7 +37,7 @@ Management view, kept short. Task detail is in [TASKS.md](TASKS.md).
 ## Next steps
 
 1. Maintainer reviews the ADRs marked Proposed and the ADR-0005 amendment ([TASKS.md](TASKS.md#decisions-waiting-for-the-maintainer)).
-2. Plan M2 and get it approved: sign-in, sessions, RBAC, organization bootstrap, onboarding.
+2. Build M2 task by task in the order of the plan; the maintainer reviews ADR-0011 (`Proposed`).
 3. Start the M0 items that take calendar time: server and Entra ID registration (M0-02, M0-03).
 4. Have the az, tr and ru translations reviewed (F-01).
 5. Decide the egress approach (F-04) before real data is stored.
