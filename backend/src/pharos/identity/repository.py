@@ -39,6 +39,7 @@ class UserView:
     locale: str | None
     department: str | None
     last_login_at: datetime | None
+    onboarding_completed_at: datetime | None
 
 
 async def find_local_user(
@@ -135,8 +136,9 @@ async def get_user_view(
         await session.execute(
             text(
                 "SELECT u.id, u.display_name, u.email, u.role, u.locale, d.name AS department, "
-                "u.last_login_at FROM users u "
+                "u.last_login_at, p.onboarding_completed_at FROM users u "
                 "LEFT JOIN departments d ON d.org_id = u.org_id AND d.id = u.department_id "
+                "LEFT JOIN user_profiles p ON p.org_id = u.org_id AND p.user_id = u.id "
                 "WHERE u.org_id = :org AND u.id = :user"
             ),
             {"org": org_id, "user": user_id},
@@ -145,7 +147,14 @@ async def get_user_view(
     if row is None:
         return None
     return UserView(
-        row.id, row.display_name, row.email, row.role, row.locale, row.department, row.last_login_at
+        row.id,
+        row.display_name,
+        row.email,
+        row.role,
+        row.locale,
+        row.department,
+        row.last_login_at,
+        row.onboarding_completed_at,
     )
 
 

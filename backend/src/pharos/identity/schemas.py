@@ -28,6 +28,7 @@ class UserOut(BaseModel):
     locale: str | None
     department: str | None
     last_login_at: datetime | None
+    onboarding_completed_at: datetime | None
 
 
 class SessionOut(BaseModel):

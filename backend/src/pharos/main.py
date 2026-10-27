@@ -31,6 +31,8 @@ from pharos.core.sessions import SessionIdentityResolver, SessionStore
 from pharos.identity.passwords import PasswordHasher
 from pharos.identity.router import router as identity_router
 from pharos.identity.service import LocalAuthService, LocalLoginMode
+from pharos.profile.router import router as profile_router
+from pharos.profile.service import ProfileService
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +101,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.audit = AuditLog(
             app.state.session_factory, derive_key(settings.secret_key, KeyPurpose.AUDIT_IP)
         )
+        app.state.profile = ProfileService(settings.default_locale)
         app.state.local_auth = LocalAuthService(
             hasher=PasswordHasher(
                 memory_kib=settings.password_hash_memory_kib,
@@ -144,4 +147,5 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.add_middleware(RequestIdMiddleware)
     app.include_router(health_router, prefix=API_PREFIX)
     app.include_router(identity_router, prefix=API_PREFIX)
+    app.include_router(profile_router, prefix=API_PREFIX)
     return app

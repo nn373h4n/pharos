@@ -53,7 +53,7 @@ async def make_stack(
 ) -> AsyncIterator[MakeStack]:
     contexts: list[Any] = []
 
-    async def build(mode: str = "break-glass") -> Stack:
+    async def build(mode: str = "break-glass", **extra: Any) -> Stack:
         org_a, org_b = orgs
         settings = Settings(
             environment="test",
@@ -65,6 +65,7 @@ async def make_stack(
             local_login=mode,  # type: ignore[arg-type]
             password_hash_memory_kib=64,
             password_hash_time_cost=1,
+            **extra,
         )
         app = create_app(settings)
         lifespan = app.router.lifespan_context(app)

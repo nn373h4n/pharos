@@ -64,6 +64,7 @@ x-backend-env: &backend-env
   PHAROS_ORG_SLUG: ${PHAROS_ORG_SLUG:-default}
   PHAROS_SECRET_KEY: ${PHAROS_SECRET_KEY:?set PHAROS_SECRET_KEY}
   PHAROS_LOCAL_LOGIN: ${PHAROS_LOCAL_LOGIN:-break-glass}
+  PHAROS_DEFAULT_LOCALE: ${PHAROS_DEFAULT_LOCALE:-en}
 
 services:
   caddy:

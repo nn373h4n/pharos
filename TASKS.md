@@ -70,7 +70,7 @@ Plan: [docs/plans/m2-sign-in-organization-onboarding.md](docs/plans/m2-sign-in-o
 | M2-03b | P0 | Done | Session store, CSRF, Origin check, cookies, pinned proxy trust | 03a | Revocation, fixation, Origin and forged forwarded-header tests |
 | M2-03c | P1 | Done | Rate limiter, audit service, event catalogue | 03b | Concurrent attempts counted exactly; audit entries without secrets |
 | M2-04 | P0 | Done | Local accounts: login, logout, `/me`, operator CLI | 03c | Break-glass admin can sign in; no user enumeration; no hard lockout |
-| M2-08 | P1 | Todo | Profile and onboarding API, professions, interest codes | 03a | Profile validated against its organization; timestamps stored |
+| M2-08 | P1 | Done | Profile and onboarding API, professions, interest codes | 03a | Profile validated against its organization; timestamps stored |
 | M2-05 | P0 | Todo | Generic OIDC with a fake-IdP negative suite, user creation on first sign-in | 03c | Every negative case in the plan is rejected; the first sign-in upsert never writes `role` or `status`; display names are truncated to 200 characters |
 | M2-06 | P1 | Todo | Entra ID preset (tenant-pinned issuer, Graph prefill) | 05 | Tested against recorded or mocked Entra shapes; real Entra NOT TESTED |
 | M2-07 | P0 | Todo | RBAC dependency, role and status endpoints, user list | 04 | Role × endpoint matrix; role change and disabling apply on the next request; two admins cannot demote each other concurrently (row lock) |

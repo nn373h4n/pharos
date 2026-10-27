@@ -65,6 +65,7 @@ Every error is an [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) document wi
 | `not_found` | 404 | No such route or object, or the object belongs to another organization. |
 | `method_not_allowed` | 405 | The path exists but not for this method; `Allow` lists the methods. |
 | `csrf_failed` | 403 | A state-changing request had no `Origin` equal to the public address, or a signed-in request had no valid `X-CSRF-Token`. |
+| `onboarding_incomplete` | 409 | Onboarding was completed before all four answers existed; `missing` lists them. |
 | `rate_limited` | 429 | Too many attempts. `Retry-After` gives the seconds to wait; waiting is enough, there is no lockout. |
 | `validation_failed` | 422 | The body, query or path is not valid. `errors` lists `{loc, type}` for each problem, never the value. |
 | `organization_not_configured` | 503 | The organization of this installation has not been created yet. |
@@ -103,3 +104,22 @@ Not endpoints yet; they are the parts every endpoint uses (ADR-0011):
 `POST /api/auth/local/login` takes `{"username": "...", "password": "..."}` and answers `200 {"user": {...}, "csrf_token": "..."}` with the session cookie. Every failure (wrong password, unknown user, disabled account, not allowed in `break-glass` mode, password too long) is the same `401 invalid_credentials`; the reason is only in the audit log. After a few failures the answer becomes `429 rate_limited` with `Retry-After`, even for the right password; waiting is enough. With `PHAROS_LOCAL_LOGIN=off` the endpoint answers `404`. Sending the request while already signed in needs the `X-CSRF-Token` of that session, like any other state-changing request; the old session is ended and a new id is issued.
 
 `GET /api/me` answers `{"user": {"id", "display_name", "email", "role", "locale", "department", "last_login_at"}, "csrf_token": "..."}`. The role is read from the database on every request, so a change applies at once; a disabled account gets `401`. The web app sends `csrf_token` back as `X-CSRF-Token` on every `POST`, `PUT`, `PATCH` and `DELETE`.
+
+## Profile and onboarding
+
+All of these need a session. Requests that change data also need `Origin` and `X-CSRF-Token` (see Sessions and CSRF).
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/api/me/profile` | The profile of the signed-in user. Empty fields are `null` or `[]`. |
+| PUT | `/api/me/profile` | Set profile fields. Fields that are present are set (`null` clears), absent fields stay. |
+| POST | `/api/me/onboarding/complete` | Mark onboarding finished. Idempotent. |
+| GET | `/api/me/profile/options` | The fixed choices: `ai_levels`, `interests` (codes), `locales`. |
+| GET | `/api/professions` | Public professions and the organization's own, with names in `en`, `az`, `tr`, `ru`. |
+| GET | `/api/departments` | The organization's departments. |
+
+`PUT /api/me/profile` accepts `profession_id`, `ai_level` (`beginner`, `intermediate`, `advanced`), `interests` (codes from the catalogue, no duplicates, at most 12), `department_id` and `locale` (`en`, `az`, `tr`, `ru`). Anything else, including `org_id`, `role` and the onboarding timestamps, is refused with `422`. Unknown choices answer `422 validation_failed` with the field in `errors`; a profession or department of another organization counts as unknown. A department chosen here is marked as the user's own, so a later sign-in through the identity provider does not overwrite it.
+
+The profile response contains `locale` (the saved choice) and `effective_locale`: the saved choice, else the best supported language of `Accept-Language`, else `PHAROS_DEFAULT_LOCALE`. `onboarding_started_at` is set by the first save and never changes; `onboarding_completed_at` is set once by completing.
+
+`POST /api/me/onboarding/complete` needs all four answers: a profession, at least one interest, a language and an AI level. Otherwise it answers `409 onboarding_incomplete` with `missing` listing the fields. `GET /api/me` also returns `onboarding_completed_at`, so the app can decide whether to show onboarding.

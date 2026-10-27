@@ -185,6 +185,15 @@ check_blocked "the session cookie has no Domain attribute" grep -qi 'domain=' <<
 check "the session works through the proxy" \
   test "$(https -b "$jar" -o /dev/null -w '%{http_code}' "$base/api/me")" = 200
 csrf=$(head -n -1 <<<"$signed_in" | python3 -I -c "import json, sys; print(json.load(sys.stdin)['csrf_token'])")
+professions=$(https -b "$jar" "$base/api/professions")
+check "the seeded professions are listed (with all four languages)" \
+  test "$(grep -o '"names"' <<<"$professions" | wc -l)" -ge 10
+check "a profile change without the CSRF token is refused (403)" \
+  test "$(https -b "$jar" -X PUT -H 'Content-Type: application/json' -H "Origin: $base" -d '{"locale":"az"}' -o /dev/null -w '%{http_code}' "$base/api/me/profile")" = 403
+check "a profile change with the CSRF token works (200)" \
+  test "$(https -b "$jar" -X PUT -H 'Content-Type: application/json' -H "Origin: $base" -H "X-CSRF-Token: $csrf" -d '{"locale":"az"}' -o /dev/null -w '%{http_code}' "$base/api/me/profile")" = 200
+check "the saved language is reported back" \
+  grep -q '"effective_locale":"az"' <<<"$(https -b "$jar" "$base/api/me/profile")"
 check "a sign-out without the CSRF token is refused (403)" \
   test "$(https -b "$jar" -X POST -H "Origin: $base" -o /dev/null -w '%{http_code}' "$base/api/auth/logout")" = 403
 check "a sign-out with the CSRF token works (204)" \
