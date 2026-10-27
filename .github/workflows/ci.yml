@@ -1,0 +1,153 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  UV_VERSION: "0.13.5"
+  # markdownlint-cli2, pinned by digest
+  MARKDOWNLINT_IMAGE: davidanson/markdownlint-cli2@sha256:70ead7c0352d22d04bbe612cd96b54ec591538d8f4626cafe391bb2ecf3639ca
+
+jobs:
+  dco:
+    name: DCO sign-off
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check that every commit is signed off
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: bash scripts/check-dco.sh "origin/$BASE_REF" "$HEAD_SHA"
+
+  backend:
+    name: Backend
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+      - run: uv sync --frozen
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run mypy --config-file backend/pyproject.toml backend/src
+      - run: uv run lint-imports --config backend/.importlinter
+      - run: uv run pytest backend/tests
+      - name: Hook and script tests
+        run: |
+          bash tests/hooks/test_guard.sh
+          bash tests/scripts/test_init_env.sh
+          bash tests/scripts/test_check_dco.sh
+
+  integration:
+    name: Backend integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+      - run: uv sync --frozen
+      # Starts throwaway PostgreSQL and Redis containers, runs the integration tests, removes them.
+      - run: bash scripts/test-infra.sh run
+
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # pnpm comes from the "packageManager" field of package.json.
+      - run: corepack enable
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+
+  e2e:
+    name: End-to-end
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: corepack enable
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm test:e2e
+        env:
+          CI: "true"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: failure()
+        with:
+          name: playwright-report
+          path: |
+            frontend/playwright-report
+            frontend/test-results
+          retention-days: 7
+
+  docs:
+    name: Docs
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Lint Markdown
+        run: docker run --rm -v "$GITHUB_WORKSPACE:/workdir:ro" "$MARKDOWNLINT_IMAGE" "**/*.md" "#.claude"
+
+  compose:
+    name: Docker Compose
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Builds the whole stack in a throwaway project and checks health, TLS, network isolation
+      # and container hardening.
+      - run: bash scripts/compose-smoke.sh

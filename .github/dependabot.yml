@@ -1,0 +1,50 @@
+version: 2
+
+# Weekly update pull requests. Dependabot's commits carry no sign-off; the DCO check skips bot
+# commits and the maintainer who merges a pull request takes responsibility for it.
+updates:
+  - package-ecosystem: uv
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: build
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: build
+    open-pull-requests-limit: 5
+    ignore:
+      # eslint-config-next and its plugins do not support ESLint 10 yet (see frontend/package.json);
+      # TypeScript is pinned below 6.1 for typescript-eslint. Revisit when they catch up.
+      - dependency-name: eslint
+        update-types: ["version-update:semver-major"]
+      - dependency-name: typescript
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: ci
+
+  - package-ecosystem: docker
+    directories:
+      - /backend
+      - /frontend
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: build
+
+  - package-ecosystem: docker-compose
+    directory: /deploy
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: build
