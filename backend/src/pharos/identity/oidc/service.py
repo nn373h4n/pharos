@@ -22,7 +22,7 @@ import secrets
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import unquote, urlencode, urlsplit
 
 from redis.asyncio import Redis
 from redis.exceptions import RedisError
@@ -91,7 +91,12 @@ def safe_next(value: str | None) -> str:
         return "/"
     if "\\" in value or any(ord(char) < 0x20 or ord(char) == 0x7F for char in value):
         return "/"
-    if value.startswith("/api/"):
+    # Dot segments ("/en/../api/me", "/%2e%2e/api/me") are refused: the browser would resolve them
+    # to a different path than the one checked here.
+    path = unquote(urlsplit(value).path)
+    if any(segment in (".", "..") for segment in path.split("/")):
+        return "/"
+    if path == "/api" or path.startswith("/api/"):
         return "/"  # API paths return JSON, not pages
     return value
 

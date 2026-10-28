@@ -11,7 +11,8 @@
     "title": "Süni intellekt sizin işinizi almayacaq, onu gücləndirəcək.",
     "subtitle": "Pharos sizin öz peşənizə uyğun praktik süni intellekt nümunələrini öz dilinizdə göstərir.",
     "statusTitle": "İlkin inkişaf mərhələsi",
-    "statusBody": "Bu, layihənin skeletidir. Giriş və fərdi lent növbəti mərhələlərdə əlavə olunacaq."
+    "statusBody": "Bu, layihənin skeletidir. Fərdi lent növbəti mərhələlərdə əlavə olunacaq.",
+    "welcome": "Xoş gəlmisiniz, {name}."
   },
   "Footer": {
     "license": "Apache License 2.0 ilə açıq mənbəli"
@@ -25,5 +26,41 @@
     "title": "Səhifə tapılmadı",
     "body": "Bu səhifə mövcud deyil və ya köçürülüb.",
     "home": "Ana səhifəyə qayıt"
+  },
+  "Login": {
+    "title": "Giriş",
+    "subtitle": "Təşkilatınızın hesabından istifadə edin.",
+    "loading": "Giriş seçimləri yüklənir…",
+    "loadFailed": "Giriş seçimlərini yükləmək mümkün olmadı. Bir az sonra yenidən cəhd edin.",
+    "ssoButton": "{provider} ilə daxil ol",
+    "or": "və ya",
+    "passwordHeading": "Parolla daxil ol",
+    "breakGlassHint": "Parolla giriş yalnız administratorlar üçündür.",
+    "username": "İstifadəçi adı",
+    "password": "Parol",
+    "submit": "Daxil ol",
+    "submitting": "Daxil olunur…",
+    "noMethods": "Giriş qurulmayıb. Administratorunuza müraciət edin."
+  },
+  "LoginErrors": {
+    "invalid_credentials": "İstifadəçi adı və ya parol yanlışdır.",
+    "rate_limited": "Çox cəhd olundu. {seconds} saniyə sonra yenidən cəhd edin.",
+    "sso_failed": "Vahid giriş alınmadı. Yenidən cəhd edin.",
+    "sso_denied": "Giriş ləğv edildi.",
+    "sso_unavailable": "Giriş xidmətinə hazırda qoşulmaq mümkün deyil. Bir az sonra yenidən cəhd edin.",
+    "account_disabled": "Bu hesab söndürülüb. Administratorunuza müraciət edin.",
+    "unavailable": "Xidmət hazırda əlçatan deyil. Bir az sonra yenidən cəhd edin.",
+    "generic": "Nəsə səhv getdi. Yenidən cəhd edin."
+  },
+  "Shell": {
+    "loading": "Yüklənir…",
+    "unavailable": "Xidmət hazırda əlçatan deyil. Bir az sonra yenidən cəhd edin.",
+    "account": "Hesab",
+    "roleAdmin": "Administrator",
+    "roleEditor": "Redaktor",
+    "roleMember": "İştirakçı",
+    "signOut": "Çıxış",
+    "signingOut": "Çıxılır…",
+    "signOutFailed": "Çıxış alınmadı. Yenidən cəhd edin."
   }
 }

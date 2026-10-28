@@ -3,6 +3,8 @@ import { hasLocale, NextIntlClientProvider } from "next-intl";
 import { getTranslations, setRequestLocale } from "next-intl/server";
 import { notFound } from "next/navigation";
 import type { ReactNode } from "react";
+import { SessionProvider } from "@/components/auth/session-provider";
+import { UserMenu } from "@/components/auth/user-menu";
 import { LanguageSwitcher } from "@/components/language-switcher";
 import { routing } from "@/i18n/routing";
 import "../globals.css";
@@ -31,24 +33,29 @@ export default async function LocaleLayout({ children, params }: Props) {
     <html lang={locale}>
       <body className="flex min-h-screen flex-col">
         <NextIntlClientProvider>
-          <a
-            href="#main"
-            className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:rounded-md focus:bg-primary focus:px-4 focus:py-2 focus:text-primary-foreground"
-          >
-            {t("skipToContent")}
-          </a>
-          <header className="border-b border-border">
-            <div className="mx-auto flex max-w-4xl flex-wrap items-center justify-between gap-3 px-4 py-3">
-              <p className="text-lg font-semibold">{"Pharos"}</p>
-              <LanguageSwitcher />
-            </div>
-          </header>
-          {children}
-          <footer className="mt-auto border-t border-border">
-            <p className="mx-auto max-w-4xl px-4 py-4 text-sm text-muted-foreground">
-              {footer("license")}
-            </p>
-          </footer>
+          <SessionProvider>
+            <a
+              href="#main"
+              className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:rounded-md focus:bg-primary focus:px-4 focus:py-2 focus:text-primary-foreground"
+            >
+              {t("skipToContent")}
+            </a>
+            <header className="border-b border-border">
+              <div className="mx-auto flex max-w-4xl flex-wrap items-center justify-between gap-3 px-4 py-3">
+                <p className="text-lg font-semibold">{"Pharos"}</p>
+                <div className="flex flex-wrap items-center gap-4">
+                  <UserMenu />
+                  <LanguageSwitcher />
+                </div>
+              </div>
+            </header>
+            {children}
+            <footer className="mt-auto border-t border-border">
+              <p className="mx-auto max-w-4xl px-4 py-4 text-sm text-muted-foreground">
+                {footer("license")}
+              </p>
+            </footer>
+          </SessionProvider>
         </NextIntlClientProvider>
       </body>
     </html>

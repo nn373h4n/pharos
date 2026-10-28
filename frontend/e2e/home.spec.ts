@@ -1,11 +1,16 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
+import { mockApi } from "./api-mock";
 import { az, en, ru, tr } from "./messages";
 
 const messages = { en, az, tr, ru } as const;
 const locales = Object.keys(messages) as (keyof typeof messages)[];
 
-// The server in playwright.config.ts runs with PHAROS_DEFAULT_LOCALE=az.
+// The server in playwright.config.ts runs with PHAROS_DEFAULT_LOCALE=az. The home page needs a
+// session, so the API answers as for a signed-in person (see api-mock.ts).
+test.beforeEach(async ({ page }) => {
+  await mockApi(page, { signedIn: true });
+});
 
 for (const locale of locales) {
   test.describe(`/${locale}`, () => {
@@ -47,6 +52,7 @@ test.describe("language selection", () => {
     browser,
   }) => {
     const context = await browser.newContext({ locale: "de-DE" });
+    await mockApi(context, { signedIn: true });
     const page = await context.newPage();
     await page.goto("/");
     await expect(page).toHaveURL(/\/az$/);
@@ -55,6 +61,7 @@ test.describe("language selection", () => {
 
   test("a supported browser language wins over the installation default", async ({ browser }) => {
     const context = await browser.newContext({ locale: "ru-RU" });
+    await mockApi(context, { signedIn: true });
     const page = await context.newPage();
     await page.goto("/");
     await expect(page).toHaveURL(/\/ru$/);
@@ -63,6 +70,7 @@ test.describe("language selection", () => {
 
   test("a path without a locale is redirected, keeping the path", async ({ browser }) => {
     const context = await browser.newContext({ locale: "tr-TR" });
+    await mockApi(context, { signedIn: true });
     const page = await context.newPage();
     await page.goto("/does-not-exist");
     await expect(page).toHaveURL(/\/tr\/does-not-exist$/);

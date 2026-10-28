@@ -11,7 +11,8 @@
     "title": "Yapay zekâ işinizi elinizden almayacak, işinizi güçlendirecek.",
     "subtitle": "Pharos, kendi mesleğinize uygun pratik yapay zekâ kullanım örneklerini kendi dilinizde gösterir.",
     "statusTitle": "Erken geliştirme aşaması",
-    "statusBody": "Bu, projenin iskeletidir. Giriş ve kişisel akış sonraki aşamalarda eklenecek."
+    "statusBody": "Bu, projenin iskeletidir. Kişisel akışınız sonraki aşamalarda eklenecek.",
+    "welcome": "Hoş geldiniz, {name}."
   },
   "Footer": {
     "license": "Apache License 2.0 ile açık kaynak"
@@ -25,5 +26,41 @@
     "title": "Sayfa bulunamadı",
     "body": "Bu sayfa mevcut değil veya taşınmış.",
     "home": "Başlangıç sayfasına dön"
+  },
+  "Login": {
+    "title": "Giriş yap",
+    "subtitle": "Kurumunuzun hesabını kullanın.",
+    "loading": "Giriş seçenekleri yükleniyor…",
+    "loadFailed": "Giriş seçenekleri yüklenemedi. Daha sonra tekrar deneyin.",
+    "ssoButton": "{provider} ile giriş yap",
+    "or": "veya",
+    "passwordHeading": "Parola ile giriş yap",
+    "breakGlassHint": "Parola ile giriş yalnızca yöneticiler içindir.",
+    "username": "Kullanıcı adı",
+    "password": "Parola",
+    "submit": "Giriş yap",
+    "submitting": "Giriş yapılıyor…",
+    "noMethods": "Giriş yapılandırılmamış. Yöneticinize başvurun."
+  },
+  "LoginErrors": {
+    "invalid_credentials": "Kullanıcı adı veya parola yanlış.",
+    "rate_limited": "Çok fazla deneme yapıldı. {seconds} saniye sonra tekrar deneyin.",
+    "sso_failed": "Tek oturum açma çalışmadı. Tekrar deneyin.",
+    "sso_denied": "Giriş iptal edildi.",
+    "sso_unavailable": "Giriş hizmetine şu anda ulaşılamıyor. Daha sonra tekrar deneyin.",
+    "account_disabled": "Bu hesap devre dışı. Yöneticinize başvurun.",
+    "unavailable": "Hizmet şu anda kullanılamıyor. Daha sonra tekrar deneyin.",
+    "generic": "Bir şeyler ters gitti. Tekrar deneyin."
+  },
+  "Shell": {
+    "loading": "Yükleniyor…",
+    "unavailable": "Hizmet şu anda kullanılamıyor. Daha sonra tekrar deneyin.",
+    "account": "Hesap",
+    "roleAdmin": "Yönetici",
+    "roleEditor": "Editör",
+    "roleMember": "Üye",
+    "signOut": "Çıkış yap",
+    "signingOut": "Çıkış yapılıyor…",
+    "signOutFailed": "Çıkış yapılamadı. Tekrar deneyin."
   }
 }

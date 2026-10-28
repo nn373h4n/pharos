@@ -11,7 +11,8 @@
     "title": "AI will not take your job. It will strengthen it.",
     "subtitle": "Pharos shows practical AI use cases for your own profession, in your own language.",
     "statusTitle": "Early development",
-    "statusBody": "This is the project skeleton. Sign-in and your personal feed arrive in the next milestones."
+    "statusBody": "This is the project skeleton. Your personal feed arrives in the next milestones.",
+    "welcome": "Welcome, {name}."
   },
   "Footer": {
     "license": "Open source under the Apache License 2.0"
@@ -25,5 +26,41 @@
     "title": "Page not found",
     "body": "This page does not exist or has moved.",
     "home": "Back to the start page"
+  },
+  "Login": {
+    "title": "Sign in",
+    "subtitle": "Use the account of your organization.",
+    "loading": "Loading the sign-in options…",
+    "loadFailed": "The sign-in options could not be loaded. Try again later.",
+    "ssoButton": "Sign in with {provider}",
+    "or": "or",
+    "passwordHeading": "Sign in with a password",
+    "breakGlassHint": "Password sign-in is only for administrators.",
+    "username": "Username",
+    "password": "Password",
+    "submit": "Sign in",
+    "submitting": "Signing in…",
+    "noMethods": "Sign-in is not set up. Ask your administrator."
+  },
+  "LoginErrors": {
+    "invalid_credentials": "The username or the password is wrong.",
+    "rate_limited": "Too many attempts. Try again in {seconds} seconds.",
+    "sso_failed": "Single sign-on did not work. Try again.",
+    "sso_denied": "Sign-in was cancelled.",
+    "sso_unavailable": "The sign-in service cannot be reached right now. Try again later.",
+    "account_disabled": "This account is disabled. Ask your administrator.",
+    "unavailable": "The service is not available right now. Try again later.",
+    "generic": "Something went wrong. Try again."
+  },
+  "Shell": {
+    "loading": "Loading…",
+    "unavailable": "The service is not available right now. Try again later.",
+    "account": "Account",
+    "roleAdmin": "Administrator",
+    "roleEditor": "Editor",
+    "roleMember": "Member",
+    "signOut": "Sign out",
+    "signingOut": "Signing out…",
+    "signOutFailed": "Signing out did not work. Try again."
   }
 }
