@@ -83,6 +83,21 @@ open, and an independent review of the first M2 design found that the obvious ch
 - **Proxy trust.** The API trusts `X-Forwarded-*` only from Caddy's pinned address on a pinned
   subnet, never from the whole network (the web container can reach the API too).
 
+## Amendments made while building M2
+
+- **Unit of work.** The organization is set by a hook that runs whenever a transaction begins, not
+  when the dependency is resolved, so a request takes a database connection only when it uses it
+  (and the scope applies after a commit too). The password path and the single sign-on callback do
+  their slow work (hashing queue, provider calls) before or between database transactions, so a
+  burst of sign-ins cannot use the connection pool up.
+- **Worker environment.** The worker and the scheduler run as `PHAROS_PROCESS=worker` and get no root
+  key, no identity-provider secret and no sign-in mode; the settings refuse to start them with
+  those. The session records in Redis are still unsigned (follow-up F-14).
+- **Break-glass** is checked on every request, not only at sign-in: a password session of someone who
+  is not an administrator is refused while `PHAROS_LOCAL_LOGIN=break-glass`.
+- **Sign-out at the provider.** Pharos stores no ID tokens, so it sends no `id_token_hint`; Keycloak
+  therefore asks the person to confirm before ending its own session.
+
 ## Consequences
 
 - Positive: demotion, disabling and sign-out take effect on the next request; login CSRF, session

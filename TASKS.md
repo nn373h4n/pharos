@@ -52,10 +52,11 @@ All ten tasks were merged through pull requests. The pipeline arrived with M1-09
 | F-16 | P3 | Todo | Verification time of hashes made with older parameters differs from the dummy hash until they are rehashed | Review of M2-04 (P3-2); small timing signal, only for accounts not yet upgraded |
 | F-17 | P3 | Todo | OIDC client hardening: refetch the signing keys on a TTL (a withdrawn key stays trusted until restart) and put one overall deadline on each provider call (the 10 s timeout is per chunk) | Security review of M2-05 (P3-2, P3-4) |
 | F-18 | P3 | Done | Negative test for the Entra `common` tenant issuer | Security review of M2-05 (P3-7); done in M2-06: config tests refuse `common` and an issuer that disagrees with the tenant |
+| F-19 | P3 | Todo | Check that Caddy sees real IPv6 client addresses behind Docker's port publishing; if it does not, all IPv6 users share one rate-limit bucket | Whole-milestone review of M2 (not verifiable without a host with IPv6) |
 
 ## Decisions waiting for the maintainer
 
-- Accept or change ADR-0006 (connector plugins), ADR-0007 (embeddings; needs the Azerbaijani evaluation), ADR-0009 (output sanitization, adds `nh3`) and ADR-0010 (network topology). All are `Proposed`.
+- Accept or change ADR-0011 (sessions, CSRF, identity-provider trust, organization resolution; implemented and reviewed in M2), ADR-0006 (connector plugins), ADR-0007 (embeddings; needs the Azerbaijani evaluation), ADR-0009 (output sanitization, adds `nh3`) and ADR-0010 (network topology). All are `Proposed`.
 - ADR-0005 was amended during the M1-05 review (separate read and write policies on content tables); confirm the amendment.
 - Questions 7-12 in `docs/ARCHITECTURE_PROPOSAL.md` section 16 (team size, pilot professions, card format, retention, fully local mode, source list).
 
@@ -79,4 +80,4 @@ Plan: [docs/plans/m2-sign-in-organization-onboarding.md](docs/plans/m2-sign-in-o
 | M2-09a | P1 | Done | Frontend: login page, app shell, 401 handling | 04 | Keyboard-only sign-in; axe clean in 4 languages |
 | M2-09b | P1 | Done | Frontend: onboarding stepper | 08, 09a | Keyboard-only; completes in under 2 minutes in a timed run |
 | M2-10b | P1 | Done | Compose wiring, `make env` additions, identity-provider guides | 10a, 05 | `make test-compose` still passes with the new settings |
-| M2-11 | P0 | Todo | Stack E2E through Keycloak, CI job, security review, documentation | all | All M2 acceptance criteria in the plan |
+| M2-11 | P0 | Done | Stack E2E through Keycloak, CI job, security review, documentation | all | All M2 acceptance criteria in the plan |
