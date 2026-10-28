@@ -56,7 +56,7 @@ All ten tasks were merged through pull requests. The pipeline arrived with M1-09
 
 ## Decisions waiting for the maintainer
 
-- Accept or change ADR-0011 (sessions, CSRF, identity-provider trust, organization resolution; implemented and reviewed in M2), ADR-0006 (connector plugins), ADR-0007 (embeddings; needs the Azerbaijani evaluation), ADR-0009 (output sanitization, adds `nh3`) and ADR-0010 (network topology). All are `Proposed`.
+- Accept or change ADR-0012 (worker identity and ingestion boundaries, M3), ADR-0011 (sessions, CSRF, identity-provider trust, organization resolution; implemented and reviewed in M2), ADR-0006 (connector plugins), ADR-0007 (embeddings; needs the Azerbaijani evaluation), ADR-0009 (output sanitization, adds `nh3`) and ADR-0010 (network topology). All are `Proposed`.
 - ADR-0005 was amended during the M1-05 review (separate read and write policies on content tables); confirm the amendment.
 - Questions 7-12 in `docs/ARCHITECTURE_PROPOSAL.md` section 16 (team size, pilot professions, card format, retention, fully local mode, source list).
 
@@ -81,3 +81,24 @@ Plan: [docs/plans/m2-sign-in-organization-onboarding.md](docs/plans/m2-sign-in-o
 | M2-09b | P1 | Done | Frontend: onboarding stepper | 08, 09a | Keyboard-only; completes in under 2 minutes in a timed run |
 | M2-10b | P1 | Done | Compose wiring, `make env` additions, identity-provider guides | 10a, 05 | `make test-compose` still passes with the new settings |
 | M2-11 | P0 | Done | Stack E2E through Keycloak, CI job, security review, documentation | all | All M2 acceptance criteria in the plan |
+
+## M3 — Sources and ingestion (plan approved 2026-10-28)
+
+Plan: [docs/plans/m3-sources-and-ingestion.md](docs/plans/m3-sources-and-ingestion.md). Decisions: [ADR-0012](docs/adr/0012-worker-identity-and-ingestion-boundaries.md) (`Proposed`), ADR-0006 and ADR-0009 (`Proposed`, to be accepted by the maintainer). New dependencies approved with the plan: `feedparser`, `nh3`, `defusedxml`.
+
+| ID | P | Status | Task | Depends on | Acceptance criterion |
+| --- | --- | --- | --- | --- | --- |
+| M3-01 | P0 | Done | Plan copied into the repository, ADR-0012, tasks recorded | — | ADR in the template; plan and tasks recorded |
+| M3-02 | P0 | Todo | Close F-14: Redis ACL users for the API and the worker | 01 | The worker's Redis user gets NOPERM on `pharos:session:*`, `pharos:rl:*`, `pharos:oidc:*`; removing a rule is caught |
+| M3-03 | P0 | Todo | `pharos_worker` database role, per-process loop and engine, task time limits, beat off `egress` | 01 | As `pharos_worker`, `UPDATE users` and `SELECT local_credentials` fail; an old volume gets a clear start-up error |
+| M3-04 | P0 | Todo | SafeHttpClient and the SSRF suite | 01 | At least 40 cases pass; every listed mutation is caught |
+| M3-05 | P0 | Todo | Migration 0003: sources, fetch runs, raw items, items, item sources; RLS and grants | 03 | Cross-tenant, privilege and personal-item isolation tests |
+| M3-06 | P0 | Todo | Connector protocol, RSS/Atom connector, parser hardening | 04, 05 | Bytes-only parse, DOCTYPE refusal, caps, conditional GET |
+| M3-07 | P0 | Todo | Dispatcher, lease, retry and backoff, circuit breaker, cleanup, politeness | 06 | Two dispatchers start at most one fetch per source per interval; a redelivered task adds nothing |
+| M3-08 | P1 | Todo | Pipeline: normalize, exact dedup, hold rules, item sources | 07 | 10,000-entry feed stores 200 items in under 20 s and 300 MB; duplicate rate under 5% on the recorded corpus |
+| M3-09 | P1 | Todo | GitHub (releases) and Hacker News (Algolia) connectors | 06 | Token bound to `api.github.com`; rate limits honoured |
+| M3-10 | P0 | Todo | Admin and editor API: sources, test fetch, status, items, hold/approve/hide; audit; route matrix | 08 | Cross-tenant tests; coarse errors only |
+| M3-11 | P1 | Todo | Frontend: sources admin, items review, latest items list | 10 | Four languages; axe clean in 4 x 2 x 2 |
+| M3-12 | P1 | Todo | Starter catalogue (disabled) and `pharos.cli import-sources`; the maintainer approves the list | 10 | Imported as the app role; every source disabled |
+| M3-13 | P1 | Todo | Personal RSS: 5 per user, 60-minute minimum, owner-only | 10 | `http://127.1/` and `http://[::ffff:7f00:1]/` refused and audited; cross-user test |
+| M3-14 | P0 | Todo | Real-stack E2E with a fake feed host, CI job, whole-milestone security review, documentation | all | All M3 acceptance criteria; no open P0/P1 |
