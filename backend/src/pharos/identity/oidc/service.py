@@ -30,7 +30,7 @@ from redis.exceptions import RedisError
 from pharos.core.audit import ActorType, AuditAction, AuditLog, Outcome
 from pharos.core.clock import Clock
 from pharos.core.errors import DependencyUnavailable
-from pharos.core.ratelimit import RateLimiter
+from pharos.core.ratelimit import RateLimiter, network_of
 from pharos.core.sessions import SessionRecord, SessionStore
 from pharos.core.unit_of_work import UnitOfWork
 from pharos.identity import repository
@@ -46,6 +46,8 @@ MAX_PARAMETER = 2048
 # Per source address. People behind one corporate egress address share it, so it is generous; it
 # only has to stop a loop, not a crowd (see THREAT_MODEL).
 ATTEMPTS_PER_MINUTE = 120
+# Across all addresses: bounds the unfinished sign-in records kept at any time (x 10 minutes).
+OVERALL_PER_MINUTE = 600
 # Refusals anyone can cause without having started a flow. They are logged, not audited row by row.
 _UNAUDITED = frozenset({"state_missing", "state_mismatch", "state_corrupt", "too_many_attempts"})
 # What a provider may put in `error` (RFC 6749 section 4.1.2.1 and OpenID Connect Core 3.1.2.6).
@@ -158,10 +160,19 @@ class OidcService:
         return self._public_url + CALLBACK_PATH
 
     async def _throttle(self, kind: str, ip: str | None) -> None:
+        # One client is an IPv4 address or an IPv6 /64, as for password sign-in; and the whole
+        # installation has a ceiling too, so many addresses together cannot fill Redis with
+        # unfinished sign-in records (each lives ten minutes).
+        source = network_of(ip) if ip else "unknown"
         decision = await self._limiter.hit(
-            f"oidc:{kind}:{ip or 'unknown'}", limit=ATTEMPTS_PER_MINUTE, window_seconds=60
+            f"oidc:{kind}:{source}", limit=ATTEMPTS_PER_MINUTE, window_seconds=60
         )
         if not decision.allowed:
+            raise OidcFailure(BUSY, "too_many_attempts")
+        overall = await self._limiter.hit(
+            f"oidc:{kind}:all", limit=OVERALL_PER_MINUTE, window_seconds=60
+        )
+        if not overall.allowed:
             raise OidcFailure(BUSY, "too_many_attempts")
 
     # --- step 1: send the person to the provider ----------------------------------------------
@@ -297,10 +308,16 @@ class OidcService:
             raise OidcFailure(UNAVAILABLE, "keys_unavailable") from error_
 
         department = claims.department
-        if self._entra_tenant and tokens.access_token and department is None:
+        if self._entra_tenant and tokens.access_token:
             # Best effort: a Graph failure must never stop a sign-in.
-            # Same cleaning as for an ID-token claim: control characters out, blank means none.
-            department = clean_text(await self.idp.graph_department(tokens.access_token), 200)
+            graph = await self.idp.graph_profile(tokens.access_token)
+            # The ID token only says a person is a guest through optional claims. Graph says it
+            # outright, so a guest is refused here too, before anything is written.
+            if graph.user_type == "Guest" and not self._entra_allow_guests:
+                raise OidcFailure(FAILED, "token:guest_not_allowed")
+            if department is None:
+                # Same cleaning as for an ID-token claim: control characters out, blank is none.
+                department = clean_text(graph.department, 200)
 
         user = await repository.upsert_oidc_user(
             uow.session,

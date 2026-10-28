@@ -23,6 +23,8 @@ from pharos.core.unit_of_work import CurrentOrg, UnitOfWorkDep
 class SessionIdentity:
     user_id: uuid.UUID
     org_id: uuid.UUID
+    # How the person signed in: "local" (password) or "oidc" (single sign-on).
+    method: str = "local"
 
 
 class SessionResolver(Protocol):
@@ -47,6 +49,12 @@ async def current_principal(request: Request, uow: UnitOfWorkDep, org_id: Curren
     ).one_or_none()
     if row is None or row.status != "active":
         raise not_authenticated()
+    # Break-glass means administrators only, checked on every request: a person who is no longer an
+    # administrator (or whose password sign-in was allowed before the mode was tightened) loses
+    # the session at once, not when it expires.
+    settings = request.app.state.settings
+    if identity.method == "local" and settings.local_login == "break-glass" and row.role != "admin":
+        raise not_authenticated()
     return Principal(user_id=identity.user_id, org_id=org_id, role=Role(row.role))
 
 
@@ -62,4 +70,6 @@ def require_role(*allowed: Role) -> Callable[..., Coroutine[Any, Any, Principal]
             raise forbidden()
         return principal
 
+    # Readable by the route-coverage test, which compares it with the role matrix.
+    check.allowed_roles = roles  # type: ignore[attr-defined]
     return check

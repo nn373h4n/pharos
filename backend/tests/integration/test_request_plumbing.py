@@ -102,7 +102,7 @@ async def plumbing(
     app_engine: AsyncEngine, owner_engine: AsyncEngine, orgs: Orgs
 ) -> AsyncIterator[Plumbing]:
     org_a, org_b = orgs
-    app = create_app(Settings(environment="test"))
+    app = create_app(Settings(environment="test", local_login="on"))
     app.state.session_factory = create_session_factory(app_engine)
     app.state.organization = OrganizationResolver(app_engine, await slug_of(owner_engine, org_a))
 
@@ -330,3 +330,70 @@ async def test_a_member_cannot_use_an_admin_route(plumbing: Plumbing) -> None:
     member = await make_user(plumbing, plumbing.org_a)
     response = await plumbing.client.get("/api/_t/admin", headers=as_user(member))
     assert response.status_code == 403
+
+
+# --- the connection is only held while it is used -----------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_a_request_holds_no_connection_until_it_uses_the_database(
+    plumbing: Plumbing,
+) -> None:
+    pool = plumbing.engine.pool
+    seen: dict[str, int] = {}
+
+    @plumbing.app.get("/api/_t/pool")
+    async def pool_state(uow: UnitOfWorkDep) -> dict[str, int]:
+        seen["before_use"] = pool.checkedout()  # type: ignore[attr-defined]
+        await uow.session.execute(text("SELECT 1"))
+        seen["while_used"] = pool.checkedout()  # type: ignore[attr-defined]
+        await uow.release()
+        seen["after_release"] = pool.checkedout()  # type: ignore[attr-defined]
+        return {}
+
+    response = await plumbing.client.get("/api/_t/pool")
+    assert response.status_code == 200
+    assert seen == {"before_use": 0, "while_used": 1, "after_release": 0}
+    assert pool.checkedout() == 0  # type: ignore[attr-defined]
+
+
+@pytest.mark.anyio
+async def test_the_organization_still_applies_after_a_commit_and_after_a_release(
+    plumbing: Plumbing,
+) -> None:
+    async with plumbing.owner.begin() as connection:
+        for org_id, name in ((plumbing.org_a, "mine"), (plumbing.org_b, "theirs")):
+            await connection.execute(
+                text("INSERT INTO departments (org_id, name) VALUES (:org, :name)"),
+                {"org": org_id, "name": name},
+            )
+    counts: dict[str, int] = {}
+
+    @plumbing.app.get("/api/_t/scope-after")
+    async def scope_after(uow: UnitOfWorkDep) -> dict[str, int]:
+        async def count() -> int:
+            rows = await uow.session.execute(text("SELECT count(*) FROM departments"))
+            return int(rows.scalar_one())
+
+        counts["first"] = await count()
+        await uow.commit()
+        counts["after_commit"] = await count()  # a new transaction: scoped again
+        await uow.release()
+        counts["after_release"] = await count()
+        return {}
+
+    assert (await plumbing.client.get("/api/_t/scope-after")).status_code == 200
+    assert counts == {"first": 1, "after_commit": 1, "after_release": 1}
+
+
+@pytest.mark.anyio
+async def test_a_second_request_never_inherits_the_first_ones_organization(
+    plumbing: Plumbing,
+) -> None:
+    # The pool reuses connections: the setting must not leak from one transaction into the next.
+    async with plumbing.engine.connect() as connection:
+        await connection.execute(
+            text("SELECT set_config('app.org_id', :o, false)"), {"o": str(plumbing.org_b)}
+        )
+    count = await plumbing.client.get("/api/_t/count-departments")
+    assert count.json() == {"count": 0}

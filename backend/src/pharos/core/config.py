@@ -45,6 +45,9 @@ class Settings(BaseSettings):
 
     environment: Literal["development", "test", "production"] = "production"
     log_level: str = "INFO"
+    # Which kind of process this is. A worker never signs anybody in, so it is given no root key and
+    # no identity-provider secret (see deploy/docker-compose.yml) and is not asked to have them.
+    process: Literal["api", "worker"] = "api"
 
     # The application connects as a role that does not own the tables, so RLS always applies.
     # The owner role's URL is deliberately not part of these settings (see MigrationSettings).
@@ -204,6 +207,12 @@ class Settings(BaseSettings):
                 "password hashing is too cheap for production (Argon2id needs at least "
                 "19456 KiB and 2 iterations)"
             )
+        if self.process == "worker":
+            if self.oidc_issuer is not None or self.oidc_client_secret is not None:
+                raise ValueError("a worker must not be given identity-provider settings")
+            if self.secret_key.get_secret_value() != _DEVELOPMENT_SECRET_KEY:
+                raise ValueError("a worker must not be given the root key")
+            return self
         if self.oidc_issuer is not None:
             if not self.oidc_issuer.startswith("https://"):
                 raise ValueError("oidc_issuer must use https in production")

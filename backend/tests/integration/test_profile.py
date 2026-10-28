@@ -396,9 +396,29 @@ async def test_one_organization_never_sees_anothers_profiles(make_stack: MakeSta
         own_org_claim = await stack.app.state.session_store.create(foreign_user, stack.org_a)
         lying = {"Cookie": f"{HOST_PREFIXED_SESSION_COOKIE}={own_org_claim[0]}"}
         assert (await other.get("/api/me/profile", headers=lying)).status_code == 401
+
+        # The state-changing routes too, with a valid Origin and a valid token for the forged
+        # session, so only the tenant check can refuse them.
+        from pharos.core.csrf import csrf_token
+
+        for forged_id, forged_record in ((session_id, record), own_org_claim):
+            headers = {
+                "Cookie": f"{HOST_PREFIXED_SESSION_COOKIE}={forged_id}",
+                "Origin": PUBLIC_URL,
+                "X-CSRF-Token": csrf_token(stack.app.state.csrf_key, forged_id, forged_record),
+            }
+            complete = await other.post("/api/me/onboarding/complete", headers=headers)
+            change = await other.put("/api/me/profile", json={"locale": "az"}, headers=headers)
+            assert (complete.status_code, change.status_code) == (401, 401)
     finally:
         await other.aclose()
-    _ = record
+    async with stack.owner.connect() as connection:  # and nothing of theirs was changed
+        locale = (
+            await connection.execute(
+                text("SELECT locale FROM users WHERE id = :id"), {"id": foreign_user}
+            )
+        ).scalar_one()
+    assert locale is None
 
     # And our own profile is unaffected by theirs.
     assert (await stack.client.get("/api/me/profile")).json()["profession_id"] is None

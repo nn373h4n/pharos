@@ -27,6 +27,8 @@ NOT_PASSED_BY_COMPOSE = {
     "PHAROS_SESSION_ABSOLUTE_SECONDS",
     "PHAROS_PASSWORD_HASH_MEMORY_KIB",
     "PHAROS_PASSWORD_HASH_TIME_COST",
+    # Set by Compose per service (api or worker), never by an operator.
+    "PHAROS_PROCESS",
 }
 
 # Settings that are documented in .env.example only as a commented example, or not at all.
@@ -37,11 +39,20 @@ def setting_names() -> list[str]:
     return sorted(f"PHAROS_{name.upper()}" for name in Settings.model_fields)
 
 
-def backend_environment_block() -> str:
+def environment_block(anchor: str) -> str:
     compose = (DEPLOY / "docker-compose.yml").read_text()
-    match = re.search(r"x-backend-env: &backend-env\n(.*?)\n\nservices:", compose, re.DOTALL)
-    assert match, "x-backend-env block not found in docker-compose.yml"
+    match = re.search(rf"^{anchor}: &[\w-]+\n(.*?)(?=\n\S)", compose, re.DOTALL | re.MULTILINE)
+    assert match, f"{anchor} block not found in docker-compose.yml"
     return match.group(1)
+
+
+def worker_environment_block() -> str:
+    return environment_block("x-worker-env")
+
+
+def backend_environment_block() -> str:
+    """What the API gets: its own lines plus the worker's (merged with `<<:` in Compose)."""
+    return environment_block("x-backend-env") + "\n" + worker_environment_block()
 
 
 @pytest.mark.parametrize("name", [n for n in setting_names() if n not in NOT_PASSED_BY_COMPOSE])
@@ -69,3 +80,48 @@ def test_compose_does_not_pass_settings_the_api_does_not_know() -> None:
 def test_the_exceptions_above_are_real_settings() -> None:
     names = set(setting_names())
     assert names >= NOT_PASSED_BY_COMPOSE
+
+
+def test_redis_has_a_memory_limit_below_the_containers_so_it_refuses_writes_instead_of_dying() -> (
+    None
+):
+    compose = (DEPLOY / "docker-compose.yml").read_text()
+    redis = compose[compose.index("\n  redis:\n") :]
+    limit = re.search(r"--maxmemory (\d+)mb", redis)
+    container = re.search(r"mem_limit: (\d+)m", redis)
+    assert limit, "redis-server needs --maxmemory (noeviction only works with a limit)"
+    assert container
+    assert int(limit.group(1)) < int(container.group(1))
+    assert "--maxmemory-policy noeviction" in redis
+
+
+def test_the_development_keycloak_answers_only_private_and_loopback_clients() -> None:
+    site = (DEPLOY / "caddy" / "sso-dev.caddy").read_text()
+    assert "not remote_ip private_ranges" in site
+    assert "respond @outside 403" in site
+    # The guard comes before the proxy line, so a refused client never reaches Keycloak.
+    assert site.index("respond @outside 403") < site.index("reverse_proxy")
+
+
+def test_the_worker_and_the_scheduler_get_no_secrets_of_signing_in() -> None:
+    worker = worker_environment_block()
+    names = set(re.findall(r"^\s+(PHAROS_[A-Z_]+):", worker, re.MULTILINE))
+    forbidden = {
+        n for n in names if any(w in n for w in ("SECRET", "OIDC", "ENTRA", "LOCAL_LOGIN"))
+    }
+    assert forbidden == set(), f"the worker environment holds {sorted(forbidden)}"
+    assert "PHAROS_PROCESS: worker" in worker
+    api_only = environment_block("x-backend-env")
+    assert "PHAROS_PROCESS: api" in api_only
+    assert "PHAROS_SECRET_KEY" in api_only
+
+
+def test_only_the_api_service_uses_the_full_environment() -> None:
+    compose = (DEPLOY / "docker-compose.yml").read_text()
+    for service in ("worker", "beat"):
+        section = re.search(rf"^  {service}:\n(.*?)(?=^  \w)", compose, re.DOTALL | re.MULTILINE)
+        assert section, service
+        assert "environment: *worker-env" in section.group(1), service
+    api = re.search(r"^  api:\n(.*?)(?=^  \w)", compose, re.DOTALL | re.MULTILINE)
+    assert api
+    assert "environment: *backend-env" in api.group(1)

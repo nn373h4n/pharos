@@ -50,8 +50,13 @@ PHAROS_OIDC_PROVIDER_NAME=Microsoft
 ```
 
 Leave `PHAROS_OIDC_ISSUER` empty: the preset builds it (`https://login.microsoftonline.com/<tenant>/v2.0`).
-`common`, `organizations`, `consumers` and domain names are refused; use the GUID. Guests invited from
-another directory are refused unless you set `PHAROS_ENTRA_ALLOW_GUESTS=true`.
+`common`, `organizations`, `consumers` and domain names are refused; use the GUID.
+
+Guests invited from another directory are refused unless you set `PHAROS_ENTRA_ALLOW_GUESTS=true`.
+Pharos recognizes a guest in two ways: the optional claims of the ID token (`acct`, `idp`) and the
+`userType` that Microsoft Graph reports at every sign-in. If neither is available (Graph refused and
+the token carries no such claim) a guest looks like a member, so for a guarantee use
+**Assignment required** (step 4) and assign only the people who should come in.
 
 Restart the API (`docker compose up -d api`). The sign-in page now shows the button.
 

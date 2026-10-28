@@ -74,6 +74,24 @@ ROLE_MATRIX: dict[Route, Rule] = {
 }
 
 
+ALL_ROLES = frozenset(Role)
+
+
+def enforced_roles(dependant: Dependant) -> frozenset[Role] | None:
+    """The roles a route lets in because of `require_role`, or None when it only needs sign-in."""
+    found: list[frozenset[Role]] = []
+
+    def walk(node: Dependant) -> None:
+        for dep in node.dependencies:
+            roles = getattr(dep.call, "allowed_roles", None)
+            if roles is not None:
+                found.append(roles)
+            walk(dep)
+
+    walk(dependant)
+    return frozenset.intersection(*found) if found else None
+
+
 def _depends_on(dependant: Dependant, target: object) -> bool:
     return any(dep.call is target or _depends_on(dep, target) for dep in dependant.dependencies)
 
@@ -143,6 +161,15 @@ def find_problems(
             rule = matrix[key]
             if not rule.roles:
                 problems.append(f"{label} has no roles in the matrix")
+            enforced = enforced_roles(route.dependant)
+            if authenticated and rule.roles and (enforced or ALL_ROLES) != rule.roles:
+                allowed = sorted(role.value for role in rule.roles)
+                actual = (
+                    sorted(role.value for role in enforced) if enforced else "any signed-in user"
+                )
+                problems.append(
+                    f"{label}: the matrix lets in {allowed} but the route enforces {actual}"
+                )
             if not _test_exists(rule.cross_tenant_test):
                 problems.append(f"{label}: cross-tenant test {rule.cross_tenant_test!r} not found")
         else:

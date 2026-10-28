@@ -33,6 +33,10 @@ make org                      # creates the organization (once)
 make admin                    # creates a local administrator (asks for a password)
 ```
 
+The development Keycloak answers only clients on loopback or private networks, so publishing the
+port on a machine that is reachable from the internet does not expose its fixed administrator
+password. Still do not run it anywhere that matters.
+
 Open `https://localhost`, accept the certificate warning (Caddy signs with its own CA) and choose
 **Keycloak (development)**. Sign in as `alice` (department Finance) or `bob` (Human Resources); the
 password is `dev-only-password`. Keycloak's own admin console is at `https://auth.localhost`

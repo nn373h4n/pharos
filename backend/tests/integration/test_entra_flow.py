@@ -182,3 +182,31 @@ async def test_a_guest_signs_nobody_in_unless_the_operator_allows_it(
     allowed, fake2 = await entra_stack(make_stack, entra_allow_guests=True)
     await sign_in(allowed, fake2, **entra_claims(fake2, acct=1))
     assert len(await users(allowed)) == 1
+
+
+@pytest.mark.anyio
+async def test_a_guest_that_only_graph_identifies_is_refused_too(make_stack: MakeStack) -> None:
+    """The ID token carried no guest claim; Graph says the person is a guest."""
+    stack, fake = await entra_stack(make_stack)
+    fake.graph_user_type = "Guest"
+    response = await sign_in(stack, fake, **entra_claims(fake))
+    assert error_code(response) == "sso_failed"
+    assert "token:guest_not_allowed" in await failure_reasons(stack)
+    assert await users(stack) == []  # nothing was written for them
+
+    allowed, fake2 = await entra_stack(make_stack, entra_allow_guests=True)
+    fake2.graph_user_type = "Guest"
+    await sign_in(allowed, fake2, **entra_claims(fake2))
+    assert len(await users(allowed)) == 1
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("user_type", ["Member", None, "something-new"])
+async def test_members_and_unknown_user_types_sign_in(
+    make_stack: MakeStack, user_type: str | None
+) -> None:
+    stack, fake = await entra_stack(make_stack)
+    fake.graph_user_type = user_type
+    response = await sign_in(stack, fake, **entra_claims(fake))
+    assert error_code(response) is None
+    assert len(await users(stack)) == 1

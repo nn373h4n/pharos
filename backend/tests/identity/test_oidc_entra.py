@@ -207,3 +207,18 @@ def test_the_tokens_do_not_show_in_a_repr() -> None:
 
     shown = repr(TokenSet("eyJ.secret.id-token", "secret-access-token"))
     assert "secret" not in shown
+
+
+@pytest.mark.anyio
+async def test_graph_also_reports_the_user_type(rig: Rig) -> None:
+    rig.idp.graph_user_type = "Guest"
+    profile = await rig.client.graph_profile("opaque-access-token")
+    assert (profile.department, profile.user_type) == ("Finance", "Guest")
+    assert "userType" in rig.idp.graph_requests[0][0]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("body", [{"userType": 5}, {"userType": ["Guest"]}, {}, ["x"]])
+async def test_an_unusable_user_type_means_unknown(rig: Rig, body: object) -> None:
+    rig.idp.graph_body = body
+    assert (await rig.client.graph_profile("opaque-access-token")).user_type is None

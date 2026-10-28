@@ -123,6 +123,9 @@ class LocalAuthService:
     ) -> str | tuple[repository.LocalUser, str | None]:
         """Returns the user (and a stronger hash to store) or the audit reason for refusing."""
         user = await repository.find_local_user(uow.session, uow.org_id, account)
+        # Hashing may wait in a queue for seconds; the connection goes back to the pool meanwhile,
+        # so a burst of sign-ins cannot keep the whole API waiting for a free connection.
+        await uow.release()
         if len(password) > MAX_PASSWORD_LENGTH:
             return "password_too_long"
         outcome = await self._hasher.verify(user.password_hash if user else None, password)

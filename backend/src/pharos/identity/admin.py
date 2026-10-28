@@ -10,12 +10,14 @@ Rules (ADR-0011):
   other at the same moment queue up, the second finding the first one's change and being refused.
   The organization always keeps at least one administrator; no separate "last administrator" rule
   is needed.
-- A refusal leaves a failure row in the audit log (written on its own, because this transaction is
-  rolled back), so probing is visible.
+- A refusal by the service (changing oneself, a missing target, a failed rule) leaves a failure row
+  in the audit log (written on its own, because this transaction is rolled back). A call by someone
+  who is not an administrator is refused earlier, by the role check, and leaves only the request
+  log: it never reaches this code.
 - A change ends the target's sessions after the commit. The next request would already see the new
   role or status, so failing to reach Redis is logged, not turned into an error: the database is
   the authority.
-- The organization setting ends with the transaction, so the answer is read before the commit.
+- The answer is read before the commit, so it describes the state that was committed.
 """
 
 import logging
