@@ -283,4 +283,4 @@ class SessionIdentityResolver:
             return None  # password sign-in was switched off: its sessions end with it
         request.state.session_id = session_id
         request.state.session = record
-        return SessionIdentity(user_id=record.user_id, org_id=record.org_id)
+        return SessionIdentity(user_id=record.user_id, org_id=record.org_id, method=record.method)

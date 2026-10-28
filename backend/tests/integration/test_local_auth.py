@@ -575,7 +575,7 @@ async def test_me_needs_a_session(make_stack: MakeStack) -> None:
 async def test_me_reflects_a_demotion_and_a_disabled_account_at_once(
     make_stack: MakeStack,
 ) -> None:
-    stack = await make_stack()
+    stack = await make_stack("on")
     admin = await make_user(stack)
     await login(stack, admin)
     assert (await stack.client.get("/api/me")).json()["user"]["role"] == "admin"
@@ -717,3 +717,51 @@ async def test_a_typed_password_in_the_username_box_is_not_written_to_the_audit_
     rows = await audit_rows(stack)
     assert not any(secret_typed_as_name in str(row) for row in rows)
     assert any(row["target"] == "local:(invalid)" for row in rows)
+
+
+@pytest.mark.anyio
+async def test_no_database_connection_is_held_while_a_sign_in_waits_for_hashing(
+    make_stack: MakeStack,
+) -> None:
+    stack = await make_stack()
+    admin = await make_user(stack)
+    pool = stack.app.state.session_factory.kw["bind"].pool
+    hasher = stack.app.state.local_auth._hasher
+    held: list[int] = []
+    original = hasher.verify
+
+    async def watch(stored: str | None, password: str) -> object:
+        held.append(pool.checkedout())
+        return await original(stored, password)
+
+    hasher.verify = watch
+    for name in (admin, unique("ghost")):  # a known and an unknown account
+        await login(stack, name, "a wrong password, but long enough")
+    assert held == [0, 0]
+
+
+@pytest.mark.anyio
+async def test_a_demoted_administrator_loses_the_password_session_in_break_glass_mode(
+    make_stack: MakeStack,
+) -> None:
+    stack = await make_stack()  # break-glass: administrators only
+    admin = await make_user(stack)
+    await login(stack, admin)
+    assert (await stack.client.get("/api/me")).status_code == 200
+    async with stack.owner.begin() as connection:
+        await connection.execute(
+            text("UPDATE users SET role = 'member' WHERE subject = :name"), {"name": admin}
+        )
+    assert (await stack.client.get("/api/me")).status_code == 401
+
+
+@pytest.mark.anyio
+async def test_a_password_session_of_a_member_ends_when_the_mode_is_tightened(
+    make_stack: MakeStack,
+) -> None:
+    stack = await make_stack("on")
+    member = await make_user(stack, role="member")
+    await login(stack, member)
+    assert (await stack.client.get("/api/me")).status_code == 200
+    stack.app.state.settings.local_login = "break-glass"  # as after changing PHAROS_LOCAL_LOGIN
+    assert (await stack.client.get("/api/me")).status_code == 401

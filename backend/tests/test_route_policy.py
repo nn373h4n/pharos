@@ -71,7 +71,7 @@ def test_an_authenticated_route_needs_roles_and_a_real_cross_tenant_test() -> No
         return {}
 
     key = ("GET", "/api/mine")
-    ok = {key: Rule(frozenset({Role.MEMBER}), THIS_TEST)}
+    ok = {key: Rule(frozenset(Role), THIS_TEST)}
     assert find_problems(app, matrix={**ROLE_MATRIX, **ok}) == []
     assert find_problems(app, matrix={**ROLE_MATRIX, key: Rule(frozenset(), THIS_TEST)}) == [
         "GET /api/mine has no roles in the matrix"
@@ -81,9 +81,7 @@ def test_an_authenticated_route_needs_roles_and_a_real_cross_tenant_test() -> No
         "test_route_policy.py::test_not_there",
         "test_route_policy.py",
     ):
-        problems = find_problems(
-            app, matrix={**ROLE_MATRIX, key: Rule(frozenset({Role.MEMBER}), missing)}
-        )
+        problems = find_problems(app, matrix={**ROLE_MATRIX, key: Rule(frozenset(Role), missing)})
         assert len(problems) == 1
         assert "cross-tenant test" in problems[0]
 
@@ -121,3 +119,43 @@ def test_a_route_cannot_be_public_and_in_the_matrix() -> None:
 
 def test_the_shipped_matrix_only_names_existing_tests() -> None:
     assert ROLE_MATRIX == {} or all(r.cross_tenant_test for r in ROLE_MATRIX.values())
+
+
+def test_the_matrix_cannot_promise_more_than_the_route_enforces() -> None:
+    app = build("production")
+
+    @app.get("/api/claims-admin-only")
+    async def claims_admin_only(principal: CurrentPrincipal) -> None:  # only needs sign-in
+        return None
+
+    matrix = {("GET", "/api/claims-admin-only"): Rule(frozenset({Role.ADMIN}), THIS_TEST)}
+    assert find_problems(app, matrix={**ROLE_MATRIX, **matrix}) == [
+        "GET /api/claims-admin-only: the matrix lets in ['admin'] "
+        "but the route enforces any signed-in user"
+    ]
+
+
+def test_the_matrix_cannot_promise_less_than_the_route_enforces() -> None:
+    app = build("production")
+
+    @app.get("/api/admin-route")
+    async def admin_route(principal: Principal = Depends(require_role(Role.ADMIN))) -> None:  # noqa: B008
+        return None
+
+    matrix = {("GET", "/api/admin-route"): Rule(frozenset(Role), THIS_TEST)}
+    problems = find_problems(app, matrix={**ROLE_MATRIX, **matrix})
+    assert problems == [
+        "GET /api/admin-route: the matrix lets in ['admin', 'editor', 'member'] "
+        "but the route enforces ['admin']"
+    ]
+
+
+def test_the_roles_of_two_role_checks_on_one_route_are_intersected() -> None:
+    app = build("production")
+
+    @app.get("/api/two-checks", dependencies=[Depends(require_role(Role.ADMIN, Role.EDITOR))])
+    async def two_checks(principal: Principal = Depends(require_role(Role.ADMIN))) -> None:  # noqa: B008
+        return None
+
+    matrix = {("GET", "/api/two-checks"): Rule(frozenset({Role.ADMIN}), THIS_TEST)}
+    assert find_problems(app, matrix={**ROLE_MATRIX, **matrix}) == []

@@ -71,6 +71,7 @@ class FakeIdp:
         self.graph_status = 200
         self.graph_body: Any = None  # replaces the whole answer when set
         self.graph_department: str | None = "Finance"
+        self.graph_user_type: str | None = "Member"
         self.graph_requests: list[tuple[str, str | None]] = []  # (URL, Authorization header)
 
     # --- documents ----------------------------------------------------------------------------
@@ -188,6 +189,8 @@ class FakeIdp:
         }
         if self.graph_department is not None:
             body["department"] = self.graph_department
+        if self.graph_user_type is not None:
+            body["userType"] = self.graph_user_type
         return reply(200, json_=body)
 
     def _token(self, request: httpx.Request) -> httpx.Response:

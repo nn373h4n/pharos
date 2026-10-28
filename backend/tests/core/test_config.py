@@ -368,3 +368,47 @@ def test_production_still_wants_the_client_secret_with_the_preset() -> None:
 def test_an_empty_tenant_from_compose_means_not_configured() -> None:
     settings = production(entra_tenant_id="")
     assert settings.entra_tenant_id is None and settings.oidc_enabled is False
+
+
+# --- the worker process --------------------------------------------------------------------------
+
+
+def test_a_worker_needs_no_root_key_in_production() -> None:
+    settings = Settings(
+        environment="production",
+        process="worker",
+        database_url=GOOD_DB,  # type: ignore[arg-type]
+        redis_url=GOOD_REDIS,  # type: ignore[arg-type]
+        public_url="https://pharos.example",
+    )
+    assert settings.process == "worker"
+
+
+def test_the_api_still_needs_it() -> None:
+    with pytest.raises(ValidationError, match="secret_key"):
+        Settings(
+            environment="production",
+            database_url=GOOD_DB,  # type: ignore[arg-type]
+            redis_url=GOOD_REDIS,  # type: ignore[arg-type]
+            public_url="https://pharos.example",
+        )
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"secret_key": GOOD_SECRET_KEY},
+        {"oidc_issuer": "https://login.example/realms/acme", "oidc_client_id": "pharos"},
+        {"oidc_client_secret": "a-real-looking-client-secret-1234"},
+    ],
+)
+def test_a_worker_refuses_to_be_given_the_secrets_of_signing_in(extra: dict[str, str]) -> None:
+    with pytest.raises(ValidationError, match="worker must not"):
+        Settings(
+            environment="production",
+            process="worker",
+            database_url=GOOD_DB,  # type: ignore[arg-type]
+            redis_url=GOOD_REDIS,  # type: ignore[arg-type]
+            public_url="https://pharos.example",
+            **extra,  # type: ignore[arg-type]
+        )

@@ -183,7 +183,9 @@ async def test_a_signed_in_looking_request_gets_503_when_redis_is_down(
     app_engine: AsyncEngine, owner_engine: AsyncEngine, orgs: Orgs
 ) -> None:
     store, dead = dead_store()
-    app: FastAPI = create_app(Settings(environment="test", secret_key=FAKE_SECRET_KEY))  # type: ignore[arg-type]
+    app: FastAPI = create_app(
+        Settings(environment="test", secret_key=FAKE_SECRET_KEY, local_login="on")
+    )  # type: ignore[arg-type]
     app.state.session_factory = create_session_factory(app_engine)
     app.state.organization = OrganizationResolver(app_engine, await slug_of(owner_engine, orgs[0]))
     app.state.session_store = store

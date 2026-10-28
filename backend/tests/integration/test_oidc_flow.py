@@ -6,6 +6,7 @@ negative suite (ADR-0011)."""
 import asyncio
 import logging
 import time
+import uuid
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
@@ -912,3 +913,57 @@ async def test_nothing_secret_is_kept_in_redis_the_audit_log_or_the_session(
         assert forbidden not in haystack
     # The stored login state is spent: nothing of the flow is left behind.
     assert len([k async for k in redis.scan_iter("pharos:oidc:*")]) == states_before
+
+
+@pytest.mark.anyio
+async def test_the_start_is_limited_per_ipv6_64_not_per_address(
+    make_stack: MakeStack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from pharos.identity.oidc import service as oidc_service
+
+    monkeypatch.setattr(oidc_service, "ATTEMPTS_PER_MINUTE", 5)
+    stack, _ = await sso_stack(make_stack)
+    prefix = f"2001:db8:{uuid.uuid4().hex[:4]}:{uuid.uuid4().hex[:4]}"
+
+    def client_at(address: str) -> httpx.AsyncClient:
+        return httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=stack.app, client=(address, 1)), base_url=PUBLIC_URL
+        )
+
+    results = []
+    for number in range(8):  # eight different addresses of one /64
+        client = client_at(f"{prefix}::{number + 1}")
+        try:
+            results.append(error_code(await begin(client)))
+        finally:
+            await client.aclose()
+    assert results[:5] == [None] * 5
+    assert results[5:] == ["rate_limited"] * 3
+    other = client_at(f"2001:db8:{uuid.uuid4().hex[:4]}:{uuid.uuid4().hex[:4]}::1")
+    try:
+        assert error_code(await begin(other)) is None  # another /64 is another client
+    finally:
+        await other.aclose()
+
+
+@pytest.mark.anyio
+async def test_the_whole_installation_has_a_ceiling_for_unfinished_sign_ins(
+    make_stack: MakeStack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from pharos.identity.oidc import service as oidc_service
+
+    monkeypatch.setattr(oidc_service, "OVERALL_PER_MINUTE", 4)
+    stack, _ = await sso_stack(make_stack)
+    redis: Redis = stack.app.state.oidc._redis
+    await redis.delete("pharos:rl:hit:oidc:begin:all")
+    results = []
+    for number in range(7):  # seven different clients
+        client = httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=stack.app, client=(f"198.51.100.{number + 1}", 1)),
+            base_url=PUBLIC_URL,
+        )
+        try:
+            results.append(error_code(await begin(client)))
+        finally:
+            await client.aclose()
+    assert results == [None] * 4 + ["rate_limited"] * 3

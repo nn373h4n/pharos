@@ -231,7 +231,9 @@ async def stack(
 ) -> AsyncIterator[Stack]:
     org_a, org_b = orgs
     app = create_app(
-        Settings(environment="test", public_url=PUBLIC_URL, secret_key=FAKE_SECRET_KEY)  # type: ignore[arg-type]
+        Settings(
+            environment="test", public_url=PUBLIC_URL, secret_key=FAKE_SECRET_KEY, local_login="on"
+        )  # type: ignore[arg-type]
     )
     app.state.session_factory = create_session_factory(app_engine)
     app.state.organization = OrganizationResolver(app_engine, await slug_of(owner_engine, org_a))

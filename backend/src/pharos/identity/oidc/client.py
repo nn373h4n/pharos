@@ -38,7 +38,7 @@ JWKS_REFETCH_MIN_INTERVAL_SECONDS = 60
 TIMEOUT = httpx.Timeout(10.0, connect=5.0)
 # The department is a nicety: do not hold a sign-in (and its database connection) for long.
 GRAPH_TIMEOUT = httpx.Timeout(4.0, connect=2.0)
-GRAPH_ME_URL = "https://graph.microsoft.com/v1.0/me?$select=department"
+GRAPH_ME_URL = "https://graph.microsoft.com/v1.0/me?$select=department,userType"
 
 
 class IdpUnavailable(Exception):
@@ -54,6 +54,12 @@ class TokenSet:
     # Neither token appears in a repr: an error report showing local variables must not leak them.
     id_token: str = field(repr=False)
     access_token: str | None = field(repr=False)  # for Microsoft Graph; never stored
+
+
+@dataclass(frozen=True, slots=True)
+class GraphProfile:
+    department: str | None
+    user_type: str | None  # "Member" or "Guest" in Entra ID
 
 
 @dataclass(frozen=True, slots=True)
@@ -295,18 +301,25 @@ class IdpClient:
         """Like `exchange_code_tokens`, but returns only the ID token."""
         return (await self.exchange_code_tokens(code, code_verifier, redirect_uri)).id_token
 
-    async def graph_department(self, access_token: str) -> str | None:
-        """Microsoft Graph: the department of the person who just signed in (Entra only).
+    async def graph_profile(self, access_token: str) -> "GraphProfile":
+        """Microsoft Graph: department and user type of the person who just signed in (Entra only).
 
         The address is a constant of ours, never taken from a token or a discovery document. The
         access token is the provider's, issued for Graph, and is not validated here: it is only
-        handed back to Graph, which does that itself. Any failure means "no department".
+        handed back to Graph, which does that itself. Any failure means "nothing known".
         """
         try:
             profile = await self._fetch_json(
                 "GET", GRAPH_ME_URL, bearer=access_token, time_limit=GRAPH_TIMEOUT
             )
         except (IdpUnavailable, IdpRejected):
-            return None
+            return GraphProfile(None, None)
         department = profile.get("department")
-        return department if isinstance(department, str) else None
+        user_type = profile.get("userType")
+        return GraphProfile(
+            department if isinstance(department, str) else None,
+            user_type if isinstance(user_type, str) else None,
+        )
+
+    async def graph_department(self, access_token: str) -> str | None:
+        return (await self.graph_profile(access_token)).department
