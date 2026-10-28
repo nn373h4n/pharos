@@ -65,3 +65,21 @@ def test_router_importing_a_repository_is_rejected(tmp_path: Path) -> None:
     result = _lint(project)
     assert result.returncode != 0
     assert "Routers go through services, never repositories BROKEN" in result.stdout
+
+
+def test_only_the_identity_provider_client_may_import_httpx(tmp_path: Path) -> None:
+    project = _project(tmp_path, {"service.py": "import httpx\n"})
+    result = _lint(project)
+    assert result.returncode != 0
+    assert "Only the identity-provider client imports httpx (ADR-0011) BROKEN" in result.stdout
+
+
+def test_the_identity_provider_client_itself_is_allowed_to_import_httpx(tmp_path: Path) -> None:
+    project = _project(tmp_path, {})
+    client = project / "pharos" / "identity" / "oidc"
+    client.mkdir(parents=True)
+    for package in (project / "pharos" / "identity", client):
+        (package / "__init__.py").write_text("")
+    (client / "client.py").write_text("import httpx\n")
+    result = _lint(project)
+    assert result.returncode == 0, result.stdout + result.stderr

@@ -23,6 +23,18 @@ forbidden_modules =
 # router -> service -> repository is the intended chain, so indirect imports are fine.
 allow_indirect_imports = True
 
+[importlinter:contract:httpx-only-in-the-identity-provider-client]
+name = Only the identity-provider client imports httpx (ADR-0011)
+type = forbidden
+source_modules =
+    pharos
+forbidden_modules =
+    httpx
+ignore_imports =
+    pharos.identity.oidc.client -> httpx
+# The fixture projects of test_import_contracts.py do not contain that module.
+unmatched_ignore_imports_alerting = none
+
 # Still to add when the modules exist:
 # - a module never imports another module's repository (one contract per module pair or a layers
 #   contract over the module list, once there is more than one module with a repository);

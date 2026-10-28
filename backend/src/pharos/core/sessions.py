@@ -44,6 +44,8 @@ class SessionRecord:
     auth_time: datetime
     created_at: datetime
     csrf_seed: str
+    # How the person signed in: "local" (password) or "oidc" (single sign-on).
+    method: str = "local"
 
     def dumps(self) -> str:
         return json.dumps(
@@ -53,6 +55,7 @@ class SessionRecord:
                 "auth_time": self.auth_time.timestamp(),
                 "created_at": self.created_at.timestamp(),
                 "csrf_seed": self.csrf_seed,
+                "method": self.method,
             }
         )
 
@@ -65,6 +68,7 @@ class SessionRecord:
             auth_time=datetime.fromtimestamp(data["auth_time"], UTC),
             created_at=datetime.fromtimestamp(data["created_at"], UTC),
             csrf_seed=str(data["csrf_seed"]),
+            method=str(data.get("method", "local")),
         )
 
 
@@ -145,7 +149,12 @@ class SessionStore:
         return max(1, min(self._idle, int(self._absolute - age)))
 
     async def create(
-        self, user_id: uuid.UUID, org_id: uuid.UUID, auth_time: datetime | None = None
+        self,
+        user_id: uuid.UUID,
+        org_id: uuid.UUID,
+        auth_time: datetime | None = None,
+        *,
+        method: str = "local",
     ) -> tuple[str, SessionRecord]:
         now = self._clock.now()
         record = SessionRecord(
@@ -154,6 +163,7 @@ class SessionStore:
             auth_time=auth_time or now,
             created_at=now,
             csrf_seed=secrets.token_hex(16),
+            method=method,
         )
         session_id = secrets.token_urlsafe(32)
         try:
@@ -227,6 +237,7 @@ class SessionStore:
             auth_time=record.auth_time,
             created_at=record.created_at,
             csrf_seed=secrets.token_hex(16),
+            method=record.method,
         )
         new_id = secrets.token_urlsafe(32)
         try:
@@ -256,9 +267,10 @@ class SessionStore:
 class SessionIdentityResolver:
     """Turns the session cookie into an identity for `current_principal`."""
 
-    def __init__(self, store: SessionStore, cookie_name: str) -> None:
+    def __init__(self, store: SessionStore, cookie_name: str, *, allow_local: bool = True) -> None:
         self._store = store
         self._cookie_name = cookie_name
+        self._allow_local = allow_local
 
     async def resolve(self, request: Any) -> SessionIdentity | None:
         session_id = request.cookies.get(self._cookie_name)
@@ -267,6 +279,8 @@ class SessionIdentityResolver:
         record = await self._store.get(session_id)
         if record is None:
             return None
+        if record.method == "local" and not self._allow_local:
+            return None  # password sign-in was switched off: its sessions end with it
         request.state.session_id = session_id
         request.state.session = record
         return SessionIdentity(user_id=record.user_id, org_id=record.org_id)

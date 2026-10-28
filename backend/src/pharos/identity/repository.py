@@ -171,3 +171,72 @@ async def find_user_id_by_username(
         )
     ).scalar_one_or_none()
     return found if found is None else uuid.UUID(str(found))
+
+
+@dataclass(frozen=True, slots=True)
+class SignedInUser:
+    id: uuid.UUID
+    role: str
+    status: str
+    created: bool
+
+
+async def upsert_oidc_user(
+    session: AsyncSession,
+    org_id: uuid.UUID,
+    *,
+    issuer: str,
+    subject: str,
+    email: str | None,
+    display_name: str | None,
+) -> SignedInUser:
+    """Find the user by (organization, issuer, subject) or create them. Never by e-mail.
+
+    One atomic statement, so two first sign-ins at the same moment create one user. Role and status
+    are not touched on an existing user: a disabled account stays disabled, an administrator stays
+    one. A missing e-mail or name in the token does not erase what is stored.
+    """
+    row = (
+        await session.execute(
+            text(
+                "INSERT INTO users (org_id, issuer, subject, email, display_name) "
+                "VALUES (:org, :issuer, :subject, :email, COALESCE(:name, '')) "
+                "ON CONFLICT (org_id, issuer, subject) DO UPDATE SET "
+                "email = COALESCE(EXCLUDED.email, users.email), "
+                "display_name = COALESCE(NULLIF(EXCLUDED.display_name, ''), users.display_name) "
+                "RETURNING id, role, status, (xmax = 0) AS created"
+            ),
+            {
+                "org": org_id,
+                "issuer": issuer,
+                "subject": subject,
+                "email": email,
+                "name": display_name,
+            },
+        )
+    ).one()
+    return SignedInUser(row.id, row.role, row.status, bool(row.created))
+
+
+async def apply_idp_department(
+    session: AsyncSession, org_id: uuid.UUID, user_id: uuid.UUID, department: str
+) -> None:
+    """Put the user in the department the provider names, unless they chose their own."""
+    department_id = (
+        await session.execute(
+            text(
+                "INSERT INTO departments (org_id, name) VALUES (:org, :name) "
+                "ON CONFLICT (org_id, normalized_name) DO UPDATE SET name = departments.name "
+                "RETURNING id"
+            ),
+            {"org": org_id, "name": department},
+        )
+    ).scalar_one()
+    await session.execute(
+        text(
+            "UPDATE users SET department_id = :department, department_source = 'idp' "
+            "WHERE org_id = :org AND id = :user "
+            "AND (department_source IS NULL OR department_source = 'idp')"
+        ),
+        {"org": org_id, "user": user_id, "department": department_id},
+    )
