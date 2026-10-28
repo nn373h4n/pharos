@@ -40,6 +40,8 @@ docker compose --env-file deploy/.env -f deploy/docker-compose.yml exec api \
   python -m pharos.cli create-admin --username admin
 ```
 
+With `make` the same two steps are `make org ORG_SLUG=default ORG_NAME="Your organization"` and `make admin ADMIN=admin`.
+
 The slug must equal `PHAROS_ORG_SLUG`. For scripts, add `--password-stdin` (and `-T` to `exec`) and pipe the password in. `set-password` changes a password and `unlock --username NAME` clears the sign-in delays of an account.
 
 `PHAROS_LOCAL_LOGIN` controls password sign-in: `break-glass` (default) lets administrators sign in with a password so you can always get in when the identity provider is down, `on` allows every local account, `off` disables it. After repeated wrong passwords an account and address are slowed down with growing waits (never locked out); `unlock` removes the waits at once.
@@ -71,6 +73,38 @@ git-ignored and written with mode 600.
 | `PHAROS_MIGRATE_ON_START` | `true` migrates before the API starts; see below. |
 
 Passwords go into connection URLs, so use URL-safe characters, for example `openssl rand -hex 24`.
+
+## Single sign-on
+
+Password sign-in works out of the box; single sign-on is optional and switched on by the
+`PHAROS_OIDC_*` settings above. Step-by-step guides:
+
+- [Keycloak](guides/sso-keycloak.md): a throwaway Keycloak on your machine (`make dev-sso`), and your own Keycloak in production.
+- [Microsoft Entra ID](guides/sso-entra.md): the Entra preset (one directory, object id as identity, department from Graph).
+- [Any other OpenID Connect provider](guides/sso-generic.md): Google Workspace, Okta, Authentik, ...
+
+Whatever the provider, keep `PHAROS_LOCAL_LOGIN=break-glass` (the default) so an administrator can
+still sign in with a password when the provider is down, and create that administrator
+(`make admin`) before you rely on single sign-on.
+
+### Private certificate authorities
+
+The API verifies the provider's certificate with the system store. If your provider (or a proxy in
+front of it) uses a certificate from an internal authority, give the API a bundle that contains it.
+The bundle **replaces** the system store for the provider connection, so it must also contain every
+public authority the connection needs (Entra ID needs the ones for `login.microsoftonline.com` and
+`graph.microsoft.com`). In a `deploy/docker-compose.override.yml`:
+
+```yaml
+services:
+  api:
+    environment:
+      SSL_CERT_FILE: /etc/pharos/ca-bundle.pem
+    volumes:
+      - ./ca-bundle.pem:/etc/pharos/ca-bundle.pem:ro
+```
+
+`make test-sso-dev` does the same with Caddy's own authority; it is the working example.
 
 ## Services and networks
 
