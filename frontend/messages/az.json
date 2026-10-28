@@ -62,5 +62,79 @@
     "signOut": "Çıxış",
     "signingOut": "Çıxılır…",
     "signOutFailed": "Çıxış alınmadı. Yenidən cəhd edin."
+  },
+  "Onboarding": {
+    "title": "Başlamaq üçün bir neçə sual",
+    "intro": "Dörd qısa cavab Pharos-a işinizə uyğun nümunələr göstərməyə kömək edir. Sonradan dəyişə bilərsiniz.",
+    "progress": "İrəliləyiş",
+    "loading": "Suallar yüklənir…",
+    "loadFailed": "Sualları yükləmək mümkün olmadı. Bir az sonra yenidən cəhd edin.",
+    "stepOf": "Addım {current} / {total}",
+    "steps": {
+      "profession": "Peşə",
+      "interests": "Maraqlar",
+      "language": "Dil",
+      "aiLevel": "Süni intellekt təcrübəsi"
+    },
+    "profession": {
+      "heading": "Peşəniz nədir?",
+      "hint": "İşinizə ən yaxın olanı seçin.",
+      "none": "Hələ heç bir peşə əlavə olunmayıb. Administratorunuza müraciət edin.",
+      "department": "Şöbə (könüllü)",
+      "noDepartment": "Şöbə yoxdur"
+    },
+    "interests": {
+      "heading": "Süni intellekt hansı işlərdə sizə kömək etsin?",
+      "hint": "Ən azı birini seçin."
+    },
+    "language": {
+      "heading": "Hansı dili üstün tutursunuz?",
+      "hint": "Pharos bundan sonra onu istifadə edəcək."
+    },
+    "aiLevel": {
+      "heading": "Süni intellektdən indiyədək nə qədər istifadə etmisiniz?",
+      "hint": "Səmimi cavab daha yaxşı nümunələr verir."
+    },
+    "interestNames": {
+      "writing": "Yazı",
+      "summarizing": "Xülasə",
+      "translation": "Tərcümə",
+      "data_analysis": "Məlumat təhlili",
+      "reporting": "Hesabatlar",
+      "research": "Araşdırma",
+      "automation": "Gündəlik işlərin avtomatlaşdırılması",
+      "coding": "Proqramlaşdırma",
+      "meetings": "İclaslar",
+      "planning": "Planlaşdırma",
+      "customer_support": "Müştəri dəstəyi",
+      "learning": "Öyrənmə"
+    },
+    "levels": {
+      "beginner": {
+        "name": "Yeni başlayan",
+        "description": "Demək olar ki, sınamamışam."
+      },
+      "intermediate": {
+        "name": "Orta səviyyə",
+        "description": "Arabir istifadə edirəm."
+      },
+      "advanced": {
+        "name": "İrəli səviyyə",
+        "description": "İşimdə hər həftə istifadə edirəm."
+      }
+    },
+    "back": "Geri",
+    "next": "Növbəti",
+    "finish": "Bitir",
+    "saving": "Yadda saxlanılır…",
+    "problems": {
+      "choose_profession": "Davam etmək üçün peşənizi seçin.",
+      "choose_interests": "Davam etmək üçün ən azı bir maraq seçin.",
+      "choose_language": "Davam etmək üçün dil seçin.",
+      "choose_aiLevel": "Davam etmək üçün təcrübənizi seçin.",
+      "saveFailed": "Cavabınızı yadda saxlamaq mümkün olmadı. Yenidən cəhd edin.",
+      "unavailable": "Xidmət hazırda əlçatan deyil. Bir az sonra yenidən cəhd edin.",
+      "incomplete": "Əvvəlki cavabların bəziləri çatışmır. Əvvəlcə onları cavablandırın."
+    }
   }
 }

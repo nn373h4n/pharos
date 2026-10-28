@@ -15,7 +15,11 @@ const signOut = vi.fn<() => Promise<boolean>>();
 let sessionState: unknown = { status: "anonymous" };
 
 vi.mock("next/navigation", () => ({ useSearchParams: () => search }));
-vi.mock("@/i18n/navigation", () => ({ useRouter: () => ({ replace }) }));
+let pathname = "/";
+vi.mock("@/i18n/navigation", () => ({
+  useRouter: () => ({ replace }),
+  usePathname: () => pathname,
+}));
 vi.mock("@/lib/navigate", () => ({ hardNavigate: (url: string) => hardNavigate(url) }));
 vi.mock("@/lib/api", async (original) => ({
   ...(await original<typeof import("@/lib/api")>()),
@@ -39,7 +43,7 @@ const user = {
   locale: null,
   department: null,
   last_login_at: null,
-  onboarding_completed_at: null,
+  onboarding_completed_at: "2026-10-28T09:00:00Z" as string | null,
 };
 
 function fill(label: string, value: string) {
@@ -57,6 +61,7 @@ function show(element: ReactElement) {
 beforeEach(() => {
   for (const key of [...search.keys()]) search.delete(key);
   sessionState = { status: "anonymous" };
+  pathname = "/";
 });
 
 afterEach(() => {
@@ -244,6 +249,69 @@ describe("AppGate", () => {
     );
     expect(screen.queryByText("secret page")).toBeNull();
     expect(screen.getByRole("alert").textContent).toContain("not available");
+    expect(replace).not.toHaveBeenCalled();
+  });
+});
+
+describe("AppGate and onboarding", () => {
+  const unfinished = {
+    status: "authenticated",
+    session: { user: { ...user, onboarding_completed_at: null }, csrf_token: "t" },
+  };
+
+  it("asks someone who has not finished onboarding to do it first", async () => {
+    sessionState = unfinished;
+    show(
+      <AppGate>
+        <p>secret page</p>
+      </AppGate>,
+    );
+    expect(screen.queryByText("secret page")).toBeNull();
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/onboarding"));
+  });
+
+  it("shows the onboarding page itself, without sending the person round in circles", () => {
+    sessionState = unfinished;
+    pathname = "/onboarding";
+    show(
+      <AppGate>
+        <p>onboarding page</p>
+      </AppGate>,
+    );
+    expect(screen.getByText("onboarding page")).toBeTruthy();
+    expect(replace).not.toHaveBeenCalled();
+  });
+
+  it("does not take a missing answer for a finished onboarding", async () => {
+    const incomplete: Partial<typeof user> = { ...user };
+    delete incomplete.onboarding_completed_at;
+    sessionState = {
+      status: "authenticated",
+      session: { user: incomplete, csrf_token: "t" },
+    };
+    show(
+      <AppGate>
+        <p>secret page</p>
+      </AppGate>,
+    );
+    expect(screen.queryByText("secret page")).toBeNull();
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/onboarding"));
+  });
+
+  it("lets someone who finished it through", () => {
+    sessionState = {
+      status: "authenticated",
+      session: {
+        user: { ...user, onboarding_completed_at: "2026-10-28T09:00:00Z" },
+        csrf_token: "t",
+      },
+    };
+    show(
+      <AppGate>
+        <p>secret page</p>
+      </AppGate>,
+    );
+    expect(screen.getByText("secret page")).toBeTruthy();
     expect(replace).not.toHaveBeenCalled();
   });
 });

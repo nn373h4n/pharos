@@ -147,3 +147,47 @@ export async function logout(csrf: string): Promise<string | null> {
       : null;
   return typeof url === "string" && /^https?:\/\//i.test(url) ? url : null;
 }
+
+export type Profile = {
+  profession_id: string | null;
+  ai_level: string | null;
+  interests: string[];
+  department_id: string | null;
+  locale: string | null;
+  effective_locale: string;
+  onboarding_started_at: string | null;
+  onboarding_completed_at: string | null;
+};
+
+export type ProfileChange = Partial<
+  Pick<Profile, "profession_id" | "ai_level" | "interests" | "department_id" | "locale">
+>;
+
+export type ProfileOptions = { ai_levels: string[]; interests: string[]; locales: string[] };
+export type Profession = { id: string; code: string; names: Record<string, string> };
+export type Department = { id: string; name: string };
+
+export async function getProfile(): Promise<Profile> {
+  return (await request("/api/me/profile")).json();
+}
+
+export async function getProfileOptions(): Promise<ProfileOptions> {
+  return (await request("/api/me/profile/options")).json();
+}
+
+export async function getProfessions(): Promise<Profession[]> {
+  return (await request("/api/professions")).json();
+}
+
+export async function getDepartments(): Promise<Department[]> {
+  return (await request("/api/departments")).json();
+}
+
+/** Fields that are present are set (null clears them); absent fields stay as they are. */
+export async function saveProfile(change: ProfileChange, csrf: string): Promise<Profile> {
+  return (await request("/api/me/profile", { method: "PUT", body: change, csrf })).json();
+}
+
+export async function completeOnboarding(csrf: string): Promise<Profile> {
+  return (await request("/api/me/onboarding/complete", { method: "POST", csrf })).json();
+}
