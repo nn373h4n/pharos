@@ -24,3 +24,5 @@ docs
 tests
 backend/tests
 frontend/e2e
+frontend/e2e-stack
+frontend/playwright.stack.config.ts

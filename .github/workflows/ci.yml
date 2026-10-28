@@ -151,3 +151,45 @@ jobs:
       # Builds the whole stack in a throwaway project and checks health, TLS, network isolation
       # and container hardening.
       - run: bash scripts/compose-smoke.sh
+
+  sso-dev:
+    name: Single sign-on stack
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # A throwaway stack with a development Keycloak behind Caddy: issuer, certificate trust, and the
+      # whole sign-in as a browser would do it (curl), including replay and sign-out.
+      - run: bash scripts/sso-dev-check.sh
+
+  stack-e2e:
+    name: Stack end-to-end
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: corepack enable
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+        working-directory: frontend
+      - run: pnpm exec playwright install --with-deps chromium
+        working-directory: frontend
+      # Browser tests against the real stack: Caddy over HTTPS, the web app, the API, PostgreSQL,
+      # Redis and a development Keycloak.
+      - run: bash scripts/stack-e2e.sh
+        env:
+          CI: "true"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: failure()
+        with:
+          name: stack-e2e-traces
+          path: frontend/test-results
+          retention-days: 7
