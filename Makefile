@@ -1,7 +1,7 @@
 .DEFAULT_GOAL := help
 COMPOSE := docker compose -f deploy/docker-compose.yml --env-file deploy/.env
 
-.PHONY: help env dev down worker beat test test-e2e test-integration test-compose test-sso-dev lint fmt migrate hooks secrets-scan
+.PHONY: help env dev dev-sso org admin down worker beat test test-e2e test-integration test-compose test-sso-dev lint fmt migrate hooks secrets-scan
 
 help: ## Show available targets
 	@grep -E '^[a-z0-9-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-17s %s\n", $$1, $$2}'
@@ -11,6 +11,18 @@ env: ## Create deploy/.env with generated passwords (refuses to overwrite)
 
 dev: ## Build and start the whole stack with Docker Compose (run `make env` first)
 	$(COMPOSE) --profile dev up --build
+
+dev-sso: ## Like `make dev`, plus a development Keycloak for single sign-on (see docs/guides/sso-keycloak.md)
+	$(COMPOSE) -f deploy/docker-compose.sso-dev.yml --profile dev up --build
+
+ORG_SLUG ?= default
+ORG_NAME ?= My organization
+org: ## Create the organization of this installation (once; ORG_SLUG and ORG_NAME optional)
+	$(COMPOSE) run --rm migrate python -m pharos.cli create-org --slug "$(ORG_SLUG)" --name "$(ORG_NAME)"
+
+ADMIN ?= admin
+admin: ## Create a local administrator (asks for a password; ADMIN=name optional)
+	$(COMPOSE) exec api python -m pharos.cli create-admin --username "$(ADMIN)"
 
 down: ## Stop the stack (keeps the data volumes)
 	$(COMPOSE) down
