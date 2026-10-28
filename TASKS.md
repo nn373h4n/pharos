@@ -76,7 +76,7 @@ Plan: [docs/plans/m2-sign-in-organization-onboarding.md](docs/plans/m2-sign-in-o
 | M2-05 | P0 | Done | Generic OIDC with a fake-IdP negative suite, user creation on first sign-in | 03c | Every negative case in the plan is rejected; the first sign-in upsert never writes `role` or `status`; display names are truncated to 200 characters |
 | M2-06 | P1 | Done | Entra ID preset (tenant-pinned issuer, Graph prefill) | 05 | Tested against recorded or mocked Entra shapes; real Entra NOT TESTED |
 | M2-07 | P0 | Done | RBAC dependency, role and status endpoints, user list | 04 | Role × endpoint matrix; role change and disabling apply on the next request; two admins cannot demote each other concurrently (row lock) |
-| M2-09a | P1 | Todo | Frontend: login page, app shell, 401 handling | 04 | Keyboard-only sign-in; axe clean in 4 languages |
+| M2-09a | P1 | Done | Frontend: login page, app shell, 401 handling | 04 | Keyboard-only sign-in; axe clean in 4 languages |
 | M2-09b | P1 | Todo | Frontend: onboarding stepper | 08, 09a | Keyboard-only; completes in under 2 minutes in a timed run |
 | M2-10b | P1 | Todo | Compose wiring, `make env` additions, identity-provider guides | 10a, 05 | `make test-compose` still passes with the new settings |
 | M2-11 | P0 | Todo | Stack E2E through Keycloak, CI job, security review, documentation | all | All M2 acceptance criteria in the plan |
