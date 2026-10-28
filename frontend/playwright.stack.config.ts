@@ -23,5 +23,9 @@ export default defineConfig({
     ignoreHTTPSErrors: true,
     trace: "retain-on-failure",
   },
-  projects: [{ name: "desktop", use: { ...devices["Desktop Chrome"] } }],
+  projects: [
+    { name: "desktop", use: { ...devices["Desktop Chrome"] } },
+    // The small screen only needs the accessibility checks; the flows are the same.
+    { name: "mobile", use: { ...devices["Pixel 5"] }, testMatch: /a11y\.spec\.ts/ },
+  ],
 });
