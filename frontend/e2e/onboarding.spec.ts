@@ -41,7 +41,14 @@ for (const locale of locales) {
         test(`step ${index + 1} has no WCAG 2.2 AA violations (${colorScheme} theme)`, async ({
           page,
         }) => {
-          await mockApi(page, { signedIn: true, onboarded: false });
+          // A step cannot be reached before the ones in front of it are answered, so the profile
+          // already holds those answers.
+          const answered = {
+            ...(index >= 1 ? { profession_id: PROFESSIONS[0]!.id } : {}),
+            ...(index >= 2 ? { interests: ["research"] } : {}),
+            ...(index >= 3 ? { locale } : {}),
+          };
+          await mockApi(page, { signedIn: true, onboarded: false, profile: answered });
           await page.emulateMedia({ colorScheme });
           await page.goto(`/${locale}/onboarding?step=${index + 1}`);
           await expect(page.getByRole("heading", { level: 2 })).toHaveText(
@@ -101,7 +108,7 @@ for (const locale of locales) {
       expect(Date.now() - started).toBeLessThan(120_000);
 
       expect(api.saves).toEqual([
-        { profession_id: PROFESSIONS[0]!.id, department_id: null },
+        { profession_id: PROFESSIONS[0]!.id }, // an unchanged department is not sent
         { interests: ["writing"] },
         { locale },
         { ai_level: "beginner" },

@@ -111,7 +111,7 @@ export function OnboardingStepper() {
         setDraft(draftOf(profile));
         // Never further than the first open step: the questions are answered in order.
         const open = firstOpenStep(profile);
-        setStep(asked >= 1 && asked <= STEPS.length && asked - 1 <= open ? asked - 1 : open);
+        setStep(asked >= 1 && asked - 1 <= open ? asked - 1 : open); // NaN fails both tests
         setLoaded({ profile, options, professions, departments });
       },
       () => current && setLoaded("failed"),
