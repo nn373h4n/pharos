@@ -38,6 +38,10 @@ Open `https://localhost`, accept the certificate warning (Caddy signs with its o
 password is `dev-only-password`. Keycloak's own admin console is at `https://auth.localhost`
 (`admin` / `dev-only-admin-password`).
 
+Signing out of Pharos also ends the Keycloak session. Pharos does not keep ID tokens, so it cannot
+send an `id_token_hint`, and Keycloak therefore shows a short "Do you want to sign out?" page before it
+sends the person back to the sign-in page. That is Keycloak following the specification, not an error.
+
 Why a host name and not `localhost:8080`: the browser and the API container must see the **same**
 issuer address. Caddy serves Keycloak on `auth.localhost` (browsers resolve every `*.localhost` name
 to your machine), the same name is an alias of Caddy inside the stack, and the API trusts Caddy's
