@@ -93,7 +93,7 @@ export STACK_ADMIN_USER=stack-admin
 export STACK_ADMIN_PASSWORD="$ADMIN_PASSWORD"
 export STACK_ORG_SLUG="$ORG_SLUG"
 export STACK_PSQL="docker compose -p $PROJECT -f $PWD/deploy/docker-compose.yml -f $PWD/deploy/docker-compose.sso-dev.yml --env-file $ENV_FILE exec -T postgres psql -q -tA -U postgres -d pharos"
-pnpm --dir frontend exec playwright test -c playwright.stack.config.ts "$@"
+(cd frontend && pnpm exec playwright test -c playwright.stack.config.ts "$@")
 status=$?
 if [ "$status" -ne 0 ]; then
   echo "== API log (last lines)"
