@@ -62,5 +62,79 @@
     "signOut": "Çıkış yap",
     "signingOut": "Çıkış yapılıyor…",
     "signOutFailed": "Çıkış yapılamadı. Tekrar deneyin."
+  },
+  "Onboarding": {
+    "title": "Başlamak için birkaç soru",
+    "intro": "Dört kısa yanıt, Pharos'un işinize uygun örnekler göstermesini sağlar. Sonra değiştirebilirsiniz.",
+    "progress": "İlerleme",
+    "loading": "Sorular yükleniyor…",
+    "loadFailed": "Sorular yüklenemedi. Daha sonra tekrar deneyin.",
+    "stepOf": "Adım {current} / {total}",
+    "steps": {
+      "profession": "Meslek",
+      "interests": "İlgi alanları",
+      "language": "Dil",
+      "aiLevel": "Yapay zekâ deneyimi"
+    },
+    "profession": {
+      "heading": "Mesleğiniz nedir?",
+      "hint": "İşinize en yakın olanı seçin.",
+      "none": "Henüz hiçbir meslek tanımlanmamış. Yöneticinize başvurun.",
+      "department": "Departman (isteğe bağlı)",
+      "noDepartment": "Departman yok"
+    },
+    "interests": {
+      "heading": "Yapay zekâ hangi konularda size yardımcı olsun?",
+      "hint": "En az birini seçin."
+    },
+    "language": {
+      "heading": "Hangi dili tercih edersiniz?",
+      "hint": "Pharos bundan sonra bu dili kullanacak."
+    },
+    "aiLevel": {
+      "heading": "Şimdiye kadar yapay zekâyı ne kadar kullandınız?",
+      "hint": "Dürüst bir yanıt daha iyi örnekler getirir."
+    },
+    "interestNames": {
+      "writing": "Yazı yazma",
+      "summarizing": "Özetleme",
+      "translation": "Çeviri",
+      "data_analysis": "Veri analizi",
+      "reporting": "Raporlar",
+      "research": "Araştırma",
+      "automation": "Rutin işlerin otomasyonu",
+      "coding": "Kodlama",
+      "meetings": "Toplantılar",
+      "planning": "Planlama",
+      "customer_support": "Müşteri desteği",
+      "learning": "Öğrenme"
+    },
+    "levels": {
+      "beginner": {
+        "name": "Başlangıç",
+        "description": "Neredeyse hiç denemedim."
+      },
+      "intermediate": {
+        "name": "Orta",
+        "description": "Ara sıra kullanıyorum."
+      },
+      "advanced": {
+        "name": "İleri",
+        "description": "İşimde her hafta kullanıyorum."
+      }
+    },
+    "back": "Geri",
+    "next": "İleri",
+    "finish": "Bitir",
+    "saving": "Kaydediliyor…",
+    "problems": {
+      "choose_profession": "Devam etmek için mesleğinizi seçin.",
+      "choose_interests": "Devam etmek için en az bir ilgi alanı seçin.",
+      "choose_language": "Devam etmek için bir dil seçin.",
+      "choose_aiLevel": "Devam etmek için deneyiminizi seçin.",
+      "saveFailed": "Yanıtınız kaydedilemedi. Tekrar deneyin.",
+      "unavailable": "Hizmet şu anda kullanılamıyor. Daha sonra tekrar deneyin.",
+      "incomplete": "Önceki yanıtlardan bazıları eksik. Lütfen önce onları yanıtlayın."
+    }
   }
 }

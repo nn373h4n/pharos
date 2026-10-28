@@ -62,5 +62,79 @@
     "signOut": "Sign out",
     "signingOut": "Signing out…",
     "signOutFailed": "Signing out did not work. Try again."
+  },
+  "Onboarding": {
+    "title": "A few questions to start",
+    "intro": "Four short answers let Pharos show examples that fit your work. You can change them later.",
+    "progress": "Progress",
+    "loading": "Loading your questions…",
+    "loadFailed": "The questions could not be loaded. Try again later.",
+    "stepOf": "Step {current} of {total}",
+    "steps": {
+      "profession": "Profession",
+      "interests": "Interests",
+      "language": "Language",
+      "aiLevel": "AI experience"
+    },
+    "profession": {
+      "heading": "What is your profession?",
+      "hint": "Choose the one that is closest to your work.",
+      "none": "No professions are set up yet. Ask your administrator.",
+      "department": "Department (optional)",
+      "noDepartment": "No department"
+    },
+    "interests": {
+      "heading": "What would you like AI to help with?",
+      "hint": "Choose at least one."
+    },
+    "language": {
+      "heading": "Which language do you prefer?",
+      "hint": "Pharos will use it from now on."
+    },
+    "aiLevel": {
+      "heading": "How much have you used AI so far?",
+      "hint": "An honest answer gives better examples."
+    },
+    "interestNames": {
+      "writing": "Writing",
+      "summarizing": "Summarizing",
+      "translation": "Translation",
+      "data_analysis": "Data analysis",
+      "reporting": "Reports",
+      "research": "Research",
+      "automation": "Automating routine work",
+      "coding": "Coding",
+      "meetings": "Meetings",
+      "planning": "Planning",
+      "customer_support": "Customer support",
+      "learning": "Learning"
+    },
+    "levels": {
+      "beginner": {
+        "name": "Beginner",
+        "description": "I have hardly tried it."
+      },
+      "intermediate": {
+        "name": "Intermediate",
+        "description": "I use it now and then."
+      },
+      "advanced": {
+        "name": "Advanced",
+        "description": "I use it in my work every week."
+      }
+    },
+    "back": "Back",
+    "next": "Next",
+    "finish": "Finish",
+    "saving": "Saving…",
+    "problems": {
+      "choose_profession": "Choose your profession to continue.",
+      "choose_interests": "Choose at least one interest to continue.",
+      "choose_language": "Choose a language to continue.",
+      "choose_aiLevel": "Choose your experience to continue.",
+      "saveFailed": "Your answer could not be saved. Try again.",
+      "unavailable": "The service is not available right now. Try again later.",
+      "incomplete": "Some earlier answers are missing. Please answer them first."
+    }
   }
 }
