@@ -71,7 +71,7 @@ def test_only_the_identity_provider_client_may_import_httpx(tmp_path: Path) -> N
     project = _project(tmp_path, {"service.py": "import httpx\n"})
     result = _lint(project)
     assert result.returncode != 0
-    assert "Only the identity-provider client imports httpx (ADR-0011) BROKEN" in result.stdout
+    assert "Only two modules import httpx (ADR-0011, ADR-0012) BROKEN" in result.stdout
 
 
 def test_the_identity_provider_client_itself_is_allowed_to_import_httpx(tmp_path: Path) -> None:
@@ -83,3 +83,33 @@ def test_the_identity_provider_client_itself_is_allowed_to_import_httpx(tmp_path
     (client / "client.py").write_text("import httpx\n")
     result = _lint(project)
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_nothing_else_may_import_httpcore(tmp_path: Path) -> None:
+    project = _project(tmp_path, {"service.py": "import httpcore\n"})
+    result = _lint(project)
+    assert result.returncode != 0
+    assert "not allowed to import httpcore" in result.stdout
+
+
+def _with_net(project: Path) -> None:
+    net = project / "pharos" / "net"
+    net.mkdir(parents=True)
+    (net / "__init__.py").write_text("")
+    (net / "safe_http.py").write_text("import httpx\nimport httpcore\n")
+
+
+def test_safe_http_client_itself_is_allowed_to_import_httpx_and_httpcore(tmp_path: Path) -> None:
+    project = _project(tmp_path, {})
+    _with_net(project)
+    result = _lint(project)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.parametrize("module", ["router.py", "service.py"])
+def test_api_modules_may_not_import_the_fetcher(tmp_path: Path, module: str) -> None:
+    project = _project(tmp_path, {module: "from pharos.net import safe_http\n"})
+    _with_net(project)
+    result = _lint(project)
+    assert result.returncode != 0
+    assert "API modules never import the fetcher" in result.stdout

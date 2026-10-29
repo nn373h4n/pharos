@@ -24,15 +24,29 @@ forbidden_modules =
 allow_indirect_imports = True
 
 [importlinter:contract:httpx-only-in-the-identity-provider-client]
-name = Only the identity-provider client imports httpx (ADR-0011)
+name = Only two modules import httpx (ADR-0011, ADR-0012)
 type = forbidden
 source_modules =
     pharos
 forbidden_modules =
     httpx
+    httpcore
 ignore_imports =
     pharos.identity.oidc.client -> httpx
+    pharos.net.safe_http -> httpx
+    pharos.net.safe_http -> httpcore
 # The fixture projects of test_import_contracts.py do not contain that module.
+unmatched_ignore_imports_alerting = none
+
+[importlinter:contract:api-does-not-fetch]
+name = API modules never import the fetcher (ADR-0012)
+type = forbidden
+source_modules =
+    pharos.*.router
+    pharos.*.service
+forbidden_modules =
+    pharos.net.safe_http
+allow_indirect_imports = True
 unmatched_ignore_imports_alerting = none
 
 # Still to add when the modules exist:

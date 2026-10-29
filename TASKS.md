@@ -52,6 +52,7 @@ All ten tasks were merged through pull requests. The pipeline arrived with M1-09
 | F-16 | P3 | Todo | Verification time of hashes made with older parameters differs from the dummy hash until they are rehashed | Review of M2-04 (P3-2); small timing signal, only for accounts not yet upgraded |
 | F-17 | P3 | Todo | OIDC client hardening: refetch the signing keys on a TTL (a withdrawn key stays trusted until restart) and put one overall deadline on each provider call (the 10 s timeout is per chunk) | Security review of M2-05 (P3-2, P3-4) |
 | F-18 | P3 | Done | Negative test for the Entra `common` tenant issuer | Security review of M2-05 (P3-7); done in M2-06: config tests refuse `common` and an issuer that disagrees with the tenant |
+| F-20 | P3 | Todo | SafeHttpClient: also refuse the addresses that `PHAROS_PUBLIC_URL` resolves to (today only the name is refused); run DNS lookups in a bounded executor so a name server that never answers cannot tie up the default thread pool; make `Settings` immutable after start-up (defence in depth for the test-only allowance) | Security review of M3-04 (all P3, closing in M3-14 at the latest) |
 | F-19 | P3 | Todo | Check that Caddy sees real IPv6 client addresses behind Docker's port publishing; if it does not, all IPv6 users share one rate-limit bucket | Whole-milestone review of M2 (not verifiable without a host with IPv6) |
 
 ## Decisions waiting for the maintainer
@@ -91,7 +92,7 @@ Plan: [docs/plans/m3-sources-and-ingestion.md](docs/plans/m3-sources-and-ingesti
 | M3-01 | P0 | Done | Plan copied into the repository, ADR-0012, tasks recorded | — | ADR in the template; plan and tasks recorded |
 | M3-02 | P0 | Todo | Close F-14: Redis ACL users for the API and the worker | 01 | The worker's Redis user gets NOPERM on `pharos:session:*`, `pharos:rl:*`, `pharos:oidc:*`; removing a rule is caught |
 | M3-03 | P0 | Todo | `pharos_worker` database role, per-process loop and engine, task time limits, beat off `egress` | 01 | As `pharos_worker`, `UPDATE users` and `SELECT local_credentials` fail; an old volume gets a clear start-up error |
-| M3-04 | P0 | Todo | SafeHttpClient and the SSRF suite | 01 | At least 40 cases pass; every listed mutation is caught |
+| M3-04 | P0 | Review | SafeHttpClient and the SSRF suite | 01 | 226 tests in `backend/tests/net` (address ranges, URL rules, scripted network, real sockets); 20 mutations caught, recorded in the PR; security review done, its P2 findings fixed and tested (F-20 keeps the P3s) |
 | M3-05 | P0 | Todo | Migration 0003: sources, fetch runs, raw items, items, item sources; RLS and grants | 03 | Cross-tenant, privilege and personal-item isolation tests |
 | M3-06 | P0 | Todo | Connector protocol, RSS/Atom connector, parser hardening | 04, 05 | Bytes-only parse, DOCTYPE refusal, caps, conditional GET |
 | M3-07 | P0 | Todo | Dispatcher, lease, retry and backoff, circuit breaker, cleanup, politeness | 06 | Two dispatchers start at most one fetch per source per interval; a redelivered task adds nothing |
