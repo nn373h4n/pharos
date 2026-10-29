@@ -21,9 +21,11 @@ def test_the_broker_is_the_configured_redis() -> None:
 def test_the_heartbeat_task_is_registered_and_scheduled_every_minute() -> None:
     app = create_celery(settings())
     assert HEARTBEAT_TASK in app.tasks
-    assert app.conf.beat_schedule == {
-        "heartbeat": {"task": HEARTBEAT_TASK, "schedule": float(HEARTBEAT_INTERVAL_SECONDS)}
+    assert app.conf.beat_schedule["heartbeat"] == {
+        "task": HEARTBEAT_TASK,
+        "schedule": float(HEARTBEAT_INTERVAL_SECONDS),
     }
+    assert set(app.conf.beat_schedule) == {"heartbeat", "ingest-dispatch", "ingest-cleanup"}
     assert HEARTBEAT_INTERVAL_SECONDS == 60
 
 

@@ -61,6 +61,9 @@ class RssConnector:
     def dedupe_key(self, config: Mapping[str, Any]) -> str:
         return hashlib.sha256(f"rss:{normalized_feed_url(config['url'])}".encode()).hexdigest()
 
+    def politeness_host(self, config: Mapping[str, Any]) -> str | None:
+        return (urlsplit(str(config.get("url", ""))).hostname or "").lower().rstrip(".") or None
+
     async def fetch(
         self,
         config: Mapping[str, Any],
