@@ -66,6 +66,7 @@ forbidden_modules =
 ignore_imports =
     # Splitting and joining addresses (urllib.parse) opens no connection.
     pharos.ingest.links -> urllib
+    pharos.ingest.pipeline -> urllib
     pharos.ingest.connectors.rss -> urllib
 # The feed parser may use the standard library inside itself; only direct imports are forbidden here.
 allow_indirect_imports = True

@@ -32,6 +32,7 @@ class SourceRow:
     etag: str | None
     last_modified: str | None
     consecutive_failures: int
+    owner_user_id: uuid.UUID | None = None
 
 
 async def resolve_org(connection: AsyncConnection, slug: str) -> uuid.UUID | None:
@@ -93,7 +94,7 @@ async def load_leased(
         await connection.execute(
             text(
                 "SELECT id, type, config, interval_seconds, etag, last_modified, "
-                "consecutive_failures FROM sources "
+                "consecutive_failures, owner_user_id FROM sources "
                 "WHERE id = :id AND lease_token = :token AND lease_until > :now AND enabled"
             ),
             {"id": source, "token": token, "now": now},
@@ -109,6 +110,7 @@ async def load_leased(
         row.etag,
         row.last_modified,
         row.consecutive_failures,
+        row.owner_user_id,
     )
 
 
@@ -165,12 +167,13 @@ async def start_run(
 
 async def store_raw_items(
     connection: AsyncConnection, org: uuid.UUID, source: uuid.UUID, entries: Sequence[RawEntry]
-) -> int:
+) -> list[RawEntry]:
     """Store what the source said. An entry already stored unchanged is left alone; one that has
     changed replaces the old copy (the worker may delete and insert, but not update, raw items).
-    Returns how many rows are new or changed; running it twice returns 0 the second time."""
+    Returns the entries that are new or changed, the ones the pipeline has to look at; running it
+    twice returns none the second time."""
     if not entries:
-        return 0
+        return []
     arrays = {
         "ids": [e.external_id for e in entries],
         "titles": [e.title for e in entries],
@@ -195,11 +198,34 @@ async def store_raw_items(
             "FROM unnest(CAST(:ids AS text[]), CAST(:titles AS text[]), CAST(:excerpts AS text[]), "
             "CAST(:urls AS text[]), CAST(:published AS timestamptz[]), CAST(:hashes AS text[])) "
             "AS i(external_id, title, excerpt, url, published, hash) "
-            "ON CONFLICT (org_id, source_id, external_id) DO NOTHING RETURNING id"
+            "ON CONFLICT (org_id, source_id, external_id) DO NOTHING RETURNING external_id"
         ),
         {**arrays, "org": org, "source": source},
     )
-    return len(row.all())
+    fresh = {r.external_id for r in row.all()}
+    chosen: dict[str, RawEntry] = {}
+    for entry in entries:  # the first of two entries with one identifier is the one that was stored
+        if entry.external_id in fresh:
+            chosen.setdefault(entry.external_id, entry)
+    return list(chosen.values())
+
+
+async def mark_processed(
+    connection: AsyncConnection,
+    org: uuid.UUID,
+    source: uuid.UUID,
+    entries: Sequence[RawEntry],
+    now: datetime,
+) -> None:
+    if not entries:
+        return
+    await connection.execute(
+        text(
+            "UPDATE raw_items SET processed_at = :now WHERE org_id = :org AND source_id = :source "
+            "AND external_id = ANY(CAST(:ids AS text[]))"
+        ),
+        {"now": now, "org": org, "source": source, "ids": [e.external_id for e in entries]},
+    )
 
 
 async def finish_run(

@@ -161,4 +161,4 @@ async def orgs(owner_engine: AsyncEngine) -> AsyncIterator[Orgs]:
 
 
 # Fixtures shared by the ingestion schema tests.
-from .ingestion_support import alpha_beta, worker_engine  # noqa: E402, F401
+from .ingestion_support import alpha, alpha_beta, slug, worker_engine  # noqa: E402, F401

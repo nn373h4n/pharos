@@ -137,3 +137,19 @@ async def add_item(
 
 async def count(connection: AsyncConnection, table: str) -> int:
     return (await connection.execute(text(f"SELECT count(*) FROM {table}"))).scalar_one()
+
+
+@pytest.fixture
+def alpha(alpha_beta: tuple[Org, Org]) -> Org:
+    return alpha_beta[0]
+
+
+@pytest.fixture
+async def slug(owner_engine: AsyncEngine, alpha: Org) -> str:
+    """The slug of the first organization: the worker is told which installation it serves."""
+    async with owner_engine.connect() as connection:
+        return (
+            await connection.execute(
+                text("SELECT slug FROM organizations WHERE id = :id"), {"id": alpha.id}
+            )
+        ).scalar_one()
