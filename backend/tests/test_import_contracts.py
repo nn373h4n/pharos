@@ -27,7 +27,7 @@ def _lint(project: Path) -> subprocess.CompletedProcess[str]:
 
 def _project(root: Path, files: dict[str, str]) -> Path:
     shutil.copy(CONFIG, root / ".importlinter")
-    for name in ("", "orgs"):
+    for name in ("", "orgs", "ingest"):
         package = root / "pharos" / name
         package.mkdir(parents=True, exist_ok=True)
         (package / "__init__.py").write_text("")
@@ -113,3 +113,37 @@ def test_api_modules_may_not_import_the_fetcher(tmp_path: Path, module: str) -> 
     result = _lint(project)
     assert result.returncode != 0
     assert "API modules never import the fetcher" in result.stdout
+
+
+def _with_ingest(project: Path, source: str) -> None:
+    (project / "pharos" / "ingest" / "connector.py").write_text(source)
+
+
+@pytest.mark.parametrize(
+    "statement",
+    [
+        "import socket",
+        "import requests",
+        "import urllib.request",
+        "from urllib import request",
+        "import http.client",
+        "import aiohttp",
+        "import urllib3",
+        "import httpx",
+        "import ftplib",
+    ],
+)
+def test_ingestion_code_may_not_open_connections_itself(tmp_path: Path, statement: str) -> None:
+    project = _project(tmp_path, {})
+    _with_ingest(project, statement + "\n")
+    result = _lint(project)
+    assert result.returncode != 0, statement
+    assert "BROKEN" in result.stdout
+
+
+def test_ingestion_code_may_use_the_safe_client_and_parse_text(tmp_path: Path) -> None:
+    project = _project(tmp_path, {})
+    _with_net(project)
+    _with_ingest(project, "from pharos.net import safe_http\nimport re\nimport hashlib\n")
+    result = _lint(project)
+    assert result.returncode == 0, result.stdout + result.stderr
