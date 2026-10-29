@@ -55,7 +55,8 @@ git-ignored and written with mode 600.
 | --- | --- |
 | `POSTGRES_PASSWORD` | Database superuser. Used by PostgreSQL itself and the first-start script only. |
 | `PHAROS_OWNER_PASSWORD` | Role `pharos_owner`: owns the database and runs migrations. |
-| `PHAROS_APP_PASSWORD` | Role `pharos_app`: used by the API and worker; cannot bypass row-level security. |
+| `PHAROS_APP_PASSWORD` | Role `pharos_app`: used by the API; cannot bypass row-level security. |
+| `PHAROS_WORKER_DB_PASSWORD` | Role `pharos_worker`: used by the worker and the scheduler; no access to people or sign-in tables. |
 | `PHAROS_REDIS_PASSWORD` | Redis user `pharos_api` (the API). Redis is not published on the host. |
 | `PHAROS_REDIS_WORKER_PASSWORD` | Redis user `pharos_worker` (worker and scheduler): it can use only the Celery queue and `pharos:worker:*`, not sessions, rate limits or sign-in state. Must differ from the API password. |
 | `PHAROS_DOMAIN` | Host name users open. |
@@ -114,7 +115,8 @@ services:
 | `caddy` | edge, app | 80, 443 | TLS and routing: `/api` to the API, the rest to the web app. |
 | `web` | app | no | Next.js standalone server. |
 | `api` | app, data, egress | no | FastAPI. Calls out to the identity provider (from M2). |
-| `worker`, `beat` | data, egress | no | Celery. Call out to content sources and LLM providers (from M3, M4). |
+| `worker` | data, egress | no | Celery. Calls out to content sources and LLM providers (from M3, M4). |
+| `beat` | data | no | Celery scheduler. Talks to Redis only, so it has no route to the internet. |
 | `migrate` | data | no | One-shot job, see below. |
 | `postgres`, `redis` | data | no | No route to the internet. |
 
@@ -137,8 +139,8 @@ milestones that need them.
 ## Database roles and migrations
 
 The first start of an empty `postgres_data` volume runs `deploy/postgres/init/01-roles.sh`, which
-creates `pharos_owner` and `pharos_app` from the passwords in `deploy/.env` and enables the
-`vector` extension. It does not run again on an existing volume. If you restore a database from a
+creates `pharos_owner`, `pharos_app` and `pharos_worker` from the passwords in `deploy/.env` and
+enables the `vector` extension. It does not run again on an existing volume. If you restore a database from a
 backup, create the roles first (see [DATA_MODEL.md](DATA_MODEL.md#database-roles)).
 
 - **First install and demos:** `PHAROS_MIGRATE_ON_START=true` applies migrations before the API
@@ -147,6 +149,20 @@ backup, create the roles first (see [DATA_MODEL.md](DATA_MODEL.md#database-roles
   `docker compose -f deploy/docker-compose.yml --env-file deploy/.env run --rm -e PHAROS_MIGRATE_ON_START=true migrate`.
   Without the `-e` the job prints that migrations were skipped and exits successfully. Until the
   migration has run, `/api/readyz` reports `migrations: fail`.
+
+### Upgrading to M3 (worker role and Redis users)
+
+M3 gives the worker its own database role and its own Redis user, so a compromised worker cannot
+read people or sign-in data. Two new variables are needed in `deploy/.env`:
+`PHAROS_REDIS_WORKER_PASSWORD` and `PHAROS_WORKER_DB_PASSWORD`, each a new random value that differs
+from the other passwords (`openssl rand -hex 24`).
+
+The Redis user needs nothing else. The database role is created only when the data volume is first
+created, so an installation that existed before M3 has none and the worker stops at start-up with
+"recreate the volumes". There is no upgrade script: the demo installations this applies to hold no
+data worth keeping, so remove the volumes (`docker compose -f deploy/docker-compose.yml down` with
+the `--volumes` option) and start again. If you do have data to keep, create the role by hand with
+the statements in [DATA_MODEL.md](DATA_MODEL.md#database-roles) before starting the new version.
 
 ## Checking a running installation
 
@@ -192,4 +208,5 @@ volumes and ports, and removes it afterwards.
 | `set PHAROS_APP_PASSWORD` (or another variable) when starting | `deploy/.env` is missing or incomplete: run `make env`. |
 | `api` exits right away with "real password" in its log | A password in `deploy/.env` is still `change-me`, or `PHAROS_REDIS_PASSWORD` is empty. |
 | "port is already allocated" | Something else uses 80 or 443: set `PHAROS_HTTP_PORT` and `PHAROS_HTTPS_PORT`. |
+| `worker` exits with "recreate the volumes" in its log | The database was created before M3 and has no `pharos_worker` role: see "Upgrading to M3". |
 | `/api/readyz` shows `worker: fail` shortly after start | The worker has not written its first heartbeat yet; wait a few seconds. |

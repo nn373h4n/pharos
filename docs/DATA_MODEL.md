@@ -25,18 +25,21 @@ Tenant tables get one policy for all commands (`tenant_policy_sql()`). Backgroun
 
 ## Database roles
 
-Two login roles are provisioned by the deployment before the first migration. The Docker Compose stack does it with `deploy/postgres/init/01-roles.sh` on the first start of an empty data volume. A migration refuses to run if `pharos_app` is missing, is a superuser or has `BYPASSRLS`, or if it is run as `pharos_app`.
+Three login roles are provisioned by the deployment before the first migration. The Docker Compose stack does it with `deploy/postgres/init/01-roles.sh` on the first start of an empty data volume. A migration refuses to run if `pharos_app` is missing, is a superuser or has `BYPASSRLS`, or if it is run as `pharos_app`.
 
 | Role | Used by | Rights |
 | --- | --- | --- |
 | `pharos_owner` | Alembic migrations only; owns the schema objects | DDL; its credentials are not part of the API/worker settings |
-| `pharos_app` | API and worker | `NOSUPERUSER NOBYPASSRLS`, no ownership; only the grants a migration gives it, by column where it matters (for example `organizations`: `SELECT`, and `UPDATE` on `name`, `settings`, `updated_at`). `tests/integration/test_identity_schema.py` compares the complete list of its privileges with an expected set, so a grant added by mistake fails the build |
+| `pharos_app` | API | `NOSUPERUSER NOBYPASSRLS`, no ownership; only the grants a migration gives it, by column where it matters (for example `organizations`: `SELECT`, and `UPDATE` on `name`, `settings`, `updated_at`). `tests/integration/test_identity_schema.py` compares the complete list of its privileges with an expected set, so a grant added by mistake fails the build |
+| `pharos_worker` | Celery worker and scheduler | `NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE`, no ownership, and **no privilege on any table** until a migration grants it column-level access to the ingestion tables (M3-05). It cannot read people, credentials, profiles or the audit log. `tests/integration/test_worker_role.py` fails if it holds a privilege that is not on its allow-list; the worker refuses to start if it is connected as another role or as a widened one (ADR-0012) |
 
 ```sql
 CREATE ROLE pharos_owner LOGIN PASSWORD '<generated>';
 CREATE ROLE pharos_app LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE PASSWORD '<generated>';
 CREATE DATABASE pharos OWNER pharos_owner;
 GRANT CONNECT ON DATABASE pharos TO pharos_app;
+CREATE ROLE pharos_worker LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE PASSWORD '<generated>';
+GRANT CONNECT ON DATABASE pharos TO pharos_worker;
 ```
 
 Creating an organization is an operator task done as `pharos_owner`; the application cannot create or delete organizations or change an organization's `id`, `slug` or `created_at`.

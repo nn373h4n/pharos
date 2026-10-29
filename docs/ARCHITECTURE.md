@@ -123,7 +123,8 @@ One `deploy/docker-compose.yml`, three networks and reserved profiles `dev` (Key
 | caddy | edge, app | inbound 80/443; outbound for certificate issuance |
 | web | app | none |
 | api | app, data, egress | identity provider (restricting destinations is a host firewall task) |
-| worker, beat | data, egress | content sources and LLM providers (same) |
+| worker | data, egress | content sources and LLM providers (same) |
+| beat | data | none: it only schedules through Redis |
 | migrate | data | none (one-shot; applied automatically on first install, by the operator in production) |
 | postgres, redis | data | none |
 

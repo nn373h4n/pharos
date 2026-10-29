@@ -17,11 +17,13 @@ ENV_FILE="$WORK/env"
 secret() { openssl rand -hex 24; }
 POSTGRES_PASSWORD=$(secret)
 APP_PASSWORD=$(secret)
+WORKER_DB_PASSWORD=$(secret)
 umask 077
 cat > "$ENV_FILE" <<EOF
 POSTGRES_PASSWORD=$POSTGRES_PASSWORD
 PHAROS_OWNER_PASSWORD=$(secret)
 PHAROS_APP_PASSWORD=$APP_PASSWORD
+PHAROS_WORKER_DB_PASSWORD=$WORKER_DB_PASSWORD
 PHAROS_REDIS_PASSWORD=$(secret)
 PHAROS_REDIS_WORKER_PASSWORD=$(secret)
 PHAROS_DOMAIN=localhost
@@ -242,7 +244,7 @@ probe_in_service() {
     postgres) compose exec -T postgres timeout 5 bash -c "exec 3<>/dev/tcp/$2/$3" ;;
     redis | caddy) compose exec -T "$1" nc -w 5 -z "$2" "$3" ;;
     web) compose exec -T web node -e "$NODE_PROBE" "$2" "$3" ;;
-    api) compose exec -T api python -c "import socket, sys; socket.create_connection((sys.argv[1], int(sys.argv[2])), timeout=5)" "$2" "$3" ;;
+    api | worker | beat) compose exec -T "$1" python -c "import socket, sys; socket.create_connection((sys.argv[1], int(sys.argv[2])), timeout=5)" "$2" "$3" ;;
   esac
 }
 # The same tool on a plain Docker network, where the connection is allowed.
@@ -251,6 +253,7 @@ probe_on_plain_network() {
     postgres) docker run --rm --entrypoint timeout "$(scripts/compose-image.sh postgres)" 5 bash -c "exec 3<>/dev/tcp/$2/$3" ;;
     redis | caddy) docker run --rm --entrypoint nc "$(scripts/compose-image.sh redis)" -w 5 -z "$2" "$3" ;;
     web) docker run --rm --entrypoint node "pharos-web:$TAG" -e "$NODE_PROBE" "$2" "$3" ;;
+    worker | beat) docker run --rm --entrypoint python "pharos-backend:$TAG" -c "import socket, sys; socket.create_connection((sys.argv[1], int(sys.argv[2])), timeout=5)" "$2" "$3" ;;
   esac
 }
 blocked() { # description, service, host, port
@@ -265,12 +268,15 @@ blocked() { # description, service, host, port
 blocked "postgres cannot reach the internet" postgres 1.1.1.1 443
 blocked "redis cannot reach the internet" redis 1.1.1.1 443
 blocked "web cannot reach the internet" web 1.1.1.1 443
+blocked "beat cannot reach the internet (it only needs Redis)" beat 1.1.1.1 443
 blocked "web cannot connect to postgres" web postgres 5432
 blocked "web cannot connect to redis" web redis 6379
 blocked "caddy cannot connect to postgres" caddy postgres 5432
 blocked "caddy cannot connect to redis" caddy redis 6379
 # Positive controls for the design: the services that must reach something do.
 check "api reaches the internet through the egress network" probe_in_service api 1.1.1.1 443
+check "worker reaches the internet through the egress network" probe_in_service worker 1.1.1.1 443
+check "beat reaches redis" probe_in_service beat redis 6379
 check "api reaches postgres" probe_in_service api postgres 5432
 check "api reaches redis" probe_in_service api redis 6379
 check "caddy reaches the API on the app network" probe_in_service caddy api 8000
@@ -284,6 +290,17 @@ check "the application role can log in over the network" test "$(sql pharos_app 
 check_blocked "the superuser cannot log in over the network, even with its password" sql postgres "$POSTGRES_PASSWORD" 'select 1'
 check "the application role is neither superuser nor allowed to bypass row-level security" \
   test "$(sql pharos_app "$APP_PASSWORD" "select rolsuper or rolbypassrls from pg_roles where rolname = current_user" 2>&1)" = f
+# The worker handles content from outside, so its role sees nothing about people or sign-in (ADR-0012).
+check "the worker role can log in over the network" test "$(sql pharos_worker "$WORKER_DB_PASSWORD" 'select 1' 2>&1)" = 1
+check "the worker role is neither superuser nor allowed to bypass row-level security" \
+  test "$(sql pharos_worker "$WORKER_DB_PASSWORD" "select rolsuper or rolbypassrls or rolcreaterole or rolcreatedb from pg_roles where rolname = current_user" 2>&1)" = f
+check "the application role can read users (positive control)" \
+  test "$(sql pharos_app "$APP_PASSWORD" "select count(*) >= 0 from users" 2>&1)" = t
+for table in users local_credentials audit_logs user_profiles departments organizations; do
+  check_blocked "the worker role cannot read $table" sql pharos_worker "$WORKER_DB_PASSWORD" "select 1 from $table limit 1"
+done
+check_blocked "the worker role cannot create a table" sql pharos_worker "$WORKER_DB_PASSWORD" "create table worker_probe (id int)"
+check_blocked "the worker role cannot log in with the application password" sql pharos_worker "$APP_PASSWORD" 'select 1'
 
 echo "== hardening"
 for service in api worker beat web postgres redis; do

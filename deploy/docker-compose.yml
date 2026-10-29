@@ -10,8 +10,8 @@
 #   data    no route to the internet (internal: true): api, worker, beat, migrate, postgres, redis.
 #           caddy and web are not on it, so a compromised proxy or web app cannot open a
 #           connection to the database or to Redis.
-#   egress  outbound internet for the services that must call out: api (identity provider),
-#           worker and beat (content sources and LLM providers)
+#   egress  outbound internet for the services that must call out: api (identity provider) and
+#           worker (content sources and LLM providers). beat only needs Redis, so it is not on it.
 # postgres, redis and web cannot open connections to the internet.
 # Which destinations the egress services may reach is a host firewall or proxy decision; see
 # docs/DEPLOYMENT.md.
@@ -57,12 +57,13 @@ x-backend-build: &backend-build
 
 # What the worker and the scheduler get. They will handle content from outside, so they must not
 # hold anything that signs a person in: no root key, no identity-provider secret, no sign-in mode.
-# (They still reach the database, see docs/THREAT_MODEL.md; their Redis user is limited, F-14.)
+# (Their database role and Redis user are limited to what ingestion needs: ADR-0012, F-14.)
 x-worker-env: &worker-env
   PHAROS_PROCESS: worker
   PHAROS_ENVIRONMENT: ${PHAROS_ENVIRONMENT:-production}
   PHAROS_LOG_LEVEL: ${PHAROS_LOG_LEVEL:-INFO}
-  PHAROS_DATABASE_URL: postgresql+asyncpg://pharos_app:${PHAROS_APP_PASSWORD:?set PHAROS_APP_PASSWORD}@postgres:5432/pharos
+  # The worker's own database role: it gets grants on the ingestion tables only (ADR-0012).
+  PHAROS_DATABASE_URL: postgresql+asyncpg://pharos_worker:${PHAROS_WORKER_DB_PASSWORD:?set PHAROS_WORKER_DB_PASSWORD}@postgres:5432/pharos
   # The worker's own Redis user: it sees the Celery queue and pharos:worker:* only (deploy/redis/start.sh).
   PHAROS_REDIS_URL: redis://pharos_worker:${PHAROS_REDIS_WORKER_PASSWORD:?set PHAROS_REDIS_WORKER_PASSWORD}@redis:6379/0
   PHAROS_PUBLIC_URL: ${PHAROS_PUBLIC_URL:?set PHAROS_PUBLIC_URL}
@@ -73,6 +74,7 @@ x-worker-env: &worker-env
 x-backend-env: &backend-env
   <<: *worker-env
   PHAROS_PROCESS: api
+  PHAROS_DATABASE_URL: postgresql+asyncpg://pharos_app:${PHAROS_APP_PASSWORD:?set PHAROS_APP_PASSWORD}@postgres:5432/pharos
   PHAROS_REDIS_URL: redis://pharos_api:${PHAROS_REDIS_PASSWORD:?set PHAROS_REDIS_PASSWORD}@redis:6379/0
   PHAROS_SECRET_KEY: ${PHAROS_SECRET_KEY:?set PHAROS_SECRET_KEY}
   PHAROS_LOCAL_LOGIN: ${PHAROS_LOCAL_LOGIN:-break-glass}
@@ -210,7 +212,8 @@ services:
     command: ["celery", "--app", "pharos.workers.entrypoint", "beat", "--loglevel", "INFO", "-s", "/tmp/celerybeat-schedule", "--pidfile="]
     environment: *worker-env
     tmpfs: [/tmp]
-    networks: [data, egress]
+    # The scheduler only talks to Redis, so it has no route to the internet.
+    networks: [data]
     depends_on:
       redis: { condition: service_healthy }
       migrate: { condition: service_completed_successfully }
@@ -247,6 +250,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
       PHAROS_OWNER_PASSWORD: ${PHAROS_OWNER_PASSWORD:?set PHAROS_OWNER_PASSWORD}
       PHAROS_APP_PASSWORD: ${PHAROS_APP_PASSWORD:?set PHAROS_APP_PASSWORD}
+      PHAROS_WORKER_DB_PASSWORD: ${PHAROS_WORKER_DB_PASSWORD:?set PHAROS_WORKER_DB_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./postgres/init:/docker-entrypoint-initdb.d:ro
