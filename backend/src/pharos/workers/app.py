@@ -12,6 +12,7 @@ from celery import Celery, signals
 from pharos.core.config import Settings, get_settings
 from pharos.core.heartbeat import HEARTBEAT_INTERVAL_SECONDS
 from pharos.core.logging import configure_logging
+from pharos.workers.ingest_tasks import CLEANUP_TASK, DISPATCH_TASK
 from pharos.workers.runtime import WorkerRoleError, runtime, verify_database_role
 from pharos.workers.tasks import HEARTBEAT_TASK, write_heartbeat
 
@@ -81,6 +82,10 @@ def create_celery(settings: Settings | None = None) -> Celery:
         broker_connection_retry_on_startup=True,
         beat_schedule={
             "heartbeat": {"task": HEARTBEAT_TASK, "schedule": float(HEARTBEAT_INTERVAL_SECONDS)},
+            # Every minute: lease the sources that are due and hand each to a worker.
+            "ingest-dispatch": {"task": DISPATCH_TASK, "schedule": 60.0},
+            # Retention and abandoned runs; safe to run as often as it is.
+            "ingest-cleanup": {"task": CLEANUP_TASK, "schedule": 6 * 3600.0},
         },
     )
     app.set_default()

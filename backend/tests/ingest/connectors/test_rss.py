@@ -73,6 +73,12 @@ def test_an_invalid_configuration_is_refused_with_a_fixed_code(raw: dict, code: 
     assert caught.value.code == code
 
 
+def test_the_politeness_host_is_one_spelling() -> None:
+    for url in ("https://News.Example/f", "https://news.example./f", "https://news.example:8443/f"):
+        assert CONNECTOR.politeness_host({"url": url}) == "news.example"
+    assert CONNECTOR.politeness_host({}) is None
+
+
 def test_the_same_feed_written_differently_has_one_key() -> None:
     spellings = [
         "https://news.example/feed.xml",

@@ -101,6 +101,9 @@ class Connector(Protocol):
     def dedupe_key(self, config: Mapping[str, Any]) -> str:
         """Two sources with the same key are the same source."""
 
+    def politeness_host(self, config: Mapping[str, Any]) -> str | None:
+        """The host this source will be fetched from, for the one-request-at-a-time gate."""
+
     async def fetch(
         self,
         config: Mapping[str, Any],
