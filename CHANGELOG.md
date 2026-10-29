@@ -16,6 +16,7 @@ All notable changes are listed here, newest first. The format follows [Keep a Ch
 
 ### Added
 
+- Database tables for sources and ingestion (migration 0003, milestone M3): `sources`, `fetch_runs`, `raw_items`, `items`, `item_sources`. They belong to the organization under row-level security; a personal feed is visible to its owner only, administrators included; the worker role gets column-level access to these tables and nothing else. Run `docker compose ... run --rm migrate` after upgrading (the demo default applies it on start).
 - `SafeHttpClient` (milestone M3): the only way connectors reach the internet. It checks every address a name resolves to at connect time and connects to the checked address (no DNS rebinding window), follows at most 3 redirects and re-checks each hop, allows only ports 80 and 443, refuses credentials in URLs and compressed answers, caps the body at 2 MiB and the whole request at a wall-clock deadline, ignores proxy environment variables, and returns only coarse error kinds. A bearer token is sent only over HTTPS to its own host. Import-linter now limits `httpx` and `httpcore` to this client and the identity-provider client, and keeps API modules from importing the fetcher.
 - Platform skeleton (milestone M1):
   - Backend: FastAPI application with request ids, JSON logs that mask secrets, `/api/healthz` and `/api/readyz`, and an Alembic baseline that creates `organizations` under PostgreSQL row-level security.
