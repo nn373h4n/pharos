@@ -23,6 +23,7 @@ from pharos.core.db import create_engine
 
 OWNER_ROLE, OWNER_PASSWORD = "pharos_owner", "owner-test-only"
 APP_ROLE, APP_PASSWORD = "pharos_app", "app-test-only"
+WORKER_ROLE, WORKER_PASSWORD = "pharos_worker", "worker-test-only"
 ALEMBIC_INI = Path(__file__).resolve().parents[2] / "alembic.ini"
 
 
@@ -33,6 +34,7 @@ class TestDatabase:
     name: str
     owner_url: str
     app_url: str
+    worker_url: str
     alembic: Config
 
 
@@ -89,20 +91,28 @@ def database() -> Iterator[TestDatabase]:
                 CREATE ROLE {APP_ROLE} LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE
                   PASSWORD '{APP_PASSWORD}';
               END IF;
+              IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '{WORKER_ROLE}') THEN
+                CREATE ROLE {WORKER_ROLE} LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE
+                  PASSWORD '{WORKER_PASSWORD}';
+              END IF;
             END $$
             """,
             f"CREATE DATABASE {name} OWNER {OWNER_ROLE}",
+            # As in a deployment (01-roles.sh): nobody gets in or makes temporary tables by default.
+            f"REVOKE ALL ON DATABASE {name} FROM PUBLIC",
             f"GRANT CONNECT ON DATABASE {name} TO {APP_ROLE}",
+            f"GRANT CONNECT ON DATABASE {name} TO {WORKER_ROLE}",
         )
     )
 
     owner_url, app_url = url_for(OWNER_ROLE, OWNER_PASSWORD), url_for(APP_ROLE, APP_PASSWORD)
+    worker_url = url_for(WORKER_ROLE, WORKER_PASSWORD)
     alembic = Config(str(ALEMBIC_INI))
     patch = pytest.MonkeyPatch()
     patch.setenv("PHAROS_MIGRATIONS_DATABASE_URL", owner_url)
     try:
         command.upgrade(alembic, "head")
-        yield TestDatabase(name, owner_url, app_url, alembic)
+        yield TestDatabase(name, owner_url, app_url, worker_url, alembic)
     finally:
         patch.undo()
         asyncio.run(admin(f"DROP DATABASE IF EXISTS {name} WITH (FORCE)"))

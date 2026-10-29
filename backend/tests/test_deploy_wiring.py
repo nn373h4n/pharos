@@ -108,6 +108,35 @@ def test_redis_has_a_memory_limit_below_the_containers_so_it_refuses_writes_inst
     assert "/redis/start.sh" in redis
 
 
+def test_the_worker_and_the_api_connect_to_the_database_as_different_roles() -> None:
+    worker = worker_environment_block()
+    api = environment_block("x-backend-env")
+    worker_url = re.search(r"^\s+PHAROS_DATABASE_URL: (\S+)", worker, re.MULTILINE)
+    api_url = re.search(r"^\s+PHAROS_DATABASE_URL: (\S+)", api, re.MULTILINE)
+    assert worker_url and api_url
+    assert worker_url.group(1).startswith("postgresql+asyncpg://pharos_worker:${PHAROS_WORKER_DB_")
+    assert api_url.group(1).startswith("postgresql+asyncpg://pharos_app:${PHAROS_APP_PASSWORD")
+    assert "PHAROS_APP_PASSWORD" not in worker  # the worker never receives the application password
+    compose = (DEPLOY / "docker-compose.yml").read_text()
+    postgres = compose[compose.index("\n  postgres:\n") : compose.index("\n  redis:\n")]
+    assert "PHAROS_WORKER_DB_PASSWORD: ${PHAROS_WORKER_DB_PASSWORD" in postgres
+    init = (DEPLOY / "postgres" / "init" / "01-roles.sh").read_text()
+    assert "CREATE ROLE pharos_worker LOGIN NOSUPERUSER NOBYPASSRLS" in init
+
+
+def test_the_scheduler_has_no_route_to_the_internet() -> None:
+    compose = (DEPLOY / "docker-compose.yml").read_text()
+
+    def networks_of(service: str, end: str) -> str:
+        section = compose[compose.index(f"\n  {service}:\n") : compose.index(end)]
+        match = re.search(r"^\s+networks: (\[.*\])$", section, re.MULTILINE)
+        assert match, f"{service} has no networks line"
+        return match.group(1)
+
+    assert networks_of("beat", "# One-shot job") == "[data]"
+    assert "egress" in networks_of("worker", "\n  beat:\n")  # positive control
+
+
 def test_the_worker_and_the_api_connect_to_redis_as_different_users() -> None:
     worker = worker_environment_block()
     api = environment_block("x-backend-env")

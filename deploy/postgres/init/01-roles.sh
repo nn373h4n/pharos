@@ -1,8 +1,10 @@
 #!/bin/sh
 # Runs once, when the PostgreSQL data directory is first created (docker-entrypoint-initdb.d).
-# Creates the two login roles described in docs/DATA_MODEL.md#database-roles:
+# Creates the three login roles described in docs/DATA_MODEL.md#database-roles:
 #   pharos_owner  owns the database and runs migrations
-#   pharos_app    used by the API and worker; not a superuser, no BYPASSRLS, owns nothing
+#   pharos_app    used by the API; not a superuser, no BYPASSRLS, owns nothing
+#   pharos_worker used by the worker and the scheduler; same restrictions, and grants only on the
+#                 ingestion tables (ADR-0012)
 # The passwords are read by psql from its own environment (\getenv), so they are never part of a
 # command line that `ps` could show, and psql quotes them itself (:'name').
 set -eu
@@ -10,6 +12,7 @@ set -eu
 psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<'SQL'
 \getenv owner_password PHAROS_OWNER_PASSWORD
 \getenv app_password PHAROS_APP_PASSWORD
+\getenv worker_password PHAROS_WORKER_DB_PASSWORD
 \getenv database POSTGRES_DB
 
 CREATE ROLE pharos_owner LOGIN PASSWORD :'owner_password';
@@ -18,6 +21,11 @@ CREATE ROLE pharos_app LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE PAS
 ALTER DATABASE :"database" OWNER TO pharos_owner;
 REVOKE ALL ON DATABASE :"database" FROM PUBLIC;
 GRANT CONNECT ON DATABASE :"database" TO pharos_app;
+
+-- The worker handles content from outside, so it has its own, much smaller role. Migrations grant it
+-- column-level access to the ingestion tables only; it can read nothing about people or sign-in.
+CREATE ROLE pharos_worker LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE PASSWORD :'worker_password';
+GRANT CONNECT ON DATABASE :"database" TO pharos_worker;
 
 -- Creating an extension needs a superuser, so it happens here and not in a migration.
 CREATE EXTENSION IF NOT EXISTS vector;
