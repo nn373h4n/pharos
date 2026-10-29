@@ -1,5 +1,6 @@
 """Application settings, read from PHAROS_* environment variables."""
 
+import ipaddress
 import re
 from functools import lru_cache
 from pathlib import Path
@@ -69,6 +70,11 @@ class Settings(BaseSettings):
 
     # The language shown to people who have not chosen one and whose browser asks for none we offer.
     default_locale: Literal["en", "az", "tr", "ru"] = "en"
+    # Networks the fetcher may reach although they are private (comma separated, for tests that need
+    # a fake feed server on the loopback or a Docker address). Refused in every other environment.
+    fetch_test_allowed_networks: str = ""
+    # Ports besides 80 and 443 the fetcher may use, for the same tests. Same rule.
+    fetch_test_allowed_ports: str = ""
     # Local (password) sign-in: "off", "break-glass" (administrators only) or "on" (everyone).
     local_login: Literal["off", "break-glass", "on"] = "break-glass"
     # Argon2id cost. The defaults follow OWASP's guidance with a margin; production refuses less.
@@ -166,6 +172,38 @@ class Settings(BaseSettings):
         if self.oidc_provider_name == _DEFAULT_PROVIDER_NAME:  # Compose passes the default along
             self.oidc_provider_name = "Microsoft"
         self.oidc_department_claim = None  # Entra does not put it in the ID token
+        return self
+
+    @property
+    def fetch_test_allowed_networks_list(self) -> list[str]:
+        return [
+            part.strip() for part in self.fetch_test_allowed_networks.split(",") if part.strip()
+        ]
+
+    @property
+    def fetch_test_allowed_ports_list(self) -> list[int]:
+        return [int(part) for part in self.fetch_test_allowed_ports.split(",") if part.strip()]
+
+    @model_validator(mode="after")
+    def _fetch_allowance_only_in_tests(self) -> Self:
+        networks = self.fetch_test_allowed_networks_list
+        if (networks or self.fetch_test_allowed_ports.strip()) and self.environment != "test":
+            raise ValueError(
+                "the fetch_test_allowed_* settings are only accepted when environment=test"
+            )
+        try:
+            ports = self.fetch_test_allowed_ports_list
+        except ValueError:
+            raise ValueError("fetch_test_allowed_ports must be comma separated numbers") from None
+        if any(not 1 <= port <= 65535 for port in ports):
+            raise ValueError("fetch_test_allowed_ports: a port is out of range")
+        for network in networks:
+            try:
+                ipaddress.ip_network(network, strict=True)
+            except ValueError:
+                raise ValueError(
+                    f"fetch_test_allowed_networks: {network!r} is not a network"
+                ) from None
         return self
 
     @model_validator(mode="after")

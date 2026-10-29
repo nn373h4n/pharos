@@ -29,6 +29,10 @@ NOT_PASSED_BY_COMPOSE = {
     "PHAROS_PASSWORD_HASH_TIME_COST",
     # Set by Compose per service (api or worker), never by an operator.
     "PHAROS_PROCESS",
+    # Test-only address allowance of SafeHttpClient: Settings refuses it outside environment=test,
+    # and Compose must never offer a way to set it (see the test below).
+    "PHAROS_FETCH_TEST_ALLOWED_NETWORKS",
+    "PHAROS_FETCH_TEST_ALLOWED_PORTS",
 }
 
 # Settings that are documented in .env.example only as a commented example, or not at all.
@@ -75,6 +79,13 @@ def test_compose_does_not_pass_settings_the_api_does_not_know() -> None:
     known = set(setting_names()) | {"PHAROS_MIGRATE_ON_START", "PHAROS_MIGRATIONS_DATABASE_URL"}
     passed = set(re.findall(r"^\s+(PHAROS_[A-Z_]+):", backend_environment_block(), re.MULTILINE))
     assert passed <= known, f"unknown settings in x-backend-env: {sorted(passed - known)}"
+
+
+def test_compose_never_passes_the_test_only_fetch_allowance() -> None:
+    compose = (DEPLOY / "docker-compose.yml").read_text()
+    example = (DEPLOY / ".env.example").read_text()
+    assert "FETCH_TEST_ALLOWED" not in compose
+    assert "FETCH_TEST_ALLOWED" not in example
 
 
 def test_the_exceptions_above_are_real_settings() -> None:
