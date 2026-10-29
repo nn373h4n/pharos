@@ -23,6 +23,7 @@ POSTGRES_PASSWORD=$POSTGRES_PASSWORD
 PHAROS_OWNER_PASSWORD=$(secret)
 PHAROS_APP_PASSWORD=$APP_PASSWORD
 PHAROS_REDIS_PASSWORD=$(secret)
+PHAROS_REDIS_WORKER_PASSWORD=$(secret)
 PHAROS_DOMAIN=localhost
 PHAROS_TLS=internal
 PHAROS_HTTP_PORT=$HTTP_PORT
@@ -184,6 +185,31 @@ done
 check_blocked "the session cookie has no Domain attribute" grep -qi 'domain=' <<<"$cookie_line"
 check "the session works through the proxy" \
   test "$(https -b "$jar" -o /dev/null -w '%{http_code}' "$base/api/me")" = 200
+# The worker holds its own Redis user (F-14): it can use its own keys, but a live session record,
+# which exists right now, is out of reach. The API's user reads the same record (positive control).
+redis_probe() { # service, database (sessions|default), command  (as that service's own Redis user)
+  compose exec -T "$1" python -c "import redis
+from pharos.core.config import get_settings
+from pharos.core.redis import url_for_database
+settings = get_settings()
+database = settings.session_redis_db if '$2' == 'sessions' else 0
+r = redis.Redis.from_url(url_for_database(settings.redis_url.get_secret_value(), database))
+$3"
+}
+session_key=$(redis_probe api sessions "print(next(r.scan_iter('pharos:session:id:*'), b'').decode())" 2>/dev/null | tr -d '\r')
+check "a live session record exists and the API's Redis user can read it (positive control)" \
+  test -n "$session_key" -a "$(redis_probe api sessions "print(int(bool(r.get('$session_key'))))" 2>/dev/null | tr -d '\r')" = 1
+check "the worker's Redis user can use its own keys (positive control)" \
+  redis_probe worker default "r.set('pharos:worker:probe', '1', ex=30)"
+check_blocked "the worker's Redis user cannot open the sessions' database" \
+  redis_probe worker sessions "r.ping()"
+# The same names in the default database, where the worker can connect (positive control above).
+check "a session-like key is set by the API in the default database (positive control)" \
+  redis_probe api default "r.set('pharos:session:id:probe', 'x', ex=30)"
+check_blocked "the worker's Redis user cannot read a session-like key even where it can connect" \
+  redis_probe worker default "r.get('pharos:session:id:probe')"
+check_blocked "the worker's Redis user cannot write a session-like key" \
+  redis_probe worker default "r.set('pharos:session:id:forged', '{}')"
 csrf=$(head -n -1 <<<"$signed_in" | python3 -I -c "import json, sys; print(json.load(sys.stdin)['csrf_token'])")
 professions=$(https -b "$jar" "$base/api/professions")
 check "the seeded professions are listed (with all four languages)" \

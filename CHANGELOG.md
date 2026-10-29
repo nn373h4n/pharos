@@ -8,6 +8,10 @@ All notable changes are listed here, newest first. The format follows [Keep a Ch
 
 - Caddy listens on the same port numbers the host publishes, and the HTTP-to-HTTPS redirect now names the configured domain and HTTPS port. The automatic redirect reflected the request's Host header, an open redirect; it is disabled and `make test-compose` checks it.
 
+### Changed
+
+- Redis now has two users instead of one shared password (follow-up F-14): `pharos_api` for the API and `pharos_worker` for the worker and the scheduler. The worker's user can use only the Celery queue and `pharos:worker:*`, so a compromised worker can no longer forge or read sessions. **Upgrading:** add `PHAROS_REDIS_WORKER_PASSWORD` (a new random value, different from `PHAROS_REDIS_PASSWORD`) to `deploy/.env` before `docker compose up`; `make env` generates it for new installs.
+
 ### Added
 
 - `SafeHttpClient` (milestone M3): the only way connectors reach the internet. It checks every address a name resolves to at connect time and connects to the checked address (no DNS rebinding window), follows at most 3 redirects and re-checks each hop, allows only ports 80 and 443, refuses credentials in URLs and compressed answers, caps the body at 2 MiB and the whole request at a wall-clock deadline, ignores proxy environment variables, and returns only coarse error kinds. A bearer token is sent only over HTTPS to its own host. Import-linter now limits `httpx` and `httpcore` to this client and the identity-provider client, and keeps API modules from importing the fetcher.

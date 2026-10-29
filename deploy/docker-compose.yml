@@ -57,13 +57,14 @@ x-backend-build: &backend-build
 
 # What the worker and the scheduler get. They will handle content from outside, so they must not
 # hold anything that signs a person in: no root key, no identity-provider secret, no sign-in mode.
-# (They still reach Redis and the database, see docs/THREAT_MODEL.md and follow-up F-14.)
+# (They still reach the database, see docs/THREAT_MODEL.md; their Redis user is limited, F-14.)
 x-worker-env: &worker-env
   PHAROS_PROCESS: worker
   PHAROS_ENVIRONMENT: ${PHAROS_ENVIRONMENT:-production}
   PHAROS_LOG_LEVEL: ${PHAROS_LOG_LEVEL:-INFO}
   PHAROS_DATABASE_URL: postgresql+asyncpg://pharos_app:${PHAROS_APP_PASSWORD:?set PHAROS_APP_PASSWORD}@postgres:5432/pharos
-  PHAROS_REDIS_URL: redis://:${PHAROS_REDIS_PASSWORD:?set PHAROS_REDIS_PASSWORD}@redis:6379/0
+  # The worker's own Redis user: it sees the Celery queue and pharos:worker:* only (deploy/redis/start.sh).
+  PHAROS_REDIS_URL: redis://pharos_worker:${PHAROS_REDIS_WORKER_PASSWORD:?set PHAROS_REDIS_WORKER_PASSWORD}@redis:6379/0
   PHAROS_PUBLIC_URL: ${PHAROS_PUBLIC_URL:?set PHAROS_PUBLIC_URL}
   PHAROS_ORG_SLUG: ${PHAROS_ORG_SLUG:-default}
   PHAROS_DEFAULT_LOCALE: ${PHAROS_DEFAULT_LOCALE:-en}
@@ -72,6 +73,7 @@ x-worker-env: &worker-env
 x-backend-env: &backend-env
   <<: *worker-env
   PHAROS_PROCESS: api
+  PHAROS_REDIS_URL: redis://pharos_api:${PHAROS_REDIS_PASSWORD:?set PHAROS_REDIS_PASSWORD}@redis:6379/0
   PHAROS_SECRET_KEY: ${PHAROS_SECRET_KEY:?set PHAROS_SECRET_KEY}
   PHAROS_LOCAL_LOGIN: ${PHAROS_LOCAL_LOGIN:-break-glass}
   # Single sign-on is off while PHAROS_OIDC_ISSUER and PHAROS_OIDC_CLIENT_ID are empty. With
@@ -261,22 +263,18 @@ services:
     image: redis:8.10.0-alpine
     <<: *hardening
     user: redis
-    command:
-      - sh
-      - -c
-      # noeviction: sessions and rate-limit counters must never be dropped to make room; when
-      # --maxmemory is reached Redis refuses writes instead (and sign-in then fails closed). The
-      # limit is below the container's memory limit, so the kernel never has to kill Redis.
-      - 'exec redis-server --requirepass "$$REDIS_PASSWORD" --appendonly yes --maxmemory 200mb --maxmemory-policy noeviction'
+    command: ["sh", "/redis/start.sh"]
     environment:
-      REDIS_PASSWORD: ${PHAROS_REDIS_PASSWORD:?set PHAROS_REDIS_PASSWORD}
+      REDIS_API_PASSWORD: ${PHAROS_REDIS_PASSWORD:?set PHAROS_REDIS_PASSWORD}
+      REDIS_WORKER_PASSWORD: ${PHAROS_REDIS_WORKER_PASSWORD:?set PHAROS_REDIS_WORKER_PASSWORD}
       # Lets redis-cli authenticate in the health check without the password on its command line.
       REDISCLI_AUTH: ${PHAROS_REDIS_PASSWORD}
     volumes:
       - redis_data:/data
+      - ./redis/start.sh:/redis/start.sh:ro
     networks: [data]
     healthcheck:
-      test: ["CMD-SHELL", "redis-cli ping | grep -q PONG"]
+      test: ["CMD-SHELL", "redis-cli --user pharos_api ping | grep -q PONG"]
       interval: 5s
       timeout: 3s
       retries: 20

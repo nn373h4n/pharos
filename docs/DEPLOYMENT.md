@@ -56,7 +56,8 @@ git-ignored and written with mode 600.
 | `POSTGRES_PASSWORD` | Database superuser. Used by PostgreSQL itself and the first-start script only. |
 | `PHAROS_OWNER_PASSWORD` | Role `pharos_owner`: owns the database and runs migrations. |
 | `PHAROS_APP_PASSWORD` | Role `pharos_app`: used by the API and worker; cannot bypass row-level security. |
-| `PHAROS_REDIS_PASSWORD` | Redis password. Redis is not published on the host. |
+| `PHAROS_REDIS_PASSWORD` | Redis user `pharos_api` (the API). Redis is not published on the host. |
+| `PHAROS_REDIS_WORKER_PASSWORD` | Redis user `pharos_worker` (worker and scheduler): it can use only the Celery queue and `pharos:worker:*`, not sessions, rate limits or sign-in state. Must differ from the API password. |
 | `PHAROS_DOMAIN` | Host name users open. |
 | `PHAROS_TLS` | `internal`, an e-mail address (automatic certificate for a public domain), or paths of your own certificate and key. |
 | `PHAROS_HTTP_PORT`, `PHAROS_HTTPS_PORT` | Host ports. |

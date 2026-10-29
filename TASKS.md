@@ -47,7 +47,7 @@ All ten tasks were merged through pull requests. The pipeline arrived with M1-09
 | F-11 | P3 | Todo | Move to ESLint 10 and TypeScript 7 when `eslint-config-next` and `typescript-eslint` support them | M1-07; Dependabot ignores these majors |
 | F-12 | P3 | Todo | English version of `PHAROS_MASTER_PROMPT.md` before the public launch (G3) | Proposal decision 7 |
 | F-13 | P3 | Done | Trust `X-Forwarded-*` headers from the proxy in the API | Done in M2-03b: trusted from Caddy's pinned address only |
-| F-14 | P2 | Todo | Keep the worker out of session records in Redis (ACL users or a MAC on the record) | Before the worker handles untrusted content (M3); see THREAT_MODEL residual risks |
+| F-14 | P2 | Review | Keep the worker out of session records in Redis (ACL users or a MAC on the record) | Closed by M3-02: Redis ACL users, see THREAT_MODEL |
 | F-15 | P3 | Done | Tie a session to how the user signed in (local or SSO) and end local sessions when `PHAROS_LOCAL_LOGIN` is switched off or an admin loses break-glass rights | Review of M2-04 (P3-3). The session records the method (M2-05); local sessions end when password sign-in is switched off (M2-05); demoting or disabling a person ends their sessions (M2-07); and under `break-glass` every request refuses a password session of a non-administrator, so a sign-in racing a demotion or a tightened mode ends at the next request (whole-milestone review) |
 | F-16 | P3 | Todo | Verification time of hashes made with older parameters differs from the dummy hash until they are rehashed | Review of M2-04 (P3-2); small timing signal, only for accounts not yet upgraded |
 | F-17 | P3 | Todo | OIDC client hardening: refetch the signing keys on a TTL (a withdrawn key stays trusted until restart) and put one overall deadline on each provider call (the 10 s timeout is per chunk) | Security review of M2-05 (P3-2, P3-4) |
@@ -90,7 +90,7 @@ Plan: [docs/plans/m3-sources-and-ingestion.md](docs/plans/m3-sources-and-ingesti
 | ID | P | Status | Task | Depends on | Acceptance criterion |
 | --- | --- | --- | --- | --- | --- |
 | M3-01 | P0 | Done | Plan copied into the repository, ADR-0012, tasks recorded | — | ADR in the template; plan and tasks recorded |
-| M3-02 | P0 | Todo | Close F-14: Redis ACL users for the API and the worker | 01 | The worker's Redis user gets NOPERM on `pharos:session:*`, `pharos:rl:*`, `pharos:oidc:*`; removing a rule is caught |
+| M3-02 | P0 | Review | Close F-14: Redis ACL users for the API and the worker | 01 | `deploy/redis/start.sh`; `test_redis_acl.py` (NOPERM on sessions, rate limits, sign-in state, dangerous commands, SCAN) with positive controls; the real Celery worker runs as the limited user; 14 rule mutations caught; compose smoke checks a live session record |
 | M3-03 | P0 | Todo | `pharos_worker` database role, per-process loop and engine, task time limits, beat off `egress` | 01 | As `pharos_worker`, `UPDATE users` and `SELECT local_credentials` fail; an old volume gets a clear start-up error |
 | M3-04 | P0 | Review | SafeHttpClient and the SSRF suite | 01 | 226 tests in `backend/tests/net` (address ranges, URL rules, scripted network, real sockets); 20 mutations caught, recorded in the PR; security review done, its P2 findings fixed and tested (F-20 keeps the P3s) |
 | M3-05 | P0 | Todo | Migration 0003: sources, fetch runs, raw items, items, item sources; RLS and grants | 03 | Cross-tenant, privilege and personal-item isolation tests |
