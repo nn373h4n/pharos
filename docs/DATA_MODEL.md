@@ -112,6 +112,16 @@ At sign-in the application does not know the organization yet, and RLS hides eve
 
 Indexes follow real feed queries (profession, language, published date, quality) and are added with the feature that needs them, not up front. Feeds use cursor pagination.
 
+### Pipeline from raw entries to items (M3-08)
+
+`pharos.ingest.pipeline` runs in the transaction that stores the raw entries, so a lost lease discards both. Only entries that are new or changed are looked at.
+
+- **Canonical link:** tracking parameters (`utm_*`, `fbclid`, `gclid`, found even when their name is percent-escaped) and the fragment are removed, the host is lowercased and loses a trailing dot, the default port is dropped; every other parameter is kept. The query is split on `&` and never decoded and encoded again (that would lengthen a link past the database limit and make different invalid escapes the same link). The result must pass the same link rules as a stored link, otherwise the entry is dropped. `url_hash` is the SHA-256 of that link.
+- **Exact de-duplication:** `INSERT ... ON CONFLICT (org_id, owner_user_id, url_hash)`, in a fixed `url_hash` order so two fetches that share links lock rows alike. On a conflict only the text of an item is refreshed, and only when all three hold: the content changed, the new text is not flagged by a rule, and this source is the one that first reported the article (earliest `item_sources` row). `status` and `hold_reason` are never touched (the worker has no grant). Another source reporting the same link adds a link, not a new title. An entry stored again with unchanged content (for example after the 14-day raw cleanup, F-23) changes nothing. Near-duplicates are deferred to M4.
+- **Hold rules** (flags for a person, not verdicts): `link_ip_host` (the link names an IP address in any form a browser accepts: dotted, decimal such as `2130706433`, short such as `127.1`, hex, IPv6), `link_odd_port` (a port left after the scheme's default was dropped), `instruction_phrase` (text that addresses a model, such as "ignore previous instructions" or "forget all prior prompts"; the text is already NFKC-normalized and stripped of invisible characters). A held item has `status = held` and the rule name in `hold_reason`.
+- **Known limits:** the rules run on the text that would be stored. Flagged new text of an existing item is not stored at all, so an approved or clean item keeps its old text until a person acts (the app can see neither the discarded text nor that it was discarded: F-24). Look-alike letters and phrases in other languages are not recognized. Different parameter order, Unicode versus punycode hosts and `%7E` versus `~` still count as different articles. Text from a feed stays untrusted data for every later step either way.
+- `lang` stays empty until M4.
+
 ## Open items
 
 - Final embedding model and vector dimension (ADR-0007).

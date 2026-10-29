@@ -20,7 +20,7 @@ from typing import Any, Literal
 
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from pharos.ingest import backoff, repository
+from pharos.ingest import backoff, pipeline, repository
 from pharos.ingest.connectors.base import (
     ConfigError,
     Connector,
@@ -200,7 +200,9 @@ async def _write_success(
 ) -> FetchReport:
     new = 0
     if outcome.kind == "ok":
-        new = await repository.store_raw_items(connection, org, source.id, outcome.entries)
+        changed = await repository.store_raw_items(connection, org, source.id, outcome.entries)
+        new = await pipeline.store_items(connection, org, source.id, source.owner_user_id, changed)
+        await repository.mark_processed(connection, org, source.id, changed, finished)
     ours = await repository.record_success(
         connection,
         source.id,

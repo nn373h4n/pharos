@@ -93,21 +93,6 @@ def ok(*entries: RawEntry, etag: str | None = '"v1"', **extra: Any) -> FetchOutc
     )
 
 
-@pytest.fixture
-async def slug(owner_engine: AsyncEngine, alpha_beta: tuple[Org, Org]) -> str:
-    async with owner_engine.connect() as connection:
-        return (
-            await connection.execute(
-                text("SELECT slug FROM organizations WHERE id = :id"), {"id": alpha_beta[0].id}
-            )
-        ).scalar_one()
-
-
-@pytest.fixture
-def alpha(alpha_beta: tuple[Org, Org]) -> Org:
-    return alpha_beta[0]
-
-
 async def make_source(owner_engine: AsyncEngine, org: Org, key: str, **columns: Any) -> uuid.UUID:
     columns.setdefault("enabled", True)
     columns.setdefault("config", '{"url": "https://news.example/feed"}')
@@ -404,13 +389,15 @@ async def test_fetching_the_same_feed_again_adds_nothing_and_a_changed_entry_rep
         ok(entry(1), entry(2)), ok(entry(1), entry(2)), ok(entry(1), entry(2, "Story two, edited"))
     )
     assert (await run(worker_engine, slug, source, token, clock, connector)).items_new == 2
-    for expected in (0, 1):
+    for expected in (0, 0):  # the edit refreshes an item; it creates none
         clock.advance(hours=2)
         sent, enqueue = collect()
         await dispatch(worker_engine, slug=slug, now=clock(), enqueue=enqueue)
         assert (await run(worker_engine, slug, *sent[0], clock, connector)).items_new == expected
     raw = await table(owner_engine, "SELECT external_id, title FROM raw_items ORDER BY 1")
     assert [tuple(r) for r in raw] == [("g1", "Story 1"), ("g2", "Story two, edited")]
+    stored = await table(owner_engine, "SELECT title FROM items ORDER BY canonical_url")
+    assert [r.title for r in stored] == ["Story 1", "Story two, edited"]
 
 
 async def test_a_task_delivered_twice_does_the_work_once(
