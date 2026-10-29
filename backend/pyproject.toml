@@ -10,9 +10,12 @@ dependencies = [
     "argon2-cffi>=25.1.0",
     "asyncpg>=0.32.0",
     "celery>=5.6.3",
+    "defusedxml>=0.7.1",
     "fastapi>=0.162.0",
+    "feedparser>=6.0.14",
     "httpx>=0.28.1",
     "joserfc>=1.7.7",
+    "nh3>=0.3.7",
     "pydantic>=2.14.1",
     "pydantic-settings>=2.16.1",
     "redis>=8.1.0",
@@ -47,7 +50,7 @@ packages = ["pharos"]
 
 # Celery ships no type information; the rest of the code base stays strictly typed.
 [[tool.mypy.overrides]]
-module = ["celery", "celery.*", "kombu", "kombu.*"]
+module = ["celery", "celery.*", "kombu", "kombu.*", "feedparser", "feedparser.*", "defusedxml", "defusedxml.*"]
 ignore_missing_imports = true
 
 # Celery's decorators are untyped, so decorated tasks and signal handlers cannot be typed either.

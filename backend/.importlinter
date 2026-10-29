@@ -49,6 +49,28 @@ forbidden_modules =
 allow_indirect_imports = True
 unmatched_ignore_imports_alerting = none
 
+[importlinter:contract:ingestion-has-no-network-of-its-own]
+name = Ingestion reaches the network only through SafeHttpClient
+type = forbidden
+source_modules =
+    pharos.ingest
+forbidden_modules =
+    requests
+    urllib3
+    aiohttp
+    urllib
+    http
+    socket
+    ftplib
+    smtplib
+ignore_imports =
+    # Splitting and joining addresses (urllib.parse) opens no connection.
+    pharos.ingest.links -> urllib
+    pharos.ingest.connectors.rss -> urllib
+# The feed parser may use the standard library inside itself; only direct imports are forbidden here.
+allow_indirect_imports = True
+unmatched_ignore_imports_alerting = none
+
 # Still to add when the modules exist:
 # - a module never imports another module's repository (one contract per module pair or a layers
 #   contract over the module list, once there is more than one module with a repository);
