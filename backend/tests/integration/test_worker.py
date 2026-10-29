@@ -19,12 +19,16 @@ pytestmark = pytest.mark.integration
 
 
 @pytest.fixture
-def worker_env(monkeypatch: pytest.MonkeyPatch, redis_url: str) -> Iterator[dict[str, str]]:
-    """The worker and its tasks read their settings from the environment, as in production."""
+def worker_env(monkeypatch: pytest.MonkeyPatch, redis_worker_url: str) -> Iterator[dict[str, str]]:
+    """The worker and its tasks read their settings from the environment, as in production.
+
+    They use the worker's own Redis user, so a passing test also proves that user can do
+    everything Celery needs (queue, kombu bookkeeping, the heartbeat key).
+    """
     monkeypatch.setenv("PHAROS_ENVIRONMENT", "test")
-    monkeypatch.setenv("PHAROS_REDIS_URL", redis_url)
+    monkeypatch.setenv("PHAROS_REDIS_URL", redis_worker_url)
     get_settings.cache_clear()
-    yield {**os.environ, "PHAROS_ENVIRONMENT": "test", "PHAROS_REDIS_URL": redis_url}
+    yield {**os.environ, "PHAROS_ENVIRONMENT": "test", "PHAROS_REDIS_URL": redis_worker_url}
     get_settings.cache_clear()
 
 

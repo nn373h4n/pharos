@@ -49,6 +49,12 @@ def redis_url() -> str:
 
 
 @pytest.fixture(scope="session")
+def redis_worker_url() -> str:
+    """The URL of the worker's own Redis user (see deploy/redis/start.sh)."""
+    return _require("PHAROS_TEST_REDIS_WORKER_URL")
+
+
+@pytest.fixture(scope="session")
 def database() -> Iterator[TestDatabase]:
     admin_url = _require("PHAROS_TEST_ADMIN_URL")
     # The fixture creates login roles with known passwords on the server it talks to.

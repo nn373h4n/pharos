@@ -16,14 +16,22 @@ PG_IMAGE=$("$root/scripts/compose-image.sh" postgres)
 REDIS_IMAGE=$("$root/scripts/compose-image.sh" redis)
 # Throwaway password for a container that listens on 127.0.0.1 only and is deleted afterwards.
 PG_PASSWORD=pharos-test-only
+REDIS_API_PASSWORD=pharos-test-api
+REDIS_WORKER_PASSWORD=pharos-test-worker
 
 up() {
   docker run -d --name "$PG_NAME" -e POSTGRES_PASSWORD="$PG_PASSWORD" \
     -p "127.0.0.1:$PG_PORT:5432" "$PG_IMAGE" >/dev/null
-  docker run -d --name "$REDIS_NAME" -p "127.0.0.1:$REDIS_PORT:6379" "$REDIS_IMAGE" >/dev/null
+  # The same start script and users as the deployed stack (deploy/redis/start.sh), so the tests
+  # prove what the worker's Redis user can and cannot do.
+  docker run -d --name "$REDIS_NAME" -p "127.0.0.1:$REDIS_PORT:6379" \
+    -e REDIS_API_PASSWORD="$REDIS_API_PASSWORD" -e REDIS_WORKER_PASSWORD="$REDIS_WORKER_PASSWORD" \
+    -v "$root/deploy/redis/start.sh:/redis/start.sh:ro" \
+    "$REDIS_IMAGE" sh /redis/start.sh >/dev/null
   for _ in $(seq 1 60); do
     if docker exec "$PG_NAME" pg_isready -U postgres >/dev/null 2>&1 \
-      && docker exec "$REDIS_NAME" redis-cli ping >/dev/null 2>&1; then
+      && docker exec -e REDISCLI_AUTH="$REDIS_API_PASSWORD" "$REDIS_NAME" \
+        redis-cli --user pharos_api ping >/dev/null 2>&1; then
       return 0
     fi
     sleep 1
@@ -45,7 +53,8 @@ case "${1:-}" in
     down
     up
     export PHAROS_TEST_ADMIN_URL="postgresql+asyncpg://postgres:$PG_PASSWORD@127.0.0.1:$PG_PORT/postgres"
-    export PHAROS_TEST_REDIS_URL="redis://127.0.0.1:$REDIS_PORT/0"
+    export PHAROS_TEST_REDIS_URL="redis://pharos_api:$REDIS_API_PASSWORD@127.0.0.1:$REDIS_PORT/0"
+    export PHAROS_TEST_REDIS_WORKER_URL="redis://pharos_worker:$REDIS_WORKER_PASSWORD@127.0.0.1:$REDIS_PORT/0"
     uv run pytest backend/tests -m integration
     ;;
   *)

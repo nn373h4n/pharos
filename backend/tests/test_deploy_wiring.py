@@ -98,12 +98,31 @@ def test_redis_has_a_memory_limit_below_the_containers_so_it_refuses_writes_inst
 ):
     compose = (DEPLOY / "docker-compose.yml").read_text()
     redis = compose[compose.index("\n  redis:\n") :]
-    limit = re.search(r"--maxmemory (\d+)mb", redis)
+    start = (DEPLOY / "redis" / "start.sh").read_text()
+    limit = re.search(r"--maxmemory (\d+)mb", start)
     container = re.search(r"mem_limit: (\d+)m", redis)
     assert limit, "redis-server needs --maxmemory (noeviction only works with a limit)"
     assert container
     assert int(limit.group(1)) < int(container.group(1))
-    assert "--maxmemory-policy noeviction" in redis
+    assert "--maxmemory-policy noeviction" in start
+    assert "/redis/start.sh" in redis
+
+
+def test_the_worker_and_the_api_connect_to_redis_as_different_users() -> None:
+    worker = worker_environment_block()
+    api = environment_block("x-backend-env")
+    worker_url = re.search(r"^\s+PHAROS_REDIS_URL: (\S+)", worker, re.MULTILINE)
+    api_url = re.search(r"^\s+PHAROS_REDIS_URL: (\S+)", api, re.MULTILINE)
+    assert worker_url and api_url
+    assert worker_url.group(1).startswith("redis://pharos_worker:${PHAROS_REDIS_WORKER_PASSWORD")
+    assert api_url.group(1).startswith("redis://pharos_api:${PHAROS_REDIS_PASSWORD")
+    # The worker never receives the API's Redis password, in any variable.
+    assert "PHAROS_REDIS_PASSWORD" not in worker
+    # Redis itself is told both passwords.
+    compose = (DEPLOY / "docker-compose.yml").read_text()
+    redis = compose[compose.index("\n  redis:\n") :]
+    assert "REDIS_API_PASSWORD: ${PHAROS_REDIS_PASSWORD" in redis
+    assert "REDIS_WORKER_PASSWORD: ${PHAROS_REDIS_WORKER_PASSWORD" in redis
 
 
 def test_the_development_keycloak_answers_only_private_and_loopback_clients() -> None:
