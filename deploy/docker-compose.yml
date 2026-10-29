@@ -189,7 +189,10 @@ services:
     image: pharos-backend:${PHAROS_IMAGE_TAG:-local}
     <<: *hardening
     command: ["celery", "--app", "pharos.workers.entrypoint", "worker", "--loglevel", "INFO", "--concurrency", "2"]
-    environment: *worker-env
+    # Only the process that fetches gets the GitHub token: not the scheduler and not the API.
+    environment:
+      <<: *worker-env
+      PHAROS_GITHUB_TOKEN: ${PHAROS_GITHUB_TOKEN:-}
     tmpfs: [/tmp]
     networks: [data, egress]
     depends_on:

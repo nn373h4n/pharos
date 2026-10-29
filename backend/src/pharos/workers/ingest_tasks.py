@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from pharos.core.config import get_settings
 from pharos.ingest import repository
-from pharos.ingest.connectors import CONNECTORS
+from pharos.ingest.connectors import build_connectors
 from pharos.ingest.dispatcher import LEASE_SECONDS, dispatch
 from pharos.ingest.fetcher import MIN_LEASE_LEFT, fetch_source
 from pharos.ingest.hostgate import HostGate
@@ -67,6 +67,8 @@ def fetch_task(source_id: str, lease_token: str) -> None:
 
     async def work(engine: AsyncEngine) -> None:
         http = SafeHttpClient.from_settings(settings)
+        github_token = settings.github_token.get_secret_value() if settings.github_token else None
+        connectors = build_connectors(github_token)
         redis = aioredis.from_url(settings.redis_url.get_secret_value())
         try:
             report = await fetch_source(
@@ -75,7 +77,7 @@ def fetch_task(source_id: str, lease_token: str) -> None:
                 source_id=source,
                 lease_token=token,
                 clock=_now,
-                connectors=CONNECTORS,
+                connectors=connectors,
                 http=http,
                 gate=HostGate(redis),
             )

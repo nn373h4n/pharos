@@ -35,6 +35,10 @@ NOT_PASSED_BY_COMPOSE = {
     "PHAROS_FETCH_TEST_ALLOWED_PORTS",
 }
 
+# Settings only the worker is given: the API has no use for them and must not hold them. They are
+# still documented in .env.example, and a test below checks which service receives them.
+WORKER_ONLY = {"PHAROS_GITHUB_TOKEN"}
+
 # Settings that are documented in .env.example only as a commented example, or not at all.
 NOT_IN_ENV_EXAMPLE = NOT_PASSED_BY_COMPOSE
 
@@ -59,7 +63,9 @@ def backend_environment_block() -> str:
     return environment_block("x-backend-env") + "\n" + worker_environment_block()
 
 
-@pytest.mark.parametrize("name", [n for n in setting_names() if n not in NOT_PASSED_BY_COMPOSE])
+@pytest.mark.parametrize(
+    "name", [n for n in setting_names() if n not in NOT_PASSED_BY_COMPOSE | WORKER_ONLY]
+)
 def test_every_operator_setting_is_passed_to_the_backend_by_compose(name: str) -> None:
     assert re.search(rf"^\s+{name}:", backend_environment_block(), re.MULTILINE), (
         f"{name} is a setting of the API but docker-compose.yml does not pass it "
@@ -90,7 +96,7 @@ def test_compose_never_passes_the_test_only_fetch_allowance() -> None:
 
 def test_the_exceptions_above_are_real_settings() -> None:
     names = set(setting_names())
-    assert names >= NOT_PASSED_BY_COMPOSE
+    assert names >= NOT_PASSED_BY_COMPOSE | WORKER_ONLY
 
 
 def test_redis_has_a_memory_limit_below_the_containers_so_it_refuses_writes_instead_of_dying() -> (
@@ -177,10 +183,45 @@ def test_the_worker_and_the_scheduler_get_no_secrets_of_signing_in() -> None:
 
 def test_only_the_api_service_uses_the_full_environment() -> None:
     compose = (DEPLOY / "docker-compose.yml").read_text()
-    for service in ("worker", "beat"):
-        section = re.search(rf"^  {service}:\n(.*?)(?=^  \w)", compose, re.DOTALL | re.MULTILINE)
-        assert section, service
-        assert "environment: *worker-env" in section.group(1), service
+    beat = re.search(r"^  beat:\n(.*?)(?=^  \w)", compose, re.DOTALL | re.MULTILINE)
+    assert beat
+    assert "environment: *worker-env" in beat.group(1)  # exactly the worker's, nothing added
+    # The worker is the worker's environment plus the optional GitHub token, and nothing else.
+    worker = re.search(
+        r"^  worker:\n.*?^    environment:\n((?:      [^\n]*\n)+)",
+        compose,
+        re.DOTALL | re.MULTILINE,
+    )
+    assert worker
+    assert "<<: *worker-env" in worker.group(1)
+    assert re.findall(r"^\s+(PHAROS_[A-Z_]+):", worker.group(1), re.MULTILINE) == [
+        "PHAROS_GITHUB_TOKEN"
+    ]
+    assert "backend-env" not in worker.group(1)
     api = re.search(r"^  api:\n(.*?)(?=^  \w)", compose, re.DOTALL | re.MULTILINE)
     assert api
     assert "environment: *backend-env" in api.group(1)
+
+
+def service_block(name: str) -> str:
+    compose = (DEPLOY / "docker-compose.yml").read_text()
+    match = re.search(rf"^  {name}:\n(.*?)(?=^  \S|\Z)", compose, re.DOTALL | re.MULTILINE)
+    assert match, f"service {name} not found"
+    return match.group(1)
+
+
+def test_only_the_worker_receives_the_github_token() -> None:
+    assert "PHAROS_GITHUB_TOKEN" in service_block("worker")
+    for other in ("beat", "api", "web", "caddy", "migrate", "postgres", "redis"):
+        assert "PHAROS_GITHUB_TOKEN" not in service_block(other), other
+    # the shared blocks that the API and the scheduler build on must not carry it either
+    assert "PHAROS_GITHUB_TOKEN" not in worker_environment_block()
+    assert "PHAROS_GITHUB_TOKEN" not in backend_environment_block()
+
+
+def test_the_github_token_is_optional_and_documented_with_no_value() -> None:
+    example = (DEPLOY / ".env.example").read_text()
+    assert re.search(r"^PHAROS_GITHUB_TOKEN=$", example, re.MULTILINE)
+    assert "PHAROS_GITHUB_TOKEN: ${PHAROS_GITHUB_TOKEN:-}" in service_block(
+        "worker"
+    )  # not required

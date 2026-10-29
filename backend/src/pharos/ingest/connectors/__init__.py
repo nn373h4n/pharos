@@ -7,9 +7,23 @@ from pharos.ingest.connectors.base import (
     FetchOutcome,
     FetchState,
 )
+from pharos.ingest.connectors.github import GithubConnector
+from pharos.ingest.connectors.hackernews import HackerNewsConnector
 from pharos.ingest.connectors.rss import RssConnector
 
-CONNECTORS: dict[str, Connector] = {"rss": RssConnector()}
+
+def build_connectors(github_token: str | None = None) -> dict[str, Connector]:
+    """The built-in connectors. Only the GitHub one is given a credential, and only when built."""
+    return {
+        "rss": RssConnector(),
+        "github": GithubConnector(github_token),
+        "hackernews": HackerNewsConnector(),
+    }
+
+
+CONNECTORS: dict[str, Connector] = (
+    build_connectors()
+)  # without a credential: for configuration checks
 
 __all__ = [
     "CONNECTORS",
@@ -18,5 +32,8 @@ __all__ = [
     "ConnectorError",
     "FetchOutcome",
     "FetchState",
+    "GithubConnector",
+    "HackerNewsConnector",
     "RssConnector",
+    "build_connectors",
 ]
