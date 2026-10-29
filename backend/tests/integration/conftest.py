@@ -158,3 +158,7 @@ async def orgs(owner_engine: AsyncEngine) -> AsyncIterator[Orgs]:
         await connection.execute(
             text("DELETE FROM organizations WHERE id = ANY(:ids)"), {"ids": ids}
         )
+
+
+# Fixtures shared by the ingestion schema tests.
+from .ingestion_support import alpha_beta, worker_engine  # noqa: E402, F401

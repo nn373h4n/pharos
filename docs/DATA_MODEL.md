@@ -74,9 +74,11 @@ At sign-in the application does not know the organization yet, and RLS hides eve
 | Table | Main columns | Notes |
 | --- | --- | --- |
 | `professions` | id, scope, owner_org_id, code, names (jsonb: en/az/tr/ru) | **Built (0002).** Global rows are seeded by the migration (about a dozen generic professions); the application role can only read them. Organization-owned rows (`scope = 'org'`) arrive with the admin panel |
-| `sources` | id, scope, owner_org_id, connector_id, config_encrypted, schedule, enabled, last_fetched_at | Connector configuration is encrypted |
-| `raw_items` | id, source_id, external_id, url, payload (jsonb), fetched_at | Temporary; proposed retention 30 days |
-| `items` | id, scope, owner_org_id, canonical_url, url_hash (unique), title, excerpt, lang, published_at, quality_score, cluster_id, status | Full text is not stored: title, short excerpt and link only |
+| `sources` | id, org_id, owner_user_id, type, name, config, dedupe_key, enabled, interval_seconds, next_fetch_at, lease_until, lease_token, etag, last_modified, consecutive_failures, last_error_code, last_fetched_at, last_success_at, created_by | **Built (0003), organization-scoped (ADR-0012).** `type`: `rss`, `github`, `hackernews`; `config` is a small JSON object (8 KiB at most), validated per type by the application. `owner_user_id` is set for a personal feed. One source per `(org_id, owner_user_id, dedupe_key)`. A lease (`lease_until` with `lease_token`, both or neither) says a fetch is running and expires on its own. Nothing secret is stored here: the GitHub token lives in the worker's environment |
+| `fetch_runs` | id, org_id, source_id, started_at, finished_at, outcome, error_code, http_status, duration_ms, bytes_fetched, items_seen, items_new | **Built (0003).** Bounded history for the admin screen; `outcome` is one of a fixed list, `error_code` a short lower-case code (never a URL or a message). Proposed retention 30 days |
+| `raw_items` | id, org_id, source_id, external_id, title, excerpt, url, published_at, fetched_at, content_sha256, processed_at | **Built (0003).** What a source said after cleaning and truncation (title 300, excerpt 500 characters, link `http(s)` only), unique per `(org_id, source_id, external_id)`. Not visible to the application role. Proposed retention 14 days |
+| `items` | id, org_id, owner_user_id, canonical_url, url_hash, title, excerpt, lang, published_at, fetched_at, content_sha256, status, hold_reason | **Built (0003).** One row per article: unique on `(org_id, owner_user_id, url_hash)` with NULL owners counted as equal, so an organization item exists once and a personal item is never merged into it. Title, short excerpt and link only; `status`: `new`, `held`, `hidden` (`hold_reason` set exactly when held). Proposed retention 180 days unless held. A later fetch can refresh the text but never overwrites a person's decision |
+| `item_sources` | org_id, item_id, source_id, first_seen_at | **Built (0003).** One item seen in several sources. A trigger requires the item and the source to have the same owner |
 | `item_embeddings` | item_id, model, dim, embedding (vector) | Recomputed when the model changes ([ADR-0007](adr/0007-embedding-model-and-dimension.md)) |
 | `item_professions` | item_id, profession_id, relevance | Enrichment output |
 | `item_insights` | item_id, profession_id, language, prompt_version, model, summary, how_to_apply, try_prompt, safety_note, status | Unique on (item, profession, language, prompt_version) |
@@ -84,6 +86,18 @@ At sign-in the application does not know the organization yet, and RLS hides eve
 ### Phase 2 (not in MVP)
 
 `ideas`, `idea_votes`, `success_stories`, `time_savings`, `badges`, `user_badges`, `challenges`. Company-internal content never goes to a cloud LLM by default; when an admin enables it, masking is applied and the choice is audited.
+
+## Ingestion tables (0003)
+
+- **Tenant isolation.** All five tables carry `org_id` and the ordinary tenant policy; there are no `public` rows and no role that writes across organizations. Foreign keys include `org_id`, so a row cannot point into another organization.
+- **Personal feeds.** A source or item with `owner_user_id` is hidden from everybody but that person: for `pharos_app` a restrictive policy compares it with `pharos_current_user()` (the transaction setting `app.user_id`, unset means nobody), so an administrator listing sources does not see other people's feeds, and a feed's runs and links disappear with it. The API must set `app.user_id` for the signed-in person (M3-10); until it does, personal rows are simply invisible. `pharos_worker` is not subject to this policy because it processes every feed.
+- **Privileges** (column level, tested in `test_ingestion_schema.py` and `test_worker_role.py`):
+  - `pharos_app`: read `sources`, `fetch_runs`, `items`, `item_sources`; create, edit and delete sources (configuration only: not the fetch state and not `next_fetch_at`, so "fetch now" has to go through a worker task and a person cannot make the worker fetch their URL as often as they like); change `items.status` and `hold_reason` only; no access to `raw_items`. `owner_user_id` and `created_by` can never be changed after creation.
+  - `pharos_worker`: read everything here except `sources.created_by`; update the fetch state of a source (lease, validators, failures, next time) but not its configuration; create and finish fetch runs; create raw items and mark them processed; create items and refresh their text but never change `status` or `hold_reason` of an existing one; create item links; delete old runs, raw items and items for retention. It can create no source and delete none.
+  - Both are pinned by exact-set tests, so a grant added later fails the build.
+- **Limits enforced by the database.** A personal feed is fetched at most hourly (`sources_personal_interval_check`) and a person has at most five (a trigger with an advisory lock, so parallel requests cannot pass it); `created_by` is NULL or the person making the request; links must be `http(s)` without white space, control characters, quotes or angle brackets.
+- **The worker cannot undo a decision.** Restrictive policies stop it from deleting a `hidden` item and from creating an item that is already `hidden`, so a rejected article cannot be brought back by a later fetch. A compromised worker can still create items (including personal ones) and delete the others; ADR-0012 treats that as the cost of having a worker at all.
+- **Downgrading 0003** deletes all sources, items and fetch history, and refuses unless `PHAROS_ALLOW_DATA_LOSS=yes` is set.
 
 ## Known limits of the identity schema (0002)
 

@@ -17,13 +17,19 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from pharos.core.db import create_engine
 from pharos.workers.runtime import WorkerRoleError, WorkerRuntime, check_worker_role
 
-from .conftest import APP_ROLE, WORKER_ROLE, TestDatabase
+from .conftest import APP_ROLE, WORKER_ROLE, Orgs, TestDatabase
 
 pytestmark = [pytest.mark.integration, pytest.mark.anyio]
 
 # Tables the worker may touch, with the privileges it may hold. Grows with migration 0003 (M3-05);
 # every entry needs a reason in the migration.
-ALLOWED: dict[str, set[str]] = {}
+ALLOWED: dict[str, set[str]] = {
+    "sources": {"SELECT"},
+    "fetch_runs": {"SELECT", "DELETE"},
+    "raw_items": {"SELECT", "DELETE"},
+    "items": {"SELECT", "DELETE"},
+    "item_sources": {"SELECT"},
+}
 PRIVILEGES = ("SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER")
 
 
@@ -250,19 +256,31 @@ async def test_the_start_up_check_refuses_a_worker_role_that_joined_a_role_or_ow
         await admin.dispose()
 
 
-async def test_the_worker_cannot_make_temporary_tables_or_run_the_organization_lookup(
-    worker_engine: AsyncEngine, app_engine: AsyncEngine
-) -> None:
+async def test_the_worker_cannot_make_temporary_tables(worker_engine: AsyncEngine) -> None:
     # As in a deployment, the database is closed to PUBLIC (01-roles.sh), so TEMP is not inherited.
     async with worker_engine.connect() as connection:
         with pytest.raises(DBAPIError, match="permission denied"):
             await connection.execute(text("CREATE TEMP TABLE worker_probe (id int)"))
-    lookup = "SELECT pharos_org_id_for_slug('nobody')"
-    async with app_engine.connect() as connection:
-        await connection.execute(text(lookup))  # positive control: the API may call it
+
+
+async def test_the_worker_finds_its_organization_through_the_lookup_and_nothing_else(
+    worker_engine: AsyncEngine, app_engine: AsyncEngine, orgs: Orgs, owner_engine: AsyncEngine
+) -> None:
+    async with owner_engine.connect() as connection:
+        slug = (
+            await connection.execute(
+                text("SELECT slug FROM organizations WHERE id = :id"), {"id": orgs[0]}
+            )
+        ).scalar_one()
+    lookup = "SELECT pharos_org_id_for_slug(:slug)"
+    for engine in (app_engine, worker_engine):  # the worker may, as the API may
+        async with engine.connect() as connection:
+            found = (await connection.execute(text(lookup), {"slug": slug})).scalar_one()
+        assert found == orgs[0]
+    # The lookup is all it gets: the table itself stays closed (see the table tests above).
     async with worker_engine.connect() as connection:
         with pytest.raises(DBAPIError, match="permission denied"):
-            await connection.execute(text(lookup))
+            await connection.execute(text("SELECT id FROM organizations"))
 
 
 async def test_the_start_up_check_refuses_the_application_role(app_engine: AsyncEngine) -> None:

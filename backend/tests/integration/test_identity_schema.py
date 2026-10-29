@@ -872,8 +872,13 @@ EXPECTED_TABLE_PRIVILEGES = {
         "local_credentials",
         "user_profiles",
         "audit_logs",
+        # Migration 0003: the sources the organization follows and what came from them.
+        "sources",
+        "fetch_runs",
+        "items",
+        "item_sources",
     )
-}
+} | {("sources", "r", "DELETE")}
 EXPECTED_COLUMN_PRIVILEGES = (
     {("organizations", c, "UPDATE") for c in ("name", "settings", "updated_at")}
     | {("departments", c, "INSERT") for c in ("org_id", "name")}
@@ -931,6 +936,25 @@ EXPECTED_COLUMN_PRIVILEGES = (
             "onboarding_completed_at",
         )
     }
+    | {
+        ("sources", c, "INSERT")
+        for c in (
+            "org_id",
+            "owner_user_id",
+            "type",
+            "name",
+            "config",
+            "dedupe_key",
+            "enabled",
+            "interval_seconds",
+            "created_by",
+        )
+    }
+    | {
+        ("sources", c, "UPDATE")
+        for c in ("name", "config", "dedupe_key", "enabled", "interval_seconds")
+    }
+    | {("items", c, "UPDATE") for c in ("status", "hold_reason")}
     | {
         ("audit_logs", c, "INSERT")
         for c in (
@@ -1002,7 +1026,7 @@ async def test_downgrade_refuses_to_delete_data_unless_told_to(
         revision = (
             await connection.execute(text("SELECT version_num FROM alembic_version"))
         ).scalar_one()
-    assert remaining == 2 and revision == "0002"
+    assert remaining == 2 and revision == "0003"
 
     monkeypatch.setenv("PHAROS_ALLOW_DATA_LOSS", "yes")
     try:
