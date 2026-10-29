@@ -412,3 +412,61 @@ def test_a_worker_refuses_to_be_given_the_secrets_of_signing_in(extra: dict[str,
             public_url="https://pharos.example",
             **extra,  # type: ignore[arg-type]
         )
+
+
+# --- the GitHub token (M3-09) ----
+
+
+def test_the_github_token_is_optional_and_empty_means_unset() -> None:
+    assert Settings(environment="test").github_token is None  # type: ignore[arg-type]
+    assert Settings(environment="test", github_token="  ").github_token is None  # type: ignore[arg-type]
+
+
+def test_the_github_token_is_a_secret_that_never_shows_in_repr() -> None:
+    token = "github_pat_11AAAAAAA0abcdefghijkl"
+    settings = Settings(environment="test", github_token=token)  # type: ignore[arg-type]
+    assert settings.github_token is not None and settings.github_token.get_secret_value() == token
+    assert token not in repr(settings) and token not in str(settings.model_dump())
+
+
+@pytest.mark.parametrize(
+    "token",
+    [
+        "short",
+        "has space in it 123456",
+        "line\nbreak123456",
+        'quote"d12345678',
+        "x" * 256,
+        "tok\r\nX-Evil: 1 ab",
+        "ünïcödé-tokén-123",
+    ],
+)
+def test_a_github_token_that_could_break_a_header_is_refused_without_echoing_it(token: str) -> None:
+    with pytest.raises(ValidationError) as caught:
+        Settings(environment="test", github_token=token)  # type: ignore[arg-type]
+    assert token not in str(caught.value)
+    assert "github_token" in str(caught.value)
+
+
+def test_no_validation_error_echoes_the_value_that_was_refused() -> None:
+    # A field-level failure (the type check) is the kind that carries the input; a model-level
+    # validator never does. The value stands for a password pasted into the wrong setting.
+    with pytest.raises(ValidationError) as caught:
+        Settings(environment="test", session_redis_db="s3cretvalue-123")  # type: ignore[arg-type]
+    assert "session_redis_db" in str(caught.value)
+    assert "s3cretvalue-123" not in str(caught.value)
+
+
+def test_only_a_worker_may_hold_the_github_credential_in_production() -> None:
+    credential = "github_pat_11AAAAAAA0abcdefghijkl"
+    with pytest.raises(ValidationError, match="only the worker"):
+        production(github_token=credential)
+    worker = Settings(
+        environment="production",
+        process="worker",
+        database_url=GOOD_DB,  # type: ignore[arg-type]
+        redis_url=GOOD_REDIS,  # type: ignore[arg-type]
+        public_url="https://pharos.example",
+        github_token=credential,  # type: ignore[arg-type]
+    )
+    assert worker.github_token is not None

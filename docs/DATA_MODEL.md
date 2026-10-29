@@ -122,6 +122,15 @@ Indexes follow real feed queries (profession, language, published date, quality)
 - **Known limits:** the rules run on the text that would be stored. Flagged new text of an existing item is not stored at all, so an approved or clean item keeps its old text until a person acts (the app can see neither the discarded text nor that it was discarded: F-24). Look-alike letters and phrases in other languages are not recognized. Different parameter order, Unicode versus punycode hosts and `%7E` versus `~` still count as different articles. Text from a feed stays untrusted data for every later step either way.
 - `lang` stays empty until M4.
 
+### Source configurations (M3-09)
+
+Validated by the connector of the type, stored as small JSON, and checked again by the connector at every fetch (a stored configuration is never trusted).
+
+- `rss`: `{"url": "https://..."}`.
+- `github`: `{"repo": "owner/name"}`. One request per run to `api.github.com/repos/<owner>/<name>/releases`; drafts and pre-releases are skipped. The optional token is not part of the configuration: it comes from `PHAROS_GITHUB_TOKEN` in the worker's environment.
+- `hackernews`: `{"query": "words", "min_points": 20}`. One Algolia search per run (stories only, at most 30 hits); a story without a link gets the address of its discussion page.
+- Entries from JSON connectors are cleaned like feed entries (plain text, bounded, `http(s)` links only, no lone surrogates) and arrive at the pipeline in the same shape.
+
 ## Open items
 
 - Final embedding model and vector dimension (ADR-0007).

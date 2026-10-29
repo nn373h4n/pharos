@@ -25,7 +25,8 @@ import asyncio
 import logging
 import re
 import ssl
-from collections.abc import Mapping
+import time
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Protocol
@@ -48,7 +49,15 @@ REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
 USER_AGENT = "Pharos/0.1 (+https://github.com/nn373h4n/pharos; feed reader)"
 # Request headers a caller may set. Everything else is ours (Host, Accept-Encoding, Authorization).
 CALLER_HEADERS = frozenset({"accept", "if-none-match", "if-modified-since", "user-agent"})
-RESPONSE_HEADERS = ("etag", "last-modified", "content-type", "retry-after", "content-length")
+RESPONSE_HEADERS = (
+    "etag",
+    "last-modified",
+    "content-type",
+    "retry-after",
+    "content-length",
+    "x-ratelimit-remaining",
+    "x-ratelimit-reset",
+)
 
 
 class FetchErrorKind(StrEnum):
@@ -232,7 +241,9 @@ class SafeHttpClient:
         deadline_seconds: float = DEADLINE_SECONDS,
         connect_timeout: float = CONNECT_TIMEOUT_SECONDS,
         max_redirects: int = MAX_REDIRECTS,
+        clock: Callable[[], float] = time.time,
     ) -> None:
+        self._clock = clock
         self._blocked_hosts = blocked_hosts
         self._extra_ports = extra_ports
         self._max_bytes = max_bytes
@@ -304,6 +315,13 @@ class SafeHttpClient:
             )  # a redirect: the next URL, validated at the loop top
         raise FetchError(FetchErrorKind.BAD_STATUS, "too_many_redirects")
 
+    def _until_rate_limit_reset(self, headers: Mapping[str, str]) -> int | None:
+        """Seconds until a spent rate limit (GitHub: `x-ratelimit-remaining: 0`) is renewed."""
+        reset = headers.get("x-ratelimit-reset", "")
+        if headers.get("x-ratelimit-remaining") != "0" or not re.fullmatch(r"[0-9]{1,12}", reset):
+            return None
+        return max(int(reset) - int(self._clock()), 0) + 1
+
     async def _once(self, target: _Target, headers: dict[str, str]) -> "FetchResult | str":
         """One request. A FetchResult, or the Location to go to next."""
         try:
@@ -317,6 +335,8 @@ class SafeHttpClient:
                 if status not in (200, 304):
                     retry = response.headers.get("retry-after", "")
                     seconds = int(retry) if re.fullmatch(r"[0-9]{1,7}", retry) else None
+                    if seconds is None and status in (403, 429):
+                        seconds = self._until_rate_limit_reset(response.headers)
                     raise FetchError(
                         FetchErrorKind.BAD_STATUS,
                         f"status_{status}",

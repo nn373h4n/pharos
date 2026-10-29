@@ -42,7 +42,11 @@ class Settings(BaseSettings):
     production on purpose: forgetting to set it must never relax the checks below.
     """
 
-    model_config = SettingsConfigDict(env_prefix="PHAROS_", extra="ignore")
+    # A wrong value must never be echoed: a validation error is logged at start-up, and the value
+    # may be a password or a token that was pasted in the wrong shape.
+    model_config = SettingsConfigDict(
+        env_prefix="PHAROS_", extra="ignore", hide_input_in_errors=True
+    )
 
     environment: Literal["development", "test", "production"] = "production"
     log_level: str = "INFO"
@@ -100,18 +104,38 @@ class Settings(BaseSettings):
     # Which ID-token claim holds the department, if the provider sends one.
     oidc_department_claim: str | None = Field(default="department", max_length=64)
 
+    # A fine-grained GitHub token (no scopes) for the worker. Optional: it only raises the API rate
+    # limit from 60 to 5000 requests an hour. Sent to api.github.com only (SafeHttpClient `Bearer`).
+    github_token: SecretStr | None = None
+
     # Sessions live in their own Redis database (Celery uses database 0 of the same server).
     session_redis_db: int = Field(default=1, ge=0, le=15)
     session_idle_seconds: int = Field(default=8 * 3600, ge=60)
     session_absolute_seconds: int = Field(default=24 * 3600, ge=60)
 
     @field_validator(
-        "oidc_issuer", "oidc_client_id", "oidc_client_secret", "entra_tenant_id", mode="before"
+        "oidc_issuer",
+        "oidc_client_id",
+        "oidc_client_secret",
+        "entra_tenant_id",
+        "github_token",
+        mode="before",
     )
     @classmethod
     def _empty_means_unset(cls, value: object) -> object:
         """Compose passes unset variables as empty strings; they mean "not configured"."""
         return None if isinstance(value, str) and not value.strip() else value
+
+    @field_validator("github_token")
+    @classmethod
+    def _github_token_is_a_plain_token(cls, value: SecretStr | None) -> SecretStr | None:
+        # It goes into a request header: no space, quote or line break may get through. The message
+        # names the setting and never the value.
+        if value is not None and not re.fullmatch(
+            r"[A-Za-z0-9_.-]{10,255}", value.get_secret_value()
+        ):
+            raise ValueError("github_token must be 10 to 255 letters, digits, '_', '.' or '-'")
+        return value
 
     @field_validator("public_url")
     @classmethod
@@ -251,6 +275,8 @@ class Settings(BaseSettings):
             if self.secret_key.get_secret_value() != _DEVELOPMENT_SECRET_KEY:
                 raise ValueError("a worker must not be given the root key")
             return self
+        if self.github_token is not None:
+            raise ValueError("only the worker may be given the GitHub token")
         if self.oidc_issuer is not None:
             if not self.oidc_issuer.startswith("https://"):
                 raise ValueError("oidc_issuer must use https in production")
@@ -271,7 +297,9 @@ class Settings(BaseSettings):
 class MigrationSettings(BaseSettings):
     """Used only by Alembic. The application process never needs the table owner's credentials."""
 
-    model_config = SettingsConfigDict(env_prefix="PHAROS_", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_prefix="PHAROS_", extra="ignore", hide_input_in_errors=True
+    )
 
     migrations_database_url: SecretStr
 

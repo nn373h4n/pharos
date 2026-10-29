@@ -434,3 +434,64 @@ async def test_errors_do_not_contain_the_url_or_the_address() -> None:
     assert "secret-path" not in text
     assert "token=abc" not in text
     assert "10.1.2.3" not in text
+
+
+# --- a spent rate limit (GitHub) ----
+
+
+def limited(status: int, remaining: str, reset: str, **extra: str) -> bytes:
+    headers = {"X-RateLimit-Remaining": remaining, "X-RateLimit-Reset": reset, **extra}
+    return response(status, b"", headers)
+
+
+async def retry_after_of(answer: bytes, now: float = 1_000_000.0) -> int | None:
+    client, _, _ = make(answer, clock=lambda: now)
+    with pytest.raises(FetchError) as caught:
+        await client.fetch("http://feed.example/")
+    assert caught.value.kind is FetchErrorKind.BAD_STATUS
+    return caught.value.retry_after
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("status", [403, 429])
+async def test_a_spent_rate_limit_waits_until_it_is_renewed(status: int) -> None:
+    assert await retry_after_of(limited(status, "0", "1000600")) == 601  # 600 s and a second
+
+
+@pytest.mark.anyio
+async def test_a_retry_after_header_wins_over_the_rate_limit_reset() -> None:
+    assert await retry_after_of(limited(429, "0", "1000600", **{"Retry-After": "30"})) == 30
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("status", "remaining", "reset"),
+    [
+        (403, "7", "1000600"),  # not spent: a plain refusal, not a limit
+        (403, "", "1000600"),
+        (404, "0", "1000600"),  # only 403 and 429 can mean "limited"
+        (500, "0", "1000600"),
+        (403, "0", "soon"),
+        (403, "0", "-5"),
+        (403, "0", "9" * 40),
+        (403, "0", ""),
+    ],
+)
+async def test_anything_else_is_not_read_as_a_rate_limit(
+    status: int, remaining: str, reset: str
+) -> None:
+    assert await retry_after_of(limited(status, remaining, reset)) is None
+
+
+@pytest.mark.anyio
+async def test_a_reset_in_the_past_waits_one_second_and_a_far_one_is_capped() -> None:
+    assert await retry_after_of(limited(403, "0", "999000")) == 1
+    assert await retry_after_of(limited(403, "0", str(10**11))) == 7 * 24 * 3600
+
+
+@pytest.mark.anyio
+async def test_the_rate_limit_headers_reach_the_caller_of_a_good_answer() -> None:
+    client, _, _ = make(limited(200, "42", "1000600"))
+    result = await client.fetch("http://feed.example/")
+    assert result.headers["x-ratelimit-remaining"] == "42"
+    assert result.headers["x-ratelimit-reset"] == "1000600"

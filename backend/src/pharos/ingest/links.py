@@ -11,7 +11,9 @@ from urllib.parse import urljoin, urlsplit
 
 MAX_URL_LENGTH = 2048
 # Backslash too: some parsers read it as a slash, so the host differs between them.
-_FORBIDDEN = re.compile(r"[\s\x00-\x1f\x7f-\x9f<>\"\\]")
+# Lone surrogates too: JSON can carry them ("\ud800"), they cannot be encoded as UTF-8, and a link
+# that cannot be written down would fail the whole fetch.
+_FORBIDDEN = re.compile(r"[\s\x00-\x1f\x7f-\x9f<>\"\\\ud800-\udfff]")
 
 
 def safe_link(value: object, base: str | None = None) -> str | None:
