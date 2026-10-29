@@ -91,7 +91,7 @@ class WorkerRuntime:
     def run[T](self, work: Callable[[AsyncEngine], Awaitable[T]]) -> T:
         """Run one task body to completion on this process's loop, with this process's engine."""
         loop, engine = self._ensure()
-        task = loop.create_task(work(engine))
+        task: asyncio.Future[T] = asyncio.ensure_future(work(engine), loop=loop)
         try:
             return loop.run_until_complete(task)
         except BaseException:
