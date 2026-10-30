@@ -1,5 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { NextIntlClientProvider } from "next-intl";
+import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import en from "../../../messages/en.json";
 import { ApiProblem } from "@/lib/api";
@@ -17,6 +18,13 @@ vi.mock("@/components/auth/session-provider", () => ({
       session: { csrf_token: "token-1", user: { role, display_name: "A" } },
     },
   }),
+}));
+vi.mock("@/i18n/navigation", () => ({
+  Link: ({ href, children, ...props }: { href: string; children: ReactNode }) => (
+    <a href={href} {...props}>
+      {children}
+    </a>
+  ),
 }));
 vi.mock("@/lib/items", async (original) => ({
   ...(await original<typeof import("@/lib/items")>()),
@@ -47,10 +55,10 @@ function page(items: Item[], total = items.length): ItemPage {
   return { items, total };
 }
 
-function show() {
+function show(sourceId?: string) {
   return render(
     <NextIntlClientProvider locale="en" messages={en}>
-      <ItemsView />
+      <ItemsView sourceId={sourceId} />
     </NextIntlClientProvider>,
   );
 }
@@ -458,5 +466,25 @@ describe("answers that arrive late", () => {
     await act(async () => resolvers.new!(page([item(1)])));
     expect(screen.getByText("Story 7")).toBeDefined();
     expect(screen.queryByText("Story 1")).toBeNull();
+  });
+});
+
+describe("the articles of one source", () => {
+  const id = "6a1f0c2e-3b4d-4e5f-8a9b-0c1d2e3f4a5b";
+
+  it("asks for that source only and offers the way back", async () => {
+    show(id);
+    await loaded();
+    expect(listItems).toHaveBeenCalledWith({ status: "new", offset: 0, sourceId: id });
+    expect(screen.getByText(en.Items.source.only)).toBeDefined();
+    expect(screen.getByRole("link", { name: en.Items.source.all }).getAttribute("href")).toBe(
+      "/items",
+    );
+  });
+
+  it("shows no chip for all sources", async () => {
+    show();
+    await loaded();
+    expect(screen.queryByText(en.Items.source.only)).toBeNull();
   });
 });

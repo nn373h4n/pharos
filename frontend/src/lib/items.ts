@@ -2,6 +2,7 @@
 // before it is used: a shape the page does not expect is an error, not a guess.
 
 import { request } from "@/lib/api";
+import { isIdentifier } from "@/lib/ids";
 
 export type ItemStatus = "new" | "held" | "hidden";
 export type ItemAction = "hold" | "approve" | "hide" | "restore";
@@ -42,7 +43,6 @@ export const RESULT_OF: Record<ItemAction, ItemStatus> = {
 };
 
 const STATUSES: readonly unknown[] = ["new", "held", "hidden"];
-const IDENTIFIER = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function isText(value: unknown): value is string {
   return typeof value === "string";
@@ -57,7 +57,7 @@ export function isItem(value: unknown): value is Item {
   const item = value as Record<string, unknown>;
   return (
     isText(item.id) &&
-    IDENTIFIER.test(item.id) &&
+    isIdentifier(item.id) &&
     isText(item.url) &&
     isText(item.title) &&
     isText(item.excerpt) &&

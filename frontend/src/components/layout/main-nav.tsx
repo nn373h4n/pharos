@@ -6,11 +6,17 @@ import { buttonVariants } from "@/components/ui/button";
 import { Link, usePathname } from "@/i18n/navigation";
 import { cn } from "@/lib/utils";
 
-type Entry = { href: "/" | "/items"; label: "home" | "items" };
+type Entry = {
+  href: "/" | "/items" | "/sources";
+  label: "home" | "items" | "sources";
+  /** Only for administrators and editors. */
+  reviewers?: boolean;
+};
 
 const ENTRIES: Entry[] = [
   { href: "/", label: "home" },
   { href: "/items", label: "items" },
+  { href: "/sources", label: "sources", reviewers: true },
 ];
 
 /**
@@ -25,10 +31,15 @@ export function MainNav() {
   if (state.status !== "authenticated") return null;
   if (typeof state.session.user.onboarding_completed_at !== "string") return null;
 
+  const role = state.session.user.role;
+  const entries = ENTRIES.filter(
+    (entry) => !entry.reviewers || role === "admin" || role === "editor",
+  );
+
   return (
     <nav aria-label={t("main")}>
       <ul className="flex flex-wrap gap-1">
-        {ENTRIES.map((entry) => {
+        {entries.map((entry) => {
           const current = entry.href === "/" ? pathname === "/" : pathname.startsWith(entry.href);
           return (
             <li key={entry.href}>

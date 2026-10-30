@@ -140,7 +140,8 @@
   "Nav": {
     "main": "Ana gezinti",
     "home": "Ana sayfa",
-    "items": "Makaleler"
+    "items": "Makaleler",
+    "sources": "Kaynaklar"
   },
   "Items": {
     "metaTitle": "Makaleler",
@@ -194,6 +195,10 @@
       "approve": "Onaylandı: {title}",
       "hide": "Gizlendi: {title}",
       "restore": "Geri getirildi: {title}"
+    },
+    "source": {
+      "only": "Yalnızca tek bir kaynağın makaleleri gösteriliyor.",
+      "all": "Tüm makaleleri göster"
     }
   },
   "Problems": {
@@ -204,6 +209,188 @@
     "rateLimitedNoWait": "Çok fazla istek. Biraz sonra tekrar deneyin.",
     "unavailable": "Hizmet şu anda kullanılamıyor. Daha sonra tekrar deneyin.",
     "csrf": "İstek reddedildi. Sayfayı yenileyip tekrar deneyin.",
-    "generic": "Bir şeyler ters gitti. Tekrar deneyin."
+    "generic": "Bir şeyler ters gitti. Tekrar deneyin.",
+    "sourceConflict": "Bu kaynak zaten var.",
+    "sourceLimit": "Kuruluş, izin verilen en çok kaynak sayısına ulaştı.",
+    "validation": "Bazı girişler geçerli değil. Kontrol edip tekrar deneyin."
+  },
+  "Sources": {
+    "metaTitle": "Kaynaklar",
+    "title": "Kaynaklar",
+    "intro": "Pharos makalelerini nereden alır. Yeni bir kaynak, yönetici açana kadar kapalı kalır.",
+    "readOnly": "Kaynaklara bakabilirsiniz. Onları yalnızca yöneticiler değiştirir.",
+    "results": "Kaynak listesi",
+    "loading": "Kaynaklar yükleniyor…",
+    "loadFailed": "Kaynaklar yüklenemedi. Biraz sonra tekrar deneyin.",
+    "retry": "Tekrar dene",
+    "empty": "Henüz kaynak eklenmedi.",
+    "emptyAdmin": "Henüz kaynak eklenmedi. İlk kaynağı ekleyin.",
+    "filters": {
+      "label": "Filtre",
+      "type": "Tür",
+      "allTypes": "Tüm türler",
+      "state": "Durum",
+      "allStates": "Tüm durumlar",
+      "on": "Açık",
+      "off": "Kapalı"
+    },
+    "total": "Toplam: {total}",
+    "range": "{from}–{to} / {total}",
+    "pagination": "Sayfalar",
+    "previous": "Önceki",
+    "next": "Sonraki",
+    "types": {
+      "rss": "Besleme (RSS veya Atom)",
+      "github": "GitHub sürümleri",
+      "hackernews": "Hacker News"
+    },
+    "health": {
+      "off": "Kapalı",
+      "failing": "Hata veriyor",
+      "ok": "Çalışıyor",
+      "new": "Henüz çekilmedi"
+    },
+    "facts": {
+      "lastSuccess": "Son başarılı çekim: {date}",
+      "never": "Henüz başarılı çekim yok",
+      "failures": "Art arda başarısız: {count}",
+      "lastError": "Son sorun: {problem}",
+      "next": "Sonraki çekim: {date}",
+      "createdAt": "Eklenme: {date}"
+    },
+    "intervals": {
+      "300": "Her 5 dakikada bir",
+      "900": "Her 15 dakikada bir",
+      "1800": "Her 30 dakikada bir",
+      "3600": "Her saat",
+      "7200": "Her 2 saatte bir",
+      "21600": "Her 6 saatte bir",
+      "43200": "Her 12 saatte bir",
+      "86400": "Her gün",
+      "604800": "Her hafta"
+    },
+    "intervalOther": "Her {seconds} saniyede bir",
+    "actions": {
+      "add": "Kaynak ekle",
+      "edit": "Düzenle",
+      "enable": "Aç",
+      "disable": "Kapat",
+      "delete": "Sil",
+      "test": "Deneme çekimi",
+      "articles": "Makaleler",
+      "runs": "Son çekimler",
+      "actionOn": "{action}: {name}"
+    },
+    "done": {
+      "created": "Eklendi: {name}",
+      "updated": "Kaydedildi: {name}",
+      "enabled": "Açıldı: {name}",
+      "disabled": "Kapatıldı: {name}",
+      "deleted": "Silindi: {name}"
+    },
+    "form": {
+      "addTitle": "Kaynak ekle",
+      "editTitle": "Kaynağı düzenle",
+      "type": "Tür",
+      "typeFixed": "Tür değiştirilemez. Bunun yerine yeni bir kaynak ekleyin.",
+      "name": "Ad",
+      "nameHint": "Düz metin, en çok 200 karakter.",
+      "url": "Beslemenin adresi",
+      "urlHint": "http:// veya https:// ile başlayan bir web adresi. Ağ içindeki adreslere izin verilmez.",
+      "repo": "Depo",
+      "repoHint": "owner/name biçiminde yazılır, örneğin acme/widget.",
+      "query": "Arama sözcükleri",
+      "queryHint": "En çok 100 karakter.",
+      "points": "En az puan",
+      "pointsHint": "0 ile 10000 arasında bir tam sayı. Boş bırakılırsa 20 olur.",
+      "interval": "Ne sıklıkla",
+      "enabledNow": "Şimdi aç",
+      "save": "Kaydet",
+      "saving": "Kaydediliyor…",
+      "cancel": "Vazgeç",
+      "problems": "Lütfen aşağıda işaretlenen girişleri düzeltin."
+    },
+    "fieldErrors": {
+      "urlRequired": "Beslemenin adresini girin.",
+      "urlInvalid": "Bu, http:// veya https:// ile başlayan bir web adresi değil.",
+      "urlNotAllowed": "Bu adres ağ içindeki bir makineye gidiyor, buna izin verilmez.",
+      "repoInvalid": "Depoyu owner/name biçiminde yazın.",
+      "queryInvalid": "İşaretleme içermeyen, en çok 100 karakterlik arama sözcükleri girin.",
+      "pointsInvalid": "0 ile 10000 arasında bir tam sayı kullanın.",
+      "nameInvalid": "Ad düz metin olmalıdır.",
+      "nameMissing": "Bir ad girin.",
+      "nameTooLong": "Ad çok uzun (en çok 200 karakter).",
+      "intervalInvalid": "Ne sıklıkla çekileceğini seçin.",
+      "configInvalid": "Ayarlar geçerli değil.",
+      "formInvalid": "Bazı girişler geçerli değil."
+    },
+    "deleteDialog": {
+      "title": "Bu kaynak silinsin mi?",
+      "body": "“{name}” çekim geçmişiyle birlikte kaldırılacak. Getirdiği makaleler kalır.",
+      "confirm": "Sil",
+      "cancel": "Vazgeç",
+      "deleting": "Siliniyor…"
+    },
+    "runs": {
+      "title": "Son çekimler",
+      "loading": "Çekimler yükleniyor…",
+      "empty": "Henüz çekim yok.",
+      "failed": "Çekimler yüklenemedi.",
+      "started": "Başladı",
+      "result": "Sonuç",
+      "http": "Yanıt",
+      "seen": "Görülen",
+      "added": "Yeni"
+    },
+    "outcome": {
+      "running": "Çalışıyor",
+      "ok": "Çekildi",
+      "not_modified": "Yeni bir şey yok",
+      "blocked": "İzin verilmedi",
+      "timeout": "Çok yavaş",
+      "too_large": "Çok büyük",
+      "bad_status": "Sunucu reddetti",
+      "bad_content": "Okunamadı",
+      "network": "Ulaşılamadı",
+      "error": "Başarısız",
+      "host_busy": "Sunucu meşguldü",
+      "source_missing": "Kaynak bulunamadı",
+      "other": "Diğer"
+    },
+    "lastError": {
+      "http_error": "Sunucu isteği reddetti.",
+      "not_allowed": "Adrese izin verilmiyor.",
+      "redirects": "Çok fazla yönlendirme.",
+      "timed_out": "Sunucu zamanında yanıt vermedi.",
+      "too_large": "Yanıt çok büyüktü.",
+      "unexpected": "Beklenmeyen bir hata.",
+      "unreachable": "Sunucuya ulaşılamadı.",
+      "unreadable": "Yanıt okunamadı.",
+      "json_invalid": "Yanıt geçerli bir JSON değildi.",
+      "json_shape": "Yanıtın yapısı beklenmedikti.",
+      "bad_config": "Ayarlar geçerli değil.",
+      "config_invalid": "Kayıtlı ayarlar geçerli değil.",
+      "store_failed": "Sonuç kaydedilemedi.",
+      "unsupported": "Bu tür kaynak desteklenmiyor.",
+      "unsupported_type": "Bu tür kaynak desteklenmiyor.",
+      "bad_content": "Yanıt bir besleme değildi.",
+      "too_complex": "Besleme çok karmaşık.",
+      "other": "Başka bir sorun."
+    },
+    "test": {
+      "title": "Deneme çekimi",
+      "waiting": "Arka plan işlemi bekleniyor…",
+      "gaveUp": "Henüz yanıt yok. Biraz sonra tekrar deneyin.",
+      "unavailable": "Arka plan işleminin yanıtı kullanılamadı.",
+      "result": "Sonuç: {outcome}",
+      "problem": "Sorun: {problem}",
+      "status": "Sunucu yanıtı: {status}",
+      "counts": "Görülen makale: {seen}, dışarıda kalan: {skipped}",
+      "noSample": "Gösterilecek makale yok.",
+      "sample": "Bulunan ilk makaleler",
+      "close": "Kapat",
+      "opensInNewTab": " (yeni sekmede açılır)"
+    },
+    "articlesNote": "Bu kaynağın makaleleri"
   }
 }
