@@ -4,6 +4,7 @@
     docker compose exec api python -m pharos.cli create-admin --username admin
     docker compose exec api python -m pharos.cli set-password --username admin
     docker compose exec api python -m pharos.cli unlock --username admin
+    docker compose exec api python -m pharos.cli import-sources [--file PATH] [--dry-run]
 
 `create-org` needs the table owner's credentials (the application role may not create
 organizations), so it runs in the `migrate` service. The others run as the application role inside a
@@ -21,6 +22,8 @@ import sys
 import uuid
 from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
+from pathlib import Path
+from urllib.parse import urlsplit
 
 from redis.asyncio import Redis
 from sqlalchemy import text
@@ -38,6 +41,8 @@ from pharos.core.secrets import KeyPurpose, derive_key
 from pharos.core.sessions import SessionStore
 from pharos.identity import repository
 from pharos.identity.passwords import PasswordHasher, PasswordPolicyError, check_new_password
+from pharos.sources import catalogue
+from pharos.sources.service import MAX_ORG_SOURCES
 
 _SLUG = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")
 
@@ -239,6 +244,34 @@ async def unlock(settings: Settings, *, username: str) -> int:
     return removed
 
 
+async def import_sources(
+    settings: Settings, *, file: Path | None, dry_run: bool
+) -> catalogue.Result:
+    """Add the sources of the starter catalogue (or of `file`) to the organization, switched off."""
+    try:
+        own_host = (urlsplit(settings.public_url).hostname or "").lower()
+        entries = catalogue.load(file, blocked_hosts=(own_host,) if own_host else ())
+    except catalogue.CatalogueError as error:
+        raise CliError(str(error)) from error
+    context = _Context(settings)
+    try:
+        org_id = await context.org_id()
+        try:
+            async with tenant_session(context.factory, org_id) as session:
+                return await catalogue.import_entries(
+                    session,
+                    context.audit,
+                    org_id,
+                    entries,
+                    dry_run=dry_run,
+                    max_sources=MAX_ORG_SOURCES,
+                )
+        except catalogue.CatalogueError as error:
+            raise CliError(str(error)) from error
+    finally:
+        await context.close()
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m pharos.cli", description=__doc__.split("\n")[0]
@@ -261,6 +294,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     unlock_parser = commands.add_parser("unlock", help="clear sign-in delays for an account")
     unlock_parser.add_argument("--username", required=True)
+
+    sources = commands.add_parser(
+        "import-sources",
+        help="add the starter catalogue of sources to the organization, switched off",
+    )
+    sources.add_argument("--file", type=Path, help="a catalogue file (default: the one shipped)")
+    sources.add_argument("--dry-run", action="store_true", help="show what would be added")
     return parser
 
 
@@ -287,6 +327,13 @@ async def run(args: argparse.Namespace) -> str:
     if args.command == "unlock":
         removed = await unlock(settings, username=args.username)
         return f"cleared {removed} delay record(s) for {_username(args.username)!r}"
+    if args.command == "import-sources":
+        result = await import_sources(settings, file=args.file, dry_run=args.dry_run)
+        verb = "would add" if args.dry_run else "added"
+        return (
+            f"{verb} {len(result.added)} source(s), switched off; "
+            f"{len(result.existing)} already there"
+        )
     raise CliError(f"unknown command {args.command!r}")  # pragma: no cover - argparse prevents it
 
 
