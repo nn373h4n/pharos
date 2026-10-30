@@ -5,25 +5,24 @@ fetched; only the feed document itself is, through `SafeHttpClient`, with a cond
 the last fetch gave us validators.
 """
 
-import hashlib
 import re
 from collections.abc import Mapping
 from datetime import datetime
 from typing import Any
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import urlsplit
 
 from pharos.ingest.connectors.base import (
-    ConfigError,
     ConnectorError,
     FetchOutcome,
     FetchState,
     error_from_fetch,
 )
 from pharos.ingest.feed import FeedError, parse_feed
-from pharos.ingest.links import safe_link
+from pharos.ingest.sourceconfig import normalized_feed_url, rss_key, validate_rss
 from pharos.net.safe_http import FetchError, SafeHttpClient
 
-_DEFAULT_PORTS = {"http": 80, "https": 443}
+__all__ = ["RssConnector", "normalized_feed_url"]
+
 # What a server may give us to send back: visible ASCII only, and short (the database allows 512
 # for an ETag and 128 for a date). Anything else is dropped rather than echoed into a request.
 _VALIDATOR = re.compile(r"[\x20-\x7e]{1,512}")
@@ -36,30 +35,14 @@ def _validator(value: object, limit: int = 512) -> str | None:
     return None
 
 
-def normalized_feed_url(url: str) -> str:
-    """One spelling of the address: lower-case scheme and host, no default port, no fragment."""
-    parts = urlsplit(url)
-    host = (parts.hostname or "").lower().rstrip(".")
-    if ":" in host:
-        host = f"[{host}]"
-    port = parts.port
-    netloc = host if port in (None, _DEFAULT_PORTS[parts.scheme.lower()]) else f"{host}:{port}"
-    return urlunsplit((parts.scheme.lower(), netloc, parts.path or "/", parts.query, ""))
-
-
 class RssConnector:
     type = "rss"
 
     def validate_config(self, raw: Mapping[str, Any]) -> dict[str, Any]:
-        if set(raw) != {"url"}:
-            raise ConfigError("unknown_setting" if "url" in raw else "url_required")
-        url = safe_link(raw["url"])
-        if url is None:
-            raise ConfigError("url_invalid")
-        return {"url": url}
+        return validate_rss(raw)
 
     def dedupe_key(self, config: Mapping[str, Any]) -> str:
-        return hashlib.sha256(f"rss:{normalized_feed_url(config['url'])}".encode()).hexdigest()
+        return rss_key(config)
 
     def politeness_host(self, config: Mapping[str, Any]) -> str | None:
         return (urlsplit(str(config.get("url", ""))).hostname or "").lower().rstrip(".") or None

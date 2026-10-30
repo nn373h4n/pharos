@@ -51,6 +51,11 @@ class AuditAction(StrEnum):
     USER_STATUS_CHANGED = "user.status_changed"
     PASSWORD_SET = "credential.password_set"  # noqa: S105  (an event name, not a password)
     ORGANIZATION_CREATED = "org.created"
+    SOURCE_CREATED = "source.created"
+    SOURCE_UPDATED = "source.updated"
+    SOURCE_ENABLED = "source.enabled"
+    SOURCE_DISABLED = "source.disabled"
+    SOURCE_DELETED = "source.deleted"
 
 
 class Outcome(StrEnum):
