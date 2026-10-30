@@ -27,7 +27,7 @@ def _lint(project: Path) -> subprocess.CompletedProcess[str]:
 
 def _project(root: Path, files: dict[str, str]) -> Path:
     shutil.copy(CONFIG, root / ".importlinter")
-    for name in ("", "orgs", "ingest", "sources"):
+    for name in ("", "orgs", "ingest", "sources", "items"):
         package = root / "pharos" / name
         package.mkdir(parents=True, exist_ok=True)
         (package / "__init__.py").write_text("")
@@ -275,3 +275,39 @@ def test_the_sources_api_may_not_open_a_connection_itself(tmp_path: Path, statem
     result = _lint(project)
     assert result.returncode != 0, statement
     assert "The sources API opens no connections itself (M3-10) BROKEN" in result.stdout
+
+
+# --- the items API is under the same two rules as the sources API (M3-10b) ---
+
+
+def _with_items(project: Path, files: dict[str, str]) -> None:
+    for relative, content in files.items():
+        (project / "pharos" / "items" / relative).write_text(content)
+
+
+def test_the_items_api_may_not_reach_the_http_client_even_through_another_module(
+    tmp_path: Path,
+) -> None:
+    project = _project(tmp_path, {})
+    _with_net(project)
+    _with_ingest_modules(project, {"helper.py": "from pharos.net import safe_http\n"})
+    _with_items(project, {"service.py": "from pharos.ingest import helper\n"})
+    result = _lint(project)
+    assert result.returncode != 0
+    assert f"{SOURCES_RULE} BROKEN" in result.stdout
+
+
+@pytest.mark.parametrize("statement", ["import socket", "import urllib.request", "import requests"])
+def test_the_items_api_may_not_open_a_connection_itself(tmp_path: Path, statement: str) -> None:
+    project = _project(tmp_path, {})
+    _with_items(project, {"service.py": statement + "\n"})
+    result = _lint(project)
+    assert result.returncode != 0, statement
+    assert "The sources API opens no connections itself (M3-10) BROKEN" in result.stdout
+
+
+def test_the_items_api_may_import_what_it_needs(tmp_path: Path) -> None:
+    project = _project(tmp_path, {})
+    _with_items(project, {"service.py": "import re\nimport uuid\n"})
+    result = _lint(project)
+    assert result.returncode == 0, result.stdout + result.stderr

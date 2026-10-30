@@ -156,7 +156,13 @@ def test_refuse_internal_host_alone() -> None:
 
 @pytest.mark.parametrize(
     "module",
-    ["pharos.ingest.sourceconfig", "pharos.sources.service", "pharos.sources.router"],
+    [
+        "pharos.ingest.sourceconfig",
+        "pharos.sources.service",
+        "pharos.sources.router",
+        "pharos.items.service",
+        "pharos.items.router",
+    ],
 )
 def test_importing_it_never_loads_an_http_client(module: str) -> None:
     code = (

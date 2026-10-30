@@ -54,6 +54,7 @@ name = The sources API never loads anything that fetches (M3-10)
 type = forbidden
 source_modules =
     pharos.sources
+    pharos.items
 forbidden_modules =
     pharos.net.safe_http
     pharos.ingest.fetcher
@@ -68,6 +69,7 @@ name = The sources API opens no connections itself (M3-10)
 type = forbidden
 source_modules =
     pharos.sources
+    pharos.items
 forbidden_modules =
     requests
     urllib3
