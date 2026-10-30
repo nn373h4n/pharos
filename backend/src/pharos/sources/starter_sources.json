@@ -1,4 +1,232 @@
 {
   "version": 1,
-  "sources": []
+  "sources": [
+    {
+      "type": "rss",
+      "name": "OpenAI News",
+      "config": {
+        "url": "https://openai.com/news/rss.xml"
+      },
+      "interval_seconds": 21600,
+      "note": "Announcements and product news from OpenAI."
+    },
+    {
+      "type": "rss",
+      "name": "Hugging Face Blog",
+      "config": {
+        "url": "https://huggingface.co/blog/feed.xml"
+      },
+      "interval_seconds": 21600,
+      "note": "Open models, tools and guides from Hugging Face."
+    },
+    {
+      "type": "rss",
+      "name": "Google AI Blog",
+      "config": {
+        "url": "https://blog.google/innovation-and-ai/technology/ai/rss/"
+      },
+      "interval_seconds": 21600,
+      "note": "AI product news from Google."
+    },
+    {
+      "type": "rss",
+      "name": "Google Research Blog",
+      "config": {
+        "url": "https://research.google/blog/rss/"
+      },
+      "interval_seconds": 21600,
+      "note": "Research results and applications from Google Research."
+    },
+    {
+      "type": "rss",
+      "name": "Google DeepMind Blog",
+      "config": {
+        "url": "https://deepmind.google/blog/rss.xml"
+      },
+      "interval_seconds": 21600,
+      "note": "Models and research from Google DeepMind."
+    },
+    {
+      "type": "rss",
+      "name": "AWS Machine Learning Blog",
+      "config": {
+        "url": "https://aws.amazon.com/blogs/machine-learning/feed/"
+      },
+      "interval_seconds": 21600,
+      "note": "Practical machine learning and generative AI posts from AWS."
+    },
+    {
+      "type": "rss",
+      "name": "Microsoft News: AI",
+      "config": {
+        "url": "https://news.microsoft.com/source/topics/ai/feed/"
+      },
+      "interval_seconds": 21600,
+      "note": "AI news from Microsoft."
+    },
+    {
+      "type": "rss",
+      "name": "Microsoft Copilot Blog",
+      "config": {
+        "url": "https://www.microsoft.com/en-us/copilot/blog/feed/"
+      },
+      "interval_seconds": 21600,
+      "note": "Copilot and Microsoft 365 AI updates."
+    },
+    {
+      "type": "rss",
+      "name": "NVIDIA Blog",
+      "config": {
+        "url": "https://blogs.nvidia.com/feed/"
+      },
+      "interval_seconds": 21600,
+      "note": "AI infrastructure and applications from NVIDIA."
+    },
+    {
+      "type": "rss",
+      "name": "Mistral AI News",
+      "config": {
+        "url": "https://mistral.ai/news/rss"
+      },
+      "interval_seconds": 21600,
+      "note": "Model releases and news from Mistral AI."
+    },
+    {
+      "type": "rss",
+      "name": "Ollama Blog",
+      "config": {
+        "url": "https://ollama.com/blog/rss.xml"
+      },
+      "interval_seconds": 21600,
+      "note": "Running language models locally with Ollama."
+    },
+    {
+      "type": "rss",
+      "name": "Simon Willison's Weblog",
+      "config": {
+        "url": "https://simonwillison.net/atom/everything/"
+      },
+      "interval_seconds": 21600,
+      "note": "A practitioner's notes on language models and tools."
+    },
+    {
+      "type": "rss",
+      "name": "SAP News Center",
+      "config": {
+        "url": "https://news.sap.com/feed/"
+      },
+      "interval_seconds": 21600,
+      "note": "Company and product news from SAP, including AI in SAP applications."
+    },
+    {
+      "type": "rss",
+      "name": "McKinsey Insights",
+      "config": {
+        "url": "https://www.mckinsey.com/insights/rss"
+      },
+      "interval_seconds": 21600,
+      "note": "Business research, including AI in finance and HR."
+    },
+    {
+      "type": "rss",
+      "name": "Salesforce News",
+      "config": {
+        "url": "https://www.salesforce.com/news/feed/"
+      },
+      "interval_seconds": 21600,
+      "note": "Enterprise AI agents and CRM news from Salesforce."
+    },
+    {
+      "type": "rss",
+      "name": "MIT Technology Review: AI",
+      "config": {
+        "url": "https://www.technologyreview.com/topic/artificial-intelligence/feed"
+      },
+      "interval_seconds": 21600,
+      "note": "Reporting and analysis on artificial intelligence."
+    },
+    {
+      "type": "github",
+      "name": "ollama releases",
+      "config": {
+        "repo": "ollama/ollama"
+      },
+      "interval_seconds": 21600,
+      "note": "Releases of Ollama, a local language model runtime."
+    },
+    {
+      "type": "github",
+      "name": "open-webui releases",
+      "config": {
+        "repo": "open-webui/open-webui"
+      },
+      "interval_seconds": 21600,
+      "note": "Releases of Open WebUI, a self-hosted chat interface."
+    },
+    {
+      "type": "github",
+      "name": "transformers releases",
+      "config": {
+        "repo": "huggingface/transformers"
+      },
+      "interval_seconds": 21600,
+      "note": "Releases of the Transformers library."
+    },
+    {
+      "type": "github",
+      "name": "n8n releases",
+      "config": {
+        "repo": "n8n-io/n8n"
+      },
+      "interval_seconds": 21600,
+      "note": "Releases of n8n, a workflow automation tool."
+    },
+    {
+      "type": "github",
+      "name": "markitdown releases",
+      "config": {
+        "repo": "microsoft/markitdown"
+      },
+      "interval_seconds": 21600,
+      "note": "Releases of MarkItDown, which converts office files to text for language models."
+    },
+    {
+      "type": "github",
+      "name": "openai-python releases",
+      "config": {
+        "repo": "openai/openai-python"
+      },
+      "interval_seconds": 21600,
+      "note": "Releases of the OpenAI Python library."
+    },
+    {
+      "type": "github",
+      "name": "semantic-kernel releases",
+      "config": {
+        "repo": "microsoft/semantic-kernel"
+      },
+      "interval_seconds": 21600,
+      "note": "Releases of Semantic Kernel, an SDK for AI in business applications."
+    },
+    {
+      "type": "hackernews",
+      "name": "Hacker News: SAP and AI",
+      "config": {
+        "query": "sap ai",
+        "min_points": 30
+      },
+      "interval_seconds": 10800,
+      "note": "Hacker News stories about AI in SAP, at least 30 points."
+    },
+    {
+      "type": "hackernews",
+      "name": "Hacker News: self-hosted LLM",
+      "config": {
+        "query": "llm self-hosted",
+        "min_points": 50
+      },
+      "interval_seconds": 10800,
+      "note": "Hacker News stories about self-hosted language models, at least 50 points."
+    }
+  ]
 }
