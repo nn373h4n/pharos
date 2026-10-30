@@ -60,6 +60,7 @@ forbidden_modules =
     pharos.ingest.fetcher
     pharos.ingest.connectors
     pharos.workers
+    pharos.core.queue
     httpx
     httpcore
 # No allow_indirect_imports: a module the API imports must not import the HTTP client either.
@@ -79,6 +80,8 @@ forbidden_modules =
     socket
     ftplib
     smtplib
+    celery
+    kombu
 # Direct imports only: the framework below it uses sockets and the standard `http` package.
 allow_indirect_imports = True
 

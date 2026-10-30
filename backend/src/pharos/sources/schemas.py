@@ -85,3 +85,36 @@ class RunOut(BaseModel):
 
 class RunListOut(BaseModel):
     items: list[RunOut]
+
+
+class TestFetchStartedOut(BaseModel):
+    """A trial fetch was handed to the worker. Ask for the answer with the id, a little later."""
+
+    __test__ = False
+
+    test_id: uuid.UUID
+    retry_after_seconds: int
+
+
+class TestSampleOut(BaseModel):
+    __test__ = False
+
+    title: str
+    url: str
+    published_at: datetime | None
+
+
+class TestFetchOut(BaseModel):
+    """The answer of a trial fetch. `pending` until the worker has answered; `unavailable` if what
+    it left is not an answer the protocol allows (it is then not shown at all)."""
+
+    __test__ = False
+
+    status: Literal["pending", "done", "unavailable"]
+    outcome: str | None = None
+    error_code: str | None = None
+    http_status: int | None = None
+    entries_seen: int | None = None
+    entries_skipped: int | None = None
+    bytes_fetched: int | None = None
+    sample: list[TestSampleOut] = []

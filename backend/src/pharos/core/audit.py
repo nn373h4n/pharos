@@ -56,6 +56,7 @@ class AuditAction(StrEnum):
     SOURCE_ENABLED = "source.enabled"
     SOURCE_DISABLED = "source.disabled"
     SOURCE_DELETED = "source.deleted"
+    SOURCE_TEST_FETCH = "source.test_fetch_requested"
     ITEM_HELD = "item.held"
     ITEM_APPROVED = "item.approved"
     ITEM_HIDDEN = "item.hidden"

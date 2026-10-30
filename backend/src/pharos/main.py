@@ -25,6 +25,7 @@ from pharos.core.health import Readiness, expected_migration_heads
 from pharos.core.health import router as health_router
 from pharos.core.logging import configure_logging, request_id_var
 from pharos.core.organization import OrganizationResolver
+from pharos.core.queue import CeleryQueue
 from pharos.core.ratelimit import LoginThrottle, RateLimiter
 from pharos.core.redis import url_for_database
 from pharos.core.secrets import KeyPurpose, derive_key
@@ -142,7 +143,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # The host of this installation is never a source, whatever name it is written with.
         own_host = (urlsplit(settings.public_url).hostname or "").lower()
         app.state.sources = SourceService(
-            audit=app.state.audit, blocked_hosts=[own_host] if own_host else []
+            audit=app.state.audit,
+            blocked_hosts=[own_host] if own_host else [],
+            redis=redis,  # the broker's database: the trial fetch keeps its markers there
+            queue=CeleryQueue(settings.redis_url.get_secret_value()),
         )
         app.state.items = ItemService(audit=app.state.audit)
         app.state.user_admin = UserAdminService(
