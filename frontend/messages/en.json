@@ -141,6 +141,7 @@
     "main": "Main navigation",
     "home": "Home",
     "items": "Articles",
+    "myFeeds": "My feeds",
     "sources": "Sources"
   },
   "Items": {
@@ -392,5 +393,48 @@
       "opensInNewTab": " (opens in a new tab)"
     },
     "articlesNote": "Articles of this source"
+  },
+  "Feeds": {
+    "metaTitle": "My feeds",
+    "title": "My feeds",
+    "intro": "Follow up to five RSS or Atom feeds of your own. Only you see them and their articles; nothing is shared with the organization.",
+    "results": "Your feeds",
+    "loading": "Loading your feeds…",
+    "loadFailed": "Your feeds could not be loaded. Try again later.",
+    "empty": "You follow no feed yet. Add your first one.",
+    "used": "{count} of {max} feeds used",
+    "limitReached": "You follow the most feeds you may ({max}). Delete one to add another.",
+    "off": "Personal feeds are switched off on this installation.",
+    "actions": {
+      "add": "Add a feed"
+    },
+    "done": {
+      "created": "Added: {name}",
+      "updated": "Saved: {name}",
+      "enabled": "Switched on: {name}",
+      "disabled": "Switched off: {name}",
+      "deleted": "Deleted: {name}"
+    },
+    "form": {
+      "addTitle": "Add a feed",
+      "editTitle": "Edit the feed",
+      "urlHint": "A web address starting with https:// (http:// also works). Addresses inside the network are not allowed.",
+      "followNow": "Start following now"
+    },
+    "deleteDialog": {
+      "title": "Delete this feed?",
+      "body": "“{name}” will be removed together with its fetch history. Its articles disappear from your page.",
+      "confirm": "Delete",
+      "cancel": "Cancel",
+      "deleting": "Deleting…"
+    },
+    "articles": {
+      "title": "Articles",
+      "loading": "Loading the articles…",
+      "empty": "No article yet. A feed is fetched about once an hour.",
+      "failed": "The articles could not be loaded.",
+      "flagged": "Flagged by a rule",
+      "pagination": "Pages of articles"
+    }
   }
 }

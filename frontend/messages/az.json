@@ -141,6 +141,7 @@
     "main": "Əsas naviqasiya",
     "home": "Ana səhifə",
     "items": "Məqalələr",
+    "myFeeds": "Mənim feedlərim",
     "sources": "Mənbələr"
   },
   "Items": {
@@ -392,5 +393,48 @@
       "opensInNewTab": " (yeni tabda açılır)"
     },
     "articlesNote": "Bu mənbənin məqalələri"
+  },
+  "Feeds": {
+    "metaTitle": "Mənim feedlərim",
+    "title": "Mənim feedlərim",
+    "intro": "Özünüzə aid ən çox beş RSS və ya Atom feedini izləyin. Onları və məqalələrini yalnız siz görürsünüz; heç nə təşkilatla paylaşılmır.",
+    "results": "Feedləriniz",
+    "loading": "Feedləriniz yüklənir…",
+    "loadFailed": "Feedlərinizi yükləmək mümkün olmadı. Sonra yenidən cəhd edin.",
+    "empty": "Hələ heç bir feed izləmirsiniz. İlk feedinizi əlavə edin.",
+    "used": "{max} feeddən {count} istifadə olunub",
+    "limitReached": "İzləyə biləcəyiniz ən çox feedi izləyirsiniz ({max}). Başqasını əlavə etmək üçün birini silin.",
+    "off": "Bu quraşdırmada şəxsi feedlər söndürülüb.",
+    "actions": {
+      "add": "Feed əlavə et"
+    },
+    "done": {
+      "created": "Əlavə olundu: {name}",
+      "updated": "Yadda saxlanıldı: {name}",
+      "enabled": "Açıldı: {name}",
+      "disabled": "Söndürüldü: {name}",
+      "deleted": "Silindi: {name}"
+    },
+    "form": {
+      "addTitle": "Feed əlavə et",
+      "editTitle": "Feedi dəyişdir",
+      "urlHint": "https:// ilə başlayan veb ünvan (http:// də olar). Şəbəkənin daxilindəki ünvanlara icazə verilmir.",
+      "followNow": "İndi izləməyə başla"
+    },
+    "deleteDialog": {
+      "title": "Bu feed silinsin?",
+      "body": "“{name}” çəkiliş tarixçəsi ilə birlikdə silinəcək. Onun məqalələri səhifənizdən yox olacaq.",
+      "confirm": "Sil",
+      "cancel": "Ləğv et",
+      "deleting": "Silinir…"
+    },
+    "articles": {
+      "title": "Məqalələr",
+      "loading": "Məqalələr yüklənir…",
+      "empty": "Hələ məqalə yoxdur. Feed təxminən saatda bir dəfə çəkilir.",
+      "failed": "Məqalələri yükləmək mümkün olmadı.",
+      "flagged": "Qayda ilə işarələnib",
+      "pagination": "Məqalə səhifələri"
+    }
   }
 }

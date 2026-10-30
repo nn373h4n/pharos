@@ -45,10 +45,13 @@ def enqueue_fetch(source_id: uuid.UUID, lease_token: uuid.UUID) -> None:
 
 @shared_task(name=DISPATCH_TASK, ignore_result=True)
 def dispatch_task() -> None:
-    slug = get_settings().org_slug
+    settings = get_settings()
+    slug, personal = settings.org_slug, settings.personal_feeds
 
     async def work(engine: AsyncEngine) -> None:
-        report = await dispatch(engine, slug=slug, now=_now(), enqueue=enqueue_fetch)
+        report = await dispatch(
+            engine, slug=slug, now=_now(), enqueue=enqueue_fetch, personal=personal
+        )
         if report.leased:
             logger.info(
                 "dispatch",

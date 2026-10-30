@@ -68,6 +68,7 @@ x-worker-env: &worker-env
   PHAROS_REDIS_URL: redis://pharos_worker:${PHAROS_REDIS_WORKER_PASSWORD:?set PHAROS_REDIS_WORKER_PASSWORD}@redis:6379/0
   PHAROS_PUBLIC_URL: ${PHAROS_PUBLIC_URL:?set PHAROS_PUBLIC_URL}
   PHAROS_ORG_SLUG: ${PHAROS_ORG_SLUG:-default}
+  PHAROS_PERSONAL_FEEDS: ${PHAROS_PERSONAL_FEEDS:-on}
   PHAROS_DEFAULT_LOCALE: ${PHAROS_DEFAULT_LOCALE:-en}
 
 # What the API gets: the above plus everything about signing in.

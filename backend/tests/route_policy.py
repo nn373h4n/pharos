@@ -65,7 +65,19 @@ _ITEMS_TEST = (
     "integration/test_items_api.py::test_administrators_never_reach_another_organizations_items"
 )
 
+_FEEDS_TEST = (
+    "integration/test_feeds_api.py::"
+    "test_a_person_never_reaches_another_persons_feeds_or_another_organizations"
+)
+
 ROLE_MATRIX: dict[Route, Rule] = {
+    ("GET", "/api/me/feeds"): Rule(_ALL_ROLES, _FEEDS_TEST),
+    ("POST", "/api/me/feeds"): Rule(_ALL_ROLES, _FEEDS_TEST),
+    ("GET", "/api/me/feeds/{feed_id}"): Rule(_ALL_ROLES, _FEEDS_TEST),
+    ("PATCH", "/api/me/feeds/{feed_id}"): Rule(_ALL_ROLES, _FEEDS_TEST),
+    ("DELETE", "/api/me/feeds/{feed_id}"): Rule(_ALL_ROLES, _FEEDS_TEST),
+    ("GET", "/api/me/feeds/{feed_id}/runs"): Rule(_ALL_ROLES, _FEEDS_TEST),
+    ("GET", "/api/me/feeds/{feed_id}/items"): Rule(_ALL_ROLES, _FEEDS_TEST),
     ("GET", "/api/items"): Rule(_ALL_ROLES, _ITEMS_TEST),
     ("GET", "/api/items/{item_id}"): Rule(_ALL_ROLES, _ITEMS_TEST),
     ("POST", "/api/items/{item_id}/hold"): Rule(_ADMIN_OR_EDITOR, _ITEMS_TEST),

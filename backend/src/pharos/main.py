@@ -30,6 +30,8 @@ from pharos.core.ratelimit import LoginThrottle, RateLimiter
 from pharos.core.redis import url_for_database
 from pharos.core.secrets import KeyPurpose, derive_key
 from pharos.core.sessions import SessionIdentityResolver, SessionStore
+from pharos.feeds.router import router as feeds_router
+from pharos.feeds.service import FeedService
 from pharos.identity.admin import UserAdminService
 from pharos.identity.oidc.client import IdpClient
 from pharos.identity.oidc.cookies import BindingCookie
@@ -111,7 +113,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.sessions = SessionIdentityResolver(
             app.state.session_store, cookie.name, allow_local=settings.local_login != "off"
         )
-        app.state.login_throttle = LoginThrottle(RateLimiter(session_redis, SystemClock()))
+        limiter = RateLimiter(session_redis, SystemClock())
+        app.state.login_throttle = LoginThrottle(limiter)
         app.state.audit = AuditLog(
             app.state.session_factory, derive_key(settings.secret_key, KeyPurpose.AUDIT_IP)
         )
@@ -149,6 +152,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             queue=CeleryQueue(settings.redis_url.get_secret_value()),
         )
         app.state.items = ItemService(audit=app.state.audit)
+        app.state.feeds = FeedService(
+            audit=app.state.audit,
+            blocked_hosts=[own_host] if own_host else [],
+            available=settings.personal_feeds,
+            limiter=limiter,
+        )
         app.state.user_admin = UserAdminService(
             audit=app.state.audit, sessions=app.state.session_store
         )
@@ -205,5 +214,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(users_router, prefix=API_PREFIX)
     app.include_router(sources_router, prefix=API_PREFIX)
     app.include_router(items_router, prefix=API_PREFIX)
+    app.include_router(feeds_router, prefix=API_PREFIX)
     app.include_router(oidc_router, prefix=API_PREFIX)
     return app

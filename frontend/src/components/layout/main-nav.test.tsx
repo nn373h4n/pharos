@@ -85,7 +85,11 @@ describe("MainNav", () => {
     show();
     const nav = screen.getByRole("navigation", { name: en.Nav.main });
     const links = nav.querySelectorAll("a");
-    expect([...links].map((link) => link.getAttribute("href"))).toEqual(["/", "/items"]);
+    expect([...links].map((link) => link.getAttribute("href"))).toEqual([
+      "/",
+      "/items",
+      "/my-feeds",
+    ]);
     expect(screen.getByRole("link", { name: en.Nav.items }).getAttribute("aria-current")).toBe(
       "page",
     );
@@ -118,6 +122,7 @@ describe("MainNav", () => {
     show(ru, "ru");
     expect(screen.getByRole("navigation", { name: ru.Nav.main })).toBeDefined();
     expect(screen.getByRole("link", { name: ru.Nav.items })).toBeDefined();
+    expect(screen.getByRole("link", { name: ru.Nav.myFeeds })).toBeDefined();
   });
 
   it.each([

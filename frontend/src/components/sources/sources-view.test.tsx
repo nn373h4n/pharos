@@ -283,7 +283,7 @@ describe("adding", () => {
     });
     expect(createSource.mock.calls[0]![1]).toBe("token-1");
     await waitFor(() => expect(status().textContent).toContain("Added: Fresh"));
-    expect(screen.queryByRole("dialog")).toBeNull();
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
   it("shows a refusal that names a field at the field and keeps the dialog", async () => {
@@ -318,7 +318,7 @@ describe("adding", () => {
   it("closes with Cancel without sending", async () => {
     await open();
     fireEvent.click(screen.getByRole("button", { name: en.Sources.form.cancel }));
-    expect(screen.queryByRole("dialog")).toBeNull();
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(createSource).not.toHaveBeenCalled();
   });
 });
@@ -352,7 +352,7 @@ describe("deleting", () => {
     const dialog = await ask();
     expect(within(dialog).getByText(/Source 1/)).toBeDefined();
     fireEvent.click(within(dialog).getByRole("button", { name: en.Sources.deleteDialog.cancel }));
-    expect(screen.queryByRole("dialog")).toBeNull();
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(deleteSource).not.toHaveBeenCalled();
   });
 
@@ -363,7 +363,7 @@ describe("deleting", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: en.Sources.deleteDialog.confirm }));
     await waitFor(() => expect(deleteSource).toHaveBeenCalledWith(id(1), "token-1"));
     await waitFor(() => expect(status().textContent).toContain("Deleted: Source 1"));
-    expect(screen.queryByRole("dialog")).toBeNull();
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
   it("goes back a page when the last source of a later page is deleted", async () => {
@@ -390,7 +390,7 @@ describe("deleting", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: en.Sources.deleteDialog.confirm }));
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toBe(en.Problems.notFound);
-    expect(screen.queryByRole("dialog")).toBeNull();
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 });
 

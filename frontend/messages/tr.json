@@ -141,6 +141,7 @@
     "main": "Ana gezinti",
     "home": "Ana sayfa",
     "items": "Makaleler",
+    "myFeeds": "Beslemelerim",
     "sources": "Kaynaklar"
   },
   "Items": {
@@ -392,5 +393,48 @@
       "opensInNewTab": " (yeni sekmede açılır)"
     },
     "articlesNote": "Bu kaynağın makaleleri"
+  },
+  "Feeds": {
+    "metaTitle": "Beslemelerim",
+    "title": "Beslemelerim",
+    "intro": "Kendinize ait en fazla beş RSS veya Atom beslemesini takip edin. Bunları ve makalelerini yalnızca siz görürsünüz; hiçbir şey kurumla paylaşılmaz.",
+    "results": "Beslemeleriniz",
+    "loading": "Beslemeleriniz yükleniyor…",
+    "loadFailed": "Beslemeleriniz yüklenemedi. Daha sonra tekrar deneyin.",
+    "empty": "Henüz hiçbir beslemeyi takip etmiyorsunuz. İlkini ekleyin.",
+    "used": "{max} beslemeden {count} kullanıldı",
+    "limitReached": "Takip edebileceğiniz en fazla beslemeyi takip ediyorsunuz ({max}). Başka bir tane eklemek için birini silin.",
+    "off": "Bu kurulumda kişisel beslemeler kapalı.",
+    "actions": {
+      "add": "Besleme ekle"
+    },
+    "done": {
+      "created": "Eklendi: {name}",
+      "updated": "Kaydedildi: {name}",
+      "enabled": "Açıldı: {name}",
+      "disabled": "Kapatıldı: {name}",
+      "deleted": "Silindi: {name}"
+    },
+    "form": {
+      "addTitle": "Besleme ekle",
+      "editTitle": "Beslemeyi düzenle",
+      "urlHint": "https:// ile başlayan bir web adresi (http:// de olur). Ağın içindeki adreslere izin verilmez.",
+      "followNow": "Şimdi takip etmeye başla"
+    },
+    "deleteDialog": {
+      "title": "Bu besleme silinsin mi?",
+      "body": "“{name}” çekim geçmişiyle birlikte silinecek. Makaleleri sayfanızdan kalkacak.",
+      "confirm": "Sil",
+      "cancel": "Vazgeç",
+      "deleting": "Siliniyor…"
+    },
+    "articles": {
+      "title": "Makaleler",
+      "loading": "Makaleler yükleniyor…",
+      "empty": "Henüz makale yok. Bir besleme yaklaşık saatte bir çekilir.",
+      "failed": "Makaleler yüklenemedi.",
+      "flagged": "Bir kuralla işaretlendi",
+      "pagination": "Makale sayfaları"
+    }
   }
 }
