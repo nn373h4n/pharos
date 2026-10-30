@@ -78,6 +78,8 @@ ROLE_MATRIX: dict[Route, Rule] = {
     ("PATCH", "/api/sources/{source_id}"): Rule(_ADMIN_ONLY, _SOURCES_TEST),
     ("DELETE", "/api/sources/{source_id}"): Rule(_ADMIN_ONLY, _SOURCES_TEST),
     ("GET", "/api/sources/{source_id}/runs"): Rule(_ADMIN_OR_EDITOR, _SOURCES_TEST),
+    ("POST", "/api/sources/{source_id}/test-fetch"): Rule(_ADMIN_ONLY, _SOURCES_TEST),
+    ("GET", "/api/sources/{source_id}/test-fetch/{test_id}"): Rule(_ADMIN_ONLY, _SOURCES_TEST),
     ("GET", "/api/users"): Rule(_ADMIN_ONLY, _USERS_TEST),
     ("PATCH", "/api/users/{user_id}/role"): Rule(_ADMIN_ONLY, _USERS_TEST),
     ("PATCH", "/api/users/{user_id}/status"): Rule(_ADMIN_ONLY, _USERS_TEST),

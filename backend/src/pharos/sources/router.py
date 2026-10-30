@@ -17,6 +17,8 @@ from pharos.sources.schemas import (
     SourceOut,
     SourcePatch,
     SourceType,
+    TestFetchOut,
+    TestFetchStartedOut,
 )
 from pharos.sources.service import SourceService
 
@@ -97,3 +99,18 @@ async def list_runs(
 ) -> RunListOut:
     rows = await service.runs(uow, source_id, limit=limit)
     return RunListOut(items=[RunOut.model_validate(r, from_attributes=True) for r in rows])
+
+
+@router.post("/sources/{source_id}/test-fetch", status_code=202)
+async def start_test_fetch(
+    source_id: uuid.UUID, request: Request, admin: Admin, service: Service, uow: UnitOfWorkDep
+) -> TestFetchStartedOut:
+    """One trial fetch, done by the worker. Answers at once; read the answer with the test id."""
+    return await service.start_test(uow, admin, source_id, ip=client_ip(request))
+
+
+@router.get("/sources/{source_id}/test-fetch/{test_id}")
+async def read_test_fetch(
+    source_id: uuid.UUID, test_id: uuid.UUID, admin: Admin, service: Service, uow: UnitOfWorkDep
+) -> TestFetchOut:
+    return await service.test_result(uow, source_id, test_id)

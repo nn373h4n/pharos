@@ -14,11 +14,12 @@ from redis import asyncio as aioredis
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from pharos.core.config import get_settings
-from pharos.ingest import repository
+from pharos.ingest import repository, testfetch
 from pharos.ingest.connectors import build_connectors
 from pharos.ingest.dispatcher import LEASE_SECONDS, dispatch
 from pharos.ingest.fetcher import MIN_LEASE_LEFT, fetch_source
 from pharos.ingest.hostgate import HostGate
+from pharos.ingest.testrun import run_test_fetch
 from pharos.net.safe_http import SafeHttpClient
 from pharos.workers.runtime import runtime
 
@@ -27,6 +28,7 @@ logger = logging.getLogger(__name__)
 DISPATCH_TASK = "pharos.ingest.dispatch"
 FETCH_TASK = "pharos.ingest.fetch"
 CLEANUP_TASK = "pharos.ingest.cleanup"
+TEST_FETCH_TASK = testfetch.TASK_NAME
 
 
 def _now() -> datetime:
@@ -101,5 +103,40 @@ def cleanup_task() -> None:
             await repository.enter_org(connection, org)
             counts = await repository.cleanup(connection, _now(), repository.Retention())
         logger.info("cleanup", extra=counts)
+
+    runtime.run(work)
+
+
+@shared_task(name=TEST_FETCH_TASK, ignore_result=True)
+def test_fetch_task(source_id: str, test_id: str) -> None:
+    """One trial fetch for an administrator (ADR-0013). Identifiers only; nothing is written to the
+    database, and the answer is left in Redis for a short while. Safe to run twice."""
+    try:
+        source, test = uuid.UUID(source_id), uuid.UUID(test_id)
+    except (ValueError, TypeError, AttributeError):
+        logger.warning("test fetch: the task arguments are not identifiers; dropped")
+        return
+    settings = get_settings()
+
+    async def work(engine: AsyncEngine) -> None:
+        http = SafeHttpClient.from_settings(settings)
+        github_token = settings.github_token.get_secret_value() if settings.github_token else None
+        redis = aioredis.from_url(settings.redis_url.get_secret_value())
+        try:
+            result = await run_test_fetch(
+                engine,
+                slug=settings.org_slug,
+                source_id=source,
+                test_id=test,
+                connectors=build_connectors(github_token),
+                http=http,
+                gate=HostGate(redis),
+                store=redis,
+                clock=_now,
+            )
+        finally:
+            await http.aclose()
+            await redis.aclose()
+        logger.info("test fetch", extra={"outcome": result.outcome})
 
     runtime.run(work)

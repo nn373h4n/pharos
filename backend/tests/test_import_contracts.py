@@ -311,3 +311,35 @@ def test_the_items_api_may_import_what_it_needs(tmp_path: Path) -> None:
     _with_items(project, {"service.py": "import re\nimport uuid\n"})
     result = _lint(project)
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+# --- the sources and items APIs do not send tasks themselves (M3-10c) ---
+
+
+@pytest.mark.parametrize(
+    "statement", ["import celery", "from celery import Celery", "import kombu"]
+)
+@pytest.mark.parametrize("package", ["sources", "items"])
+def test_the_apis_may_not_use_the_task_queue_libraries_directly(
+    tmp_path: Path, statement: str, package: str
+) -> None:
+    project = _project(tmp_path, {})
+    (project / "pharos" / package / "service.py").write_text(statement + "\n")
+    result = _lint(project)
+    assert result.returncode != 0, statement
+    assert "The sources API opens no connections itself (M3-10) BROKEN" in result.stdout
+
+
+@pytest.mark.parametrize("package", ["sources", "items"])
+def test_the_apis_get_a_queue_handed_to_them_and_may_not_import_the_queue_client(
+    tmp_path: Path, package: str
+) -> None:
+    project = _project(tmp_path, {})
+    core = project / "pharos" / "core"
+    core.mkdir(parents=True)
+    (core / "__init__.py").write_text("")
+    (core / "queue.py").write_text("VALUE = 1\n")
+    (project / "pharos" / package / "service.py").write_text("from pharos.core import queue\n")
+    result = _lint(project)
+    assert result.returncode != 0
+    assert f"{SOURCES_RULE} BROKEN" in result.stdout

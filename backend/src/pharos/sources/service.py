@@ -15,23 +15,51 @@
   left behind.
 """
 
+import asyncio
+import json
+import logging
 import uuid
-from collections.abc import Collection
-from typing import Any, NoReturn
+from collections.abc import Awaitable, Collection
+from typing import Any, NoReturn, Protocol
 
+from redis.exceptions import RedisError
 from sqlalchemy.exc import IntegrityError
 
 from pharos.core.audit import ActorType, AuditAction, AuditLog, Outcome
-from pharos.core.errors import ApiError, ErrorCode, not_found
+from pharos.core.errors import ApiError, DependencyUnavailable, ErrorCode, not_found
 from pharos.core.principal import Principal
 from pharos.core.unit_of_work import UnitOfWork
+from pharos.ingest import testfetch
 from pharos.ingest.sourceconfig import ConfigError, validate
 from pharos.ingest.text import clean_text
 from pharos.sources import repository
-from pharos.sources.schemas import SourceIn, SourcePatch
+from pharos.sources.schemas import (
+    SourceIn,
+    SourcePatch,
+    TestFetchOut,
+    TestFetchStartedOut,
+    TestSampleOut,
+)
+
+logger = logging.getLogger(__name__)
 
 MAX_ORG_SOURCES = 200
 NAME_LIMIT = 200
+REDIS_TIMEOUT_SECONDS = 3
+
+
+class TaskQueue(Protocol):
+    def send(self, name: str, args: list[str], *, expires: int) -> Awaitable[None]: ...
+
+
+class KeyValues(Protocol):
+    """The few Redis commands the test fetch needs (redis.asyncio.Redis has them all)."""
+
+    def set(self, name: str, value: str, *, ex: int, nx: bool = ...) -> Awaitable[Any]: ...
+    def get(self, name: str) -> Awaitable[Any]: ...
+    def delete(self, *names: str) -> Awaitable[Any]: ...
+    def ttl(self, name: str) -> Awaitable[Any]: ...
+    def incr(self, name: str) -> Awaitable[Any]: ...
 
 
 def _invalid(field: str, kind: str) -> ApiError:
@@ -50,9 +78,18 @@ def clean_name(name: str) -> str:
 
 
 class SourceService:
-    def __init__(self, *, audit: AuditLog, blocked_hosts: Collection[str]) -> None:
+    def __init__(
+        self,
+        *,
+        audit: AuditLog,
+        blocked_hosts: Collection[str],
+        redis: KeyValues | None = None,
+        queue: TaskQueue | None = None,
+    ) -> None:
         self._audit = audit
         self._blocked_hosts = tuple(blocked_hosts)
+        self._redis = redis
+        self._queue = queue
 
     # --- reading ---------------------------------------------------------------------------------
 
@@ -320,3 +357,138 @@ class SourceService:
             details={"type": current.type, "enabled": current.enabled},
         )
         await uow.commit()
+
+    # --- the trial fetch (ADR-0013) -----------------------------------------------------------
+
+    async def _redis_call(self, call: Awaitable[Any]) -> Any:
+        """One Redis command, with a deadline; a failure means the dependency is unavailable."""
+        try:
+            async with asyncio.timeout(REDIS_TIMEOUT_SECONDS):
+                return await call
+        except (RedisError, TimeoutError, OSError):
+            raise DependencyUnavailable from None
+
+    async def start_test(
+        self, uow: UnitOfWork, actor: Principal, source_id: uuid.UUID, *, ip: str | None
+    ) -> TestFetchStartedOut:
+        """Ask the worker for one trial fetch of this source. Returns at once; the answer is read
+        later with `test_result`."""
+        if self._redis is None or self._queue is None:
+            raise DependencyUnavailable
+        action = AuditAction.SOURCE_TEST_FETCH
+        current = await self.get(uow, source_id)
+        target = f"source:{source_id}"
+        # The stored address is looked at again: the address of this installation may have changed
+        # since it was saved, and a trial fetch is an outbound request caused by a person.
+        await self._validated(uow, actor, action, target, ip, current.type, current.config)
+        cooldown = testfetch.cooldown_key(uow.org_id, source_id)
+        taken = await self._redis_call(
+            self._redis.set(cooldown, "1", ex=testfetch.COOLDOWN_SECONDS, nx=True)
+        )
+        if not taken:
+            wait = await self._redis_call(self._redis.ttl(cooldown))
+            seconds = wait if isinstance(wait, int) and wait > 0 else testfetch.COOLDOWN_SECONDS
+            await uow.release()
+            raise ApiError(ErrorCode.RATE_LIMITED, 429, headers={"Retry-After": str(seconds)})
+        # The organization as a whole may not start more than a few trials a minute, whatever the
+        # number of sources and administrators: a trial is an outbound request caused by a person.
+        rate = testfetch.rate_key(uow.org_id)
+        await self._redis_call(
+            self._redis.set(rate, "0", ex=testfetch.RATE_WINDOW_SECONDS, nx=True)
+        )
+        if await self._redis_call(self._redis.incr(rate)) > testfetch.ORG_TESTS_PER_MINUTE:
+            wait = await self._redis_call(self._redis.ttl(rate))
+            await self._redis_call(self._redis.delete(cooldown))  # this one did not start
+            await uow.release()
+            raise ApiError(
+                ErrorCode.RATE_LIMITED,
+                429,
+                headers={"Retry-After": str(wait if isinstance(wait, int) and wait > 0 else 1)},
+            )
+        test_id = uuid.uuid4()
+        await self._audit.record(
+            uow.session,
+            org_id=uow.org_id,
+            action=action,
+            actor_id=actor.user_id,
+            target=target,
+            ip=ip,
+            details={"type": current.type},
+        )
+        await uow.commit()
+        marker = testfetch.marker_key(test_id)
+        try:
+            await self._redis_call(
+                self._redis.set(
+                    marker,
+                    json.dumps(
+                        {"org": str(uow.org_id), "source": str(source_id), "by": str(actor.user_id)}
+                    ),
+                    ex=testfetch.MARKER_TTL_SECONDS,
+                )
+            )
+            await self._queue.send(
+                testfetch.TASK_NAME,
+                [str(source_id), str(test_id)],
+                expires=testfetch.TASK_EXPIRES_SECONDS,
+            )
+        except DependencyUnavailable:
+            # The marker goes. The cooldown stays: the task may have reached the broker even though
+            # the answer did not reach us, and a retry at once would then fetch the source twice.
+            try:
+                await self._redis_call(self._redis.delete(marker))
+            except DependencyUnavailable:
+                logger.warning("test fetch: could not clean up after a failed start")
+            await self._audit.record_independently(
+                org_id=uow.org_id,
+                action=action,
+                outcome=Outcome.FAILURE,
+                actor_type=ActorType.USER,
+                actor_id=actor.user_id,
+                target=target,
+                ip=ip,
+                details={"reason": "unavailable", "type": current.type},
+            )
+            raise
+        return TestFetchStartedOut(test_id=test_id, retry_after_seconds=testfetch.COOLDOWN_SECONDS)
+
+    async def test_result(
+        self, uow: UnitOfWork, source_id: uuid.UUID, test_id: uuid.UUID
+    ) -> TestFetchOut:
+        """The answer of a trial fetch, if there is one. What the worker left is untrusted: it is
+        shown only if it passes the protocol's strict reader and belongs to this test."""
+        if self._redis is None:
+            raise DependencyUnavailable
+        await self.get(uow, source_id)  # a missing source, or another organization's, is a 404
+        await uow.release()
+        raw_marker = await self._redis_call(self._redis.get(testfetch.marker_key(test_id)))
+        try:
+            marker = json.loads(raw_marker) if raw_marker is not None else None
+        except ValueError:
+            marker = None
+        if (
+            not isinstance(marker, dict)
+            or marker.get("org") != str(uow.org_id)
+            or marker.get("source") != str(source_id)
+        ):
+            raise not_found()  # not asked for here, or already forgotten
+        raw = await self._redis_call(self._redis.get(testfetch.result_key(test_id)))
+        if raw is None:
+            return TestFetchOut(status="pending")
+        result = testfetch.parse_result(raw, test_id=test_id, source_id=source_id)
+        if result is None:
+            logger.warning("test fetch: the worker left something that is not an answer")
+            return TestFetchOut(status="unavailable")
+        return TestFetchOut(
+            status="done",
+            outcome=result.outcome,
+            error_code=result.error_code,
+            http_status=result.http_status,
+            entries_seen=result.entries_seen,
+            entries_skipped=result.entries_skipped,
+            bytes_fetched=result.bytes_fetched,
+            sample=[
+                TestSampleOut(title=s.title, url=s.url, published_at=s.published_at)
+                for s in result.sample
+            ],
+        )
