@@ -1,5 +1,6 @@
 """The Celery side of ingestion: names, schedule and what travels through the broker."""
 
+import asyncio
 import uuid
 
 import pytest
@@ -34,6 +35,27 @@ def test_only_two_identifiers_travel_through_the_broker(monkeypatch: pytest.Monk
     # Dropped once it has waited so long that a fetch could no longer finish inside its lease.
     assert sent == [{"args": [str(source), str(token)], "expires": LEASE_SECONDS - 160}]
     assert LEASE_SECONDS - 160 > 0
+
+
+@pytest.mark.parametrize("switch", [True, False])
+def test_the_dispatcher_is_told_whether_personal_feeds_are_on(
+    monkeypatch: pytest.MonkeyPatch, switch: bool
+) -> None:
+    told: list[bool] = []
+
+    async def fake_dispatch(engine: object, **kwargs: object) -> object:
+        told.append(bool(kwargs["personal"]))
+        return type("Report", (), {"leased": 0})()
+
+    monkeypatch.setattr(ingest_tasks, "dispatch", fake_dispatch)
+    monkeypatch.setattr(
+        ingest_tasks,
+        "get_settings",
+        lambda: Settings(environment="test", personal_feeds=switch),  # type: ignore[arg-type]
+    )
+    monkeypatch.setattr(ingest_tasks.runtime, "run", lambda work: asyncio.run(work(object())))  # type: ignore[arg-type]
+    ingest_tasks.dispatch_task.run()
+    assert told == [switch]
 
 
 @pytest.mark.parametrize(

@@ -4,7 +4,7 @@ import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useRef, useState, type SyntheticEvent } from "react";
 import { formatDateTime } from "@/lib/format";
 import { errorKey, outcomeKey } from "@/lib/source-text";
-import { listRuns, type Run, type Source } from "@/lib/sources";
+import { listRuns, type Run } from "@/lib/sources";
 
 type State =
   | { phase: "closed" }
@@ -12,8 +12,14 @@ type State =
   | { phase: "failed" }
   | { phase: "ready"; runs: Run[] };
 
+type Props = {
+  source: { id: string };
+  /** Where the fetches come from; the organization's sources by default. */
+  load?: (id: string) => Promise<Run[]>;
+};
+
 /** The latest fetches of a source, loaded when the section is opened and not before. */
-export function RunsPanel({ source }: { source: Source }) {
+export function RunsPanel({ source, load = listRuns }: Props) {
   const t = useTranslations("Sources");
   const locale = useLocale();
   const [state, setState] = useState<State>({ phase: "closed" });
@@ -29,7 +35,7 @@ export function RunsPanel({ source }: { source: Source }) {
   function toggled(event: SyntheticEvent<HTMLDetailsElement>) {
     if (!event.currentTarget.open || state.phase === "loading" || state.phase === "ready") return;
     setState({ phase: "loading" });
-    listRuns(source.id).then(
+    load(source.id).then(
       (runs) => {
         if (mounted.current) setState({ phase: "ready", runs });
       },

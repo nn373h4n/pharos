@@ -54,7 +54,12 @@ async def count_in_flight(connection: AsyncConnection, now: datetime) -> int:
 
 
 async def lease_due_sources(
-    connection: AsyncConnection, now: datetime, lease_until: datetime, limit: int
+    connection: AsyncConnection,
+    now: datetime,
+    lease_until: datetime,
+    limit: int,
+    *,
+    personal: bool = True,
 ) -> list[Leased]:
     """Take a lease on up to `limit` sources that are due. Two dispatchers never get the same one:
     `SKIP LOCKED` hides rows the other has locked, and a leased source is no longer due."""
@@ -66,12 +71,13 @@ async def lease_due_sources(
             "  SELECT id FROM sources"
             "  WHERE enabled AND next_fetch_at <= :now"
             "    AND (lease_until IS NULL OR lease_until <= :now)"
+            "    AND (owner_user_id IS NULL OR :personal)"
             "  ORDER BY (owner_user_id IS NOT NULL), next_fetch_at, id"
             "  LIMIT :limit FOR UPDATE SKIP LOCKED"
             ") UPDATE sources s SET lease_token = gen_random_uuid(), lease_until = :until "
             "FROM due WHERE s.id = due.id RETURNING s.id, s.lease_token"
         ),
-        {"now": now, "until": lease_until, "limit": limit},
+        {"now": now, "until": lease_until, "limit": limit, "personal": personal},
     )
     return [Leased(row.id, row.lease_token) for row in rows]
 

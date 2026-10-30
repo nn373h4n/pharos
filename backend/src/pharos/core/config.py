@@ -69,6 +69,10 @@ class Settings(BaseSettings):
     # The one organization of this installation (ADR-0005). It is looked up lazily, so the stack
     # can start before the operator creates it.
     org_slug: str = "default"
+    # Whether people may follow feeds of their own (M3-13). Off: the endpoints answer 404 and
+    # the worker does not fetch the ones that exist. The operator's switch against abuse, as
+    # nobody else, administrators included, can see a person's feeds.
+    personal_feeds: bool = True
     # Root secret. Separate keys for separate purposes are derived from it (see core/secrets.py).
     secret_key: SecretStr = SecretStr(_DEVELOPMENT_SECRET_KEY)
 

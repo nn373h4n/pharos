@@ -148,6 +148,23 @@ async def test_only_enabled_due_unleased_sources_are_leased_oldest_first(
     assert (report.leased, report.enqueued, report.failed_to_enqueue) == (4, 4, 0)
 
 
+async def test_personal_feeds_are_left_alone_when_the_operator_switched_them_off(
+    worker_engine: AsyncEngine, owner_engine: AsyncEngine, alpha: Org, slug: str
+) -> None:
+    shared = await make_source(owner_engine, alpha, "shared", next_fetch_at=T0 - timedelta(hours=1))
+    mine = await make_source(
+        owner_engine, alpha, "mine", owner=alpha.user, next_fetch_at=T0 - timedelta(hours=2)
+    )
+    sent, enqueue = collect()
+    report = await dispatch(worker_engine, slug=slug, now=T0, enqueue=enqueue, personal=False)
+    assert {s for s, _ in sent} == {shared}
+    assert report.leased == 1
+    assert (await row(owner_engine, mine)).lease_token is None  # never leased, so due again later
+    sent, enqueue = collect()
+    await dispatch(worker_engine, slug=slug, now=T0, enqueue=enqueue, personal=True)
+    assert {s for s, _ in sent} == {mine}
+
+
 async def test_when_there_is_not_room_for_everything_the_longest_waiting_go_first(
     worker_engine: AsyncEngine, owner_engine: AsyncEngine, alpha: Org, slug: str
 ) -> None:

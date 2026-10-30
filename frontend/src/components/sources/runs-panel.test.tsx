@@ -130,3 +130,18 @@ describe("the latest fetches", () => {
     expect(document.body.textContent).toBe("");
   });
 });
+
+describe("fetches of another place", () => {
+  it("are loaded with the function that was given, not the organization's", async () => {
+    const own = vi.fn<(id: string) => Promise<Run[]>>().mockResolvedValue([run(1)]);
+    render(
+      <NextIntlClientProvider locale="en" messages={en}>
+        <RunsPanel source={source} load={own} />
+      </NextIntlClientProvider>,
+    );
+    open();
+    await waitFor(() => expect(screen.getByRole("table")).toBeDefined());
+    expect(own).toHaveBeenCalledWith(source.id);
+    expect(listRuns).not.toHaveBeenCalled();
+  });
+});

@@ -55,6 +55,7 @@ type = forbidden
 source_modules =
     pharos.sources
     pharos.items
+    pharos.feeds
 forbidden_modules =
     pharos.net.safe_http
     pharos.ingest.fetcher
@@ -71,6 +72,7 @@ type = forbidden
 source_modules =
     pharos.sources
     pharos.items
+    pharos.feeds
 forbidden_modules =
     requests
     urllib3

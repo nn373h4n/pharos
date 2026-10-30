@@ -1,5 +1,6 @@
 import type { BrowserContext, Page } from "@playwright/test";
 import { defaultItems, handleItems, type ItemsOptions, type ItemsState } from "./items-mock";
+import { defaultFeeds, handleFeeds, type FeedsOptions, type FeedsState } from "./feeds-mock";
 import {
   defaultSources,
   handleSources,
@@ -11,7 +12,8 @@ import {
 // the API is answered here. Every answer has the shape documented in docs/API.md.
 
 export type MockOptions = ItemsOptions &
-  SourcesOptions & {
+  SourcesOptions &
+  FeedsOptions & {
     /** Starts with a session (the cookie of a signed-in person). */
     signedIn?: boolean;
     localLogin?: "off" | "break-glass" | "on";
@@ -52,7 +54,8 @@ export type MockState = {
   /** The X-CSRF-Token headers of the profile saves and of the completion. */
   profileCsrf: (string | null)[];
 } & ItemsState &
-  SourcesState;
+  SourcesState &
+  FeedsState;
 
 export const PROFESSIONS = [
   {
@@ -110,6 +113,7 @@ export async function mockApi(
     conflictOnce: options.conflictOnce ?? false,
     sources: options.sources ?? defaultSources(),
     testReads: {},
+    feeds: options.feeds ?? defaultFeeds(),
   };
   const user = () => ({
     id: "00000000-0000-4000-8000-000000000001",
@@ -221,6 +225,12 @@ export async function mockApi(
     if (
       await handleItems(route, request, path, state, options, options.role ?? "member", problem)
     ) {
+      return;
+    }
+    if (!state.signedIn && path.startsWith("/api/me/feeds")) {
+      return route.fulfill(problem(401, "not_authenticated"));
+    }
+    if (await handleFeeds(route, request, path, state, options, problem)) {
       return;
     }
     if (!state.signedIn && path.startsWith("/api/sources")) {

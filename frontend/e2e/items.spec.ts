@@ -87,7 +87,7 @@ for (const locale of locales) {
       await expect(page).toHaveTitle(messages[locale].Items.metaTitle);
       await expect(
         page.getByRole("navigation", { name: messages[locale].Nav.main }).getByRole("link"),
-      ).toHaveCount(3);
+      ).toHaveCount(4);
       await expect(
         page.getByRole("button", { name: `${messages[locale].Items.actions.hold}: Story 1` }),
       ).toBeVisible();

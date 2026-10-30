@@ -47,6 +47,7 @@ async def dispatch(
     per_tick: int = PER_TICK,
     in_flight_cap: int = IN_FLIGHT_CAP,
     lease_seconds: int = LEASE_SECONDS,
+    personal: bool = True,
 ) -> DispatchReport:
     async with engine.begin() as connection:
         org = await repository.resolve_org(connection, slug)
@@ -56,7 +57,11 @@ async def dispatch(
         await repository.enter_org(connection, org)
         room = in_flight_cap - await repository.count_in_flight(connection, now)
         leased = await repository.lease_due_sources(
-            connection, now, now + timedelta(seconds=lease_seconds), min(per_tick, room)
+            connection,
+            now,
+            now + timedelta(seconds=lease_seconds),
+            min(per_tick, room),
+            personal=personal,
         )
     # The lease is committed: a worker that receives the task will find it.
     enqueued = 0

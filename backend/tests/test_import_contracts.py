@@ -27,7 +27,7 @@ def _lint(project: Path) -> subprocess.CompletedProcess[str]:
 
 def _project(root: Path, files: dict[str, str]) -> Path:
     shutil.copy(CONFIG, root / ".importlinter")
-    for name in ("", "orgs", "ingest", "sources", "items"):
+    for name in ("", "orgs", "ingest", "sources", "items", "feeds"):
         package = root / "pharos" / name
         package.mkdir(parents=True, exist_ok=True)
         (package / "__init__.py").write_text("")
@@ -319,7 +319,7 @@ def test_the_items_api_may_import_what_it_needs(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     "statement", ["import celery", "from celery import Celery", "import kombu"]
 )
-@pytest.mark.parametrize("package", ["sources", "items"])
+@pytest.mark.parametrize("package", ["sources", "items", "feeds"])
 def test_the_apis_may_not_use_the_task_queue_libraries_directly(
     tmp_path: Path, statement: str, package: str
 ) -> None:
@@ -330,7 +330,7 @@ def test_the_apis_may_not_use_the_task_queue_libraries_directly(
     assert "The sources API opens no connections itself (M3-10) BROKEN" in result.stdout
 
 
-@pytest.mark.parametrize("package", ["sources", "items"])
+@pytest.mark.parametrize("package", ["sources", "items", "feeds"])
 def test_the_apis_get_a_queue_handed_to_them_and_may_not_import_the_queue_client(
     tmp_path: Path, package: str
 ) -> None:
@@ -340,6 +340,21 @@ def test_the_apis_get_a_queue_handed_to_them_and_may_not_import_the_queue_client
     (core / "__init__.py").write_text("")
     (core / "queue.py").write_text("VALUE = 1\n")
     (project / "pharos" / package / "service.py").write_text("from pharos.core import queue\n")
+    result = _lint(project)
+    assert result.returncode != 0
+    assert f"{SOURCES_RULE} BROKEN" in result.stdout
+
+
+# --- the personal feeds API is under the same rules (M3-13) ---
+
+
+def test_the_feeds_api_may_not_reach_the_http_client_even_through_another_module(
+    tmp_path: Path,
+) -> None:
+    project = _project(tmp_path, {})
+    _with_net(project)
+    _with_ingest_modules(project, {"helper.py": "from pharos.net import safe_http\n"})
+    (project / "pharos" / "feeds" / "service.py").write_text("from pharos.ingest import helper\n")
     result = _lint(project)
     assert result.returncode != 0
     assert f"{SOURCES_RULE} BROKEN" in result.stdout

@@ -104,7 +104,7 @@ for (const locale of locales) {
       await expect(page).toHaveTitle(m.metaTitle);
       await expect(
         page.getByRole("navigation", { name: messages[locale].Nav.main }).getByRole("link"),
-      ).toHaveCount(3);
+      ).toHaveCount(4);
     });
   });
 }

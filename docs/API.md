@@ -168,6 +168,22 @@ Validation: a bad configuration answers `422 validation_failed` with `{loc: ["bo
 
 Rules: the same source twice answers `409 source_conflict`; the 201st answers `409 source_limit`; two administrators changing one source queue up on its row lock and both changes are kept; a change that changes nothing is neither saved nor audited. Changing a source never touches what the worker keeps about it (failures, validators, lease). Audit events: `source.created`, `source.updated` (with the names of the changed fields), `source.enabled`, `source.disabled`, `source.deleted`, `source.test_fetch_requested`; entries never contain the configuration.
 
+## Personal feeds (everyone, their own only)
+
+Every signed-in person, whatever their role, can follow up to five RSS or Atom feeds of their own (M3-13). Only they see them and their articles: another person, an administrator, another organization and the shared article list all get `404 not_found`, the same answer as for an id that does not exist. If the operator switched the feature off (`PHAROS_PERSONAL_FEEDS=off`), every endpoint below answers `404`. Requests that change data also need `Origin` and `X-CSRF-Token`.
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/api/me/feeds` | The person's feeds, oldest first. `limit` (1-50, default 20), `offset`. Answers `{items, total}`. |
+| POST | `/api/me/feeds` | Add one: `name` (plain text, up to 200 characters), `url`, `interval_seconds` (3600 to 604800, default 3600), `enabled` (default `true`). Unknown fields, a `type` and a `config` are refused. |
+| GET | `/api/me/feeds/{id}` | One feed: `id`, `name`, `url`, `enabled`, `interval_seconds`, `next_fetch_at`, `last_fetched_at`, `last_success_at`, `consecutive_failures`, `last_error_code`, `created_at`, `updated_at`. |
+| PATCH | `/api/me/feeds/{id}` | Change `name`, `url`, `interval_seconds` or `enabled`. |
+| DELETE | `/api/me/feeds/{id}` | Delete the feed with its fetch history. Its articles stay in the table, reachable by nobody, until retention removes them. |
+| GET | `/api/me/feeds/{id}/runs` | The latest fetches (`limit` 1-50, default 20), newest first. |
+| GET | `/api/me/feeds/{id}/items` | The articles of this feed, newest first (`limit` 1-100, default 20, `offset`), with `status` and `hold_reason`. Nobody reviews a personal article: a flag only tells the owner that a rule matched. |
+
+The address is checked with the rules of the sources (`pharos.ingest.sourceconfig`): `http` or `https` only, no credentials, nothing inside the network (`localhost`, private and link-local addresses, odd spellings such as `127.1`, `2130706433`, `0x7f.1`, `[::ffff:7f00:1]`, and the address of this installation). A refused address answers `422 validation_failed` with `errors: [{"loc": ["body", "url"], "type": "url_not_allowed"}]` and leaves an audit entry (`source.created` or `source.updated`, outcome `failure`, reason `url_not_allowed`, scope `personal`; the address itself is not recorded). Ten new addresses an hour per person (a feed added, or the address of one changed) are allowed; more answers `429 rate_limited` with `Retry-After`. The sixth feed answers `409 source_limit`; the same feed twice (whatever its spelling) answers `409 source_conflict`. A feed is fetched at most once an hour. There is no trial fetch for a personal feed.
+
 ## Items (articles)
 
 Every signed-in person reads; administrators and editors also review. An article is a title, a short plain-text excerpt and a link to the original; the page behind the link was never fetched. An article of another organization answers `404 not_found`. A person's own articles (M3-13) are never part of this list or of the review. Requests that change data also need `Origin` and `X-CSRF-Token`.
