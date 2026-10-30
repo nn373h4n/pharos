@@ -49,6 +49,37 @@ forbidden_modules =
 allow_indirect_imports = True
 unmatched_ignore_imports_alerting = none
 
+[importlinter:contract:sources-api-has-no-network]
+name = The sources API never loads anything that fetches (M3-10)
+type = forbidden
+source_modules =
+    pharos.sources
+forbidden_modules =
+    pharos.net.safe_http
+    pharos.ingest.fetcher
+    pharos.ingest.connectors
+    pharos.workers
+    httpx
+    httpcore
+# No allow_indirect_imports: a module the API imports must not import the HTTP client either.
+
+[importlinter:contract:sources-open-no-connections-themselves]
+name = The sources API opens no connections itself (M3-10)
+type = forbidden
+source_modules =
+    pharos.sources
+forbidden_modules =
+    requests
+    urllib3
+    aiohttp
+    urllib
+    http
+    socket
+    ftplib
+    smtplib
+# Direct imports only: the framework below it uses sockets and the standard `http` package.
+allow_indirect_imports = True
+
 [importlinter:contract:ingestion-has-no-network-of-its-own]
 name = Ingestion reaches the network only through SafeHttpClient
 type = forbidden
@@ -69,6 +100,7 @@ ignore_imports =
     pharos.ingest.pipeline -> urllib
     pharos.ingest.connectors.rss -> urllib
     pharos.ingest.connectors.hackernews -> urllib
+    pharos.ingest.sourceconfig -> urllib
 # The feed parser may use the standard library inside itself; only direct imports are forbidden here.
 allow_indirect_imports = True
 unmatched_ignore_imports_alerting = none

@@ -9,6 +9,7 @@ import re
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI
 from redis.asyncio import Redis
@@ -39,6 +40,8 @@ from pharos.identity.service import LocalAuthService, LocalLoginMode
 from pharos.identity.users_router import router as users_router
 from pharos.profile.router import router as profile_router
 from pharos.profile.service import ProfileService
+from pharos.sources.router import router as sources_router
+from pharos.sources.service import SourceService
 
 logger = logging.getLogger(__name__)
 
@@ -134,6 +137,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 entra_tenant=settings.entra_tenant_id,
                 entra_allow_guests=settings.entra_allow_guests,
             )
+        # The host of this installation is never a source, whatever name it is written with.
+        own_host = (urlsplit(settings.public_url).hostname or "").lower()
+        app.state.sources = SourceService(
+            audit=app.state.audit, blocked_hosts=[own_host] if own_host else []
+        )
         app.state.user_admin = UserAdminService(
             audit=app.state.audit, sessions=app.state.session_store
         )
@@ -188,5 +196,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(identity_router, prefix=API_PREFIX)
     app.include_router(profile_router, prefix=API_PREFIX)
     app.include_router(users_router, prefix=API_PREFIX)
+    app.include_router(sources_router, prefix=API_PREFIX)
     app.include_router(oidc_router, prefix=API_PREFIX)
     return app

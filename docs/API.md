@@ -68,6 +68,8 @@ Every error is an [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) document wi
 | `onboarding_incomplete` | 409 | Onboarding was completed before all four answers existed; `missing` lists them. |
 | `own_account` | 409 | An administrator tried to change their own role or status. Ask another administrator. |
 | `status_locked` | 409 | The user was removed by the identity provider (`deprovisioned`); the status is not changed here. |
+| `source_conflict` | 409 | The same source (same type and configuration, in any spelling of the address) exists already. |
+| `source_limit` | 409 | The organization has 200 sources, the most it may have. |
 | `rate_limited` | 429 | Too many attempts. `Retry-After` gives the seconds to wait; waiting is enough, there is no lockout. |
 | `validation_failed` | 422 | The body, query or path is not valid. `errors` lists `{loc, type}` for each problem, never the value. |
 | `organization_not_configured` | 503 | The organization of this installation has not been created yet. |
@@ -139,6 +141,27 @@ Administrators only; everyone else gets `403`, and a person of another organizat
 Each person has `id`, `display_name`, `email`, `role`, `status`, `department`, `last_login_at` and `sign_in` (`local` or `sso`). No credential data is ever included.
 
 Rules: nobody changes their own role or status (`409 own_account`); the caller is checked again against the database after the administrator rows are locked, so two administrators changing each other at the same moment cannot leave the organization without one (the second gets `403`). A change ends every session of the person it concerns; a new role or status would apply on their next request anyway. A request that changes nothing answers `200` and writes nothing. Changes are recorded as `user.role_changed` and `user.status_changed` with the old and new value, plus `auth.sessions_revoked`; a refused change leaves a `failure` row with the reason. The role of a `deprovisioned` person cannot be changed either (`409 status_locked`).
+
+## Sources (administrators and editors)
+
+Administrators and editors read; administrators alone create, change and delete (a source makes the server contact a third party). Everyone else gets `403`, and a source of another organization answers `404 not_found`. A person's own feeds (M3-13) are never listed or changed here, not even for administrators. Requests that change data also need `Origin` and `X-CSRF-Token`.
+
+| Method | Path | Who | Purpose |
+| --- | --- | --- | --- |
+| GET | `/api/sources` | admin, editor | The organization's sources, by name. `limit` (1-100, default 50), `offset`, `type` (`rss`, `github`, `hackernews`) and `enabled`. Answers `{items, total}`. |
+| POST | `/api/sources` | admin | Create. Body `{"type", "name", "config", "interval_seconds"?, "enabled"?}`; answers `201` with the source. It starts disabled unless `enabled` is `true`. |
+| GET | `/api/sources/{id}` | admin, editor | One source. |
+| PATCH | `/api/sources/{id}` | admin | Change `name`, `config`, `interval_seconds` or `enabled` (at least one, never `null`). The type never changes. |
+| DELETE | `/api/sources/{id}` | admin | Delete the source with its runs, raw entries and links (`204`). Its items stay; retention removes them in time. |
+| GET | `/api/sources/{id}/runs` | admin, editor | The latest fetch runs, newest first. `limit` (1-50, default 20). |
+
+`config` depends on the type: `{"url"}` for `rss`, `{"repo": "owner/name"}` for `github`, `{"query", "min_points"?}` for `hackernews` (see [DATA_MODEL.md](DATA_MODEL.md)). `interval_seconds` is 300 to 604800 (default 3600). `name` is plain text of 1 to 200 characters; text that changes when cleaned (markup, control or invisible characters) is refused, not repaired.
+
+A source shows `enabled`, `interval_seconds`, `next_fetch_at`, `last_fetched_at`, `last_success_at`, `consecutive_failures`, `last_error_code` and who created it. It never shows the lease, the validators or the key used to recognise duplicates.
+
+Validation: a bad configuration answers `422 validation_failed` with `{loc: ["body", "config"], type: CODE}` where CODE is one of `url_required`, `url_invalid`, `repo_required`, `repo_invalid`, `query_required`, `query_invalid`, `min_points_invalid`, `unknown_setting` or `unknown_type`. An address that can only be an internal machine answers `url_not_allowed`: an IP address in any spelling a browser accepts (`127.1`, `2130706433`, `[::1]`, or followed by an ideographic full stop), `localhost`, a name without a dot (`redis`, `api`), a name ending in `.local`, `.internal`, `.lan` and similar, and the address of this installation. The refusal is audited, and the address is checked again when a source is switched on. This check only saves the administrator a wasted fetch; `SafeHttpClient` still decides when a connection is opened, after the name has been resolved.
+
+Rules: the same source twice answers `409 source_conflict`; the 201st answers `409 source_limit`; two administrators changing one source queue up on its row lock and both changes are kept; a change that changes nothing is neither saved nor audited. Changing a source never touches what the worker keeps about it (failures, validators, lease). Audit events: `source.created`, `source.updated` (with the names of the changed fields), `source.enabled`, `source.disabled`, `source.deleted`; entries never contain the configuration.
 
 ## Single sign-on (OpenID Connect)
 

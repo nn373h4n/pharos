@@ -129,6 +129,7 @@ Validated by the connector of the type, stored as small JSON, and checked again 
 - `rss`: `{"url": "https://..."}`.
 - `github`: `{"repo": "owner/name"}`. One request per run to `api.github.com/repos/<owner>/<name>/releases`; drafts and pre-releases are skipped. The optional token is not part of the configuration: it comes from `PHAROS_GITHUB_TOKEN` in the worker's environment.
 - `hackernews`: `{"query": "words", "min_points": 20}`. One Algolia search per run (stories only, at most 30 hits); a story without a link gets the address of its discussion page.
+- Rules for a configuration live in `pharos.ingest.sourceconfig` (no network in it): the connectors and the API use the same code, and the API refuses an address that can only be internal when it is typed (M3-10a).
 - Entries from JSON connectors are cleaned like feed entries (plain text, bounded, `http(s)` links only, no lone surrogates) and arrive at the pipeline in the same shape.
 
 ## Open items

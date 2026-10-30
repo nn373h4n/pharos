@@ -10,8 +10,6 @@ binds to `api.github.com` over HTTPS (never on a redirect to another host), and 
 URL, an error, a log line or the stored configuration of a source.
 """
 
-import hashlib
-import re
 from collections.abc import Mapping
 from datetime import datetime
 from typing import Any
@@ -25,13 +23,11 @@ from pharos.ingest.connectors.base import (
 )
 from pharos.ingest.connectors.common import DATE_LIMIT, entry, load_json, moment, validator
 from pharos.ingest.feed import MAX_ENTRIES
+from pharos.ingest.sourceconfig import github_key, validate_github
 from pharos.net.safe_http import Bearer, FetchError, SafeHttpClient
 
 HOST = "api.github.com"
 PER_PAGE = 30
-# GitHub's own rules: an owner is letters, digits and single hyphens (at most 39); a repository
-# name is letters, digits, `.`, `_` and `-` (at most 100).
-_REPO = re.compile(r"([A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38})/([A-Za-z0-9._-]{1,100})")
 
 
 class GithubConnector:
@@ -44,16 +40,10 @@ class GithubConnector:
         return f"GithubConnector(token={'set' if self._token else 'none'})"
 
     def validate_config(self, raw: Mapping[str, Any]) -> dict[str, Any]:
-        if set(raw) != {"repo"}:
-            raise ConfigError("unknown_setting" if "repo" in raw else "repo_required")
-        repo = raw["repo"]
-        match = _REPO.fullmatch(repo) if isinstance(repo, str) else None
-        if match is None or match.group(2) in (".", "..") or match.group(2).endswith(".git"):
-            raise ConfigError("repo_invalid")
-        return {"repo": repo}
+        return validate_github(raw)
 
     def dedupe_key(self, config: Mapping[str, Any]) -> str:
-        return hashlib.sha256(f"github:{str(config['repo']).lower()}".encode()).hexdigest()
+        return github_key(config)
 
     def politeness_host(self, config: Mapping[str, Any]) -> str | None:
         return HOST

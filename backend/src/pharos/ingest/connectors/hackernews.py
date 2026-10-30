@@ -6,7 +6,6 @@ many points. Not the Firebase API, which would need one request per story. The l
 never fetched; a story without a link (Ask HN) gets the address of its discussion page.
 """
 
-import hashlib
 import re
 from collections.abc import Mapping
 from datetime import datetime
@@ -23,14 +22,11 @@ from pharos.ingest.connectors.base import (
 from pharos.ingest.connectors.common import DATE_LIMIT, entry, load_json, moment, validator
 from pharos.ingest.feed import MAX_ENTRIES
 from pharos.ingest.links import safe_link
-from pharos.ingest.text import clean_text
+from pharos.ingest.sourceconfig import hackernews_key, validate_hackernews
 from pharos.net.safe_http import FetchError, SafeHttpClient
 
 HOST = "hn.algolia.com"
 HITS = 30
-MAX_QUERY = 100
-MAX_POINTS = 10_000
-DEFAULT_POINTS = 20
 _OBJECT_ID = re.compile(r"[0-9]{1,12}")
 
 
@@ -38,26 +34,10 @@ class HackerNewsConnector:
     type = "hackernews"
 
     def validate_config(self, raw: Mapping[str, Any]) -> dict[str, Any]:
-        if "query" not in raw:
-            raise ConfigError("query_required")
-        if not set(raw) <= {"query", "min_points"}:
-            raise ConfigError("unknown_setting")
-        query = raw["query"]
-        # Plain words only: what is searched is cleaned like any other text, and a query that
-        # changes when cleaned (markup, control or invisible characters) is refused, not repaired.
-        if not isinstance(query, str) or clean_text(query, MAX_QUERY + 1) != query.strip():
-            raise ConfigError("query_invalid")
-        query = query.strip()
-        if not 1 <= len(query) <= MAX_QUERY:
-            raise ConfigError("query_invalid")
-        points = raw.get("min_points", DEFAULT_POINTS)
-        if not isinstance(points, int) or isinstance(points, bool) or not 0 <= points <= MAX_POINTS:
-            raise ConfigError("min_points_invalid")
-        return {"query": query, "min_points": points}
+        return validate_hackernews(raw)
 
     def dedupe_key(self, config: Mapping[str, Any]) -> str:
-        text = f"hackernews:{str(config['query']).lower()}:{config['min_points']}"
-        return hashlib.sha256(text.encode()).hexdigest()
+        return hackernews_key(config)
 
     def politeness_host(self, config: Mapping[str, Any]) -> str | None:
         return HOST

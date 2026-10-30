@@ -27,7 +27,7 @@ def _lint(project: Path) -> subprocess.CompletedProcess[str]:
 
 def _project(root: Path, files: dict[str, str]) -> Path:
     shutil.copy(CONFIG, root / ".importlinter")
-    for name in ("", "orgs", "ingest"):
+    for name in ("", "orgs", "ingest", "sources"):
         package = root / "pharos" / name
         package.mkdir(parents=True, exist_ok=True)
         (package / "__init__.py").write_text("")
@@ -147,3 +147,131 @@ def test_ingestion_code_may_use_the_safe_client_and_parse_text(tmp_path: Path) -
     _with_ingest(project, "from pharos.net import safe_http\nimport re\nimport hashlib\n")
     result = _lint(project)
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+# --- the sources API can validate a configuration but never load anything that fetches (M3-10) ---
+
+SOURCES_RULE = "The sources API never loads anything that fetches (M3-10)"
+
+
+def _with_sources(project: Path, files: dict[str, str]) -> None:
+    for relative, content in files.items():
+        (project / "pharos" / "sources" / relative).write_text(content)
+
+
+def _with_ingest_modules(project: Path, files: dict[str, str]) -> None:
+    for relative, content in files.items():
+        path = project / "pharos" / "ingest" / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
+        if path.name != "__init__.py" and path.parent.name != "ingest":
+            (path.parent / "__init__.py").write_text("")
+
+
+def test_the_sources_api_may_use_the_network_free_configuration_module(tmp_path: Path) -> None:
+    project = _project(tmp_path, {})
+    _with_ingest_modules(project, {"sourceconfig.py": "import re\nimport hashlib\n"})
+    _with_sources(project, {"service.py": "from pharos.ingest import sourceconfig\n"})
+    result = _lint(project)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.parametrize("module", ["service.py", "repository.py", "schemas.py"])
+def test_the_sources_api_may_not_import_the_http_client_directly(
+    tmp_path: Path, module: str
+) -> None:
+    project = _project(tmp_path, {})
+    _with_net(project)
+    _with_sources(project, {module: "from pharos.net import safe_http\n"})
+    result = _lint(project)
+    assert result.returncode != 0
+    assert f"{SOURCES_RULE} BROKEN" in result.stdout
+
+
+def test_the_sources_api_may_not_reach_the_http_client_through_another_module(
+    tmp_path: Path,
+) -> None:
+    # The older rule allows indirect imports, so this is the one only the new rule catches.
+    project = _project(tmp_path, {})
+    _with_net(project)
+    _with_ingest_modules(project, {"helper.py": "from pharos.net import safe_http\n"})
+    _with_sources(project, {"service.py": "from pharos.ingest import helper\n"})
+    result = _lint(project)
+    assert result.returncode != 0
+    assert f"{SOURCES_RULE} BROKEN" in result.stdout
+    assert "API modules never import the fetcher (ADR-0012) KEPT" in result.stdout
+
+
+@pytest.mark.parametrize(
+    ("files", "statement"),
+    [
+        ({"fetcher.py": "VALUE = 1\n"}, "from pharos.ingest import fetcher"),
+        ({"connectors/__init__.py": "VALUE = 1\n"}, "from pharos.ingest import connectors"),
+        ({"connectors/rss.py": "VALUE = 1\n"}, "from pharos.ingest.connectors import rss"),
+    ],
+)
+def test_the_sources_api_may_not_import_the_fetcher_or_the_connectors(
+    tmp_path: Path, files: dict[str, str], statement: str
+) -> None:
+    project = _project(tmp_path, {})
+    _with_ingest_modules(project, files)
+    _with_sources(project, {"service.py": statement + "\n"})
+    result = _lint(project)
+    assert result.returncode != 0
+    assert f"{SOURCES_RULE} BROKEN" in result.stdout
+
+
+def test_the_sources_api_may_not_import_the_workers(tmp_path: Path) -> None:
+    project = _project(tmp_path, {})
+    workers = project / "pharos" / "workers"
+    workers.mkdir(parents=True)
+    (workers / "__init__.py").write_text("")
+    _with_sources(project, {"service.py": "from pharos import workers\n"})
+    result = _lint(project)
+    assert result.returncode != 0
+    assert f"{SOURCES_RULE} BROKEN" in result.stdout
+
+
+@pytest.mark.parametrize("library", ["httpx", "httpcore"])
+def test_the_sources_api_may_not_import_an_http_library(tmp_path: Path, library: str) -> None:
+    project = _project(tmp_path, {})
+    _with_sources(project, {"service.py": f"import {library}\n"})
+    result = _lint(project)
+    assert result.returncode != 0
+    assert f"{SOURCES_RULE} BROKEN" in result.stdout
+
+
+def test_the_sources_api_may_not_import_the_http_client_even_if_that_imports_nothing_else(
+    tmp_path: Path,
+) -> None:
+    # Only the explicit entry for the client catches this one; the library entries do not apply.
+    project = _project(tmp_path, {})
+    net = project / "pharos" / "net"
+    net.mkdir(parents=True)
+    (net / "__init__.py").write_text("")
+    (net / "safe_http.py").write_text("VALUE = 1\n")
+    _with_sources(project, {"service.py": "from pharos.net import safe_http\n"})
+    result = _lint(project)
+    assert result.returncode != 0
+    assert f"{SOURCES_RULE} BROKEN" in result.stdout
+
+
+@pytest.mark.parametrize(
+    "statement",
+    [
+        "import socket",
+        "import requests",
+        "import urllib.request",
+        "from urllib import request",
+        "import http.client",
+        "import aiohttp",
+        "import urllib3",
+        "import ftplib",
+    ],
+)
+def test_the_sources_api_may_not_open_a_connection_itself(tmp_path: Path, statement: str) -> None:
+    project = _project(tmp_path, {})
+    _with_sources(project, {"service.py": statement + "\n"})
+    result = _lint(project)
+    assert result.returncode != 0, statement
+    assert "The sources API opens no connections itself (M3-10) BROKEN" in result.stdout

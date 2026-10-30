@@ -56,8 +56,18 @@ _USERS_TEST = (
     "integration/test_user_admin.py::test_administrators_never_reach_another_organizations_people"
 )
 _ADMIN_ONLY = frozenset({Role.ADMIN})
+_ADMIN_OR_EDITOR = frozenset({Role.ADMIN, Role.EDITOR})
+_SOURCES_TEST = (
+    "integration/test_sources_api.py::test_administrators_never_reach_another_organizations_sources"
+)
 
 ROLE_MATRIX: dict[Route, Rule] = {
+    ("GET", "/api/sources"): Rule(_ADMIN_OR_EDITOR, _SOURCES_TEST),
+    ("POST", "/api/sources"): Rule(_ADMIN_ONLY, _SOURCES_TEST),
+    ("GET", "/api/sources/{source_id}"): Rule(_ADMIN_OR_EDITOR, _SOURCES_TEST),
+    ("PATCH", "/api/sources/{source_id}"): Rule(_ADMIN_ONLY, _SOURCES_TEST),
+    ("DELETE", "/api/sources/{source_id}"): Rule(_ADMIN_ONLY, _SOURCES_TEST),
+    ("GET", "/api/sources/{source_id}/runs"): Rule(_ADMIN_OR_EDITOR, _SOURCES_TEST),
     ("GET", "/api/users"): Rule(_ADMIN_ONLY, _USERS_TEST),
     ("PATCH", "/api/users/{user_id}/role"): Rule(_ADMIN_ONLY, _USERS_TEST),
     ("PATCH", "/api/users/{user_id}/status"): Rule(_ADMIN_ONLY, _USERS_TEST),

@@ -13,21 +13,16 @@ from datetime import datetime
 from typing import Any, Literal, Protocol
 
 from pharos.ingest.feed import RawEntry
+from pharos.ingest.sourceconfig import ConfigError
 from pharos.net.safe_http import FetchError, FetchErrorKind, SafeHttpClient
+
+__all__ = ["OUTCOMES", "ConfigError", "Connector", "ConnectorError", "FetchOutcome", "FetchState"]
 
 # The outcomes a fetch run can end with (fetch_runs.outcome), apart from "ok" and "not_modified".
 OUTCOMES = frozenset(
     {"blocked", "timeout", "too_large", "bad_status", "bad_content", "network", "error"}
 )
 _STATUS = re.compile(r"^status_(\d{3})$")
-
-
-class ConfigError(ValueError):
-    """The configuration of a source is not acceptable. `code` is a fixed word, not user text."""
-
-    def __init__(self, code: str) -> None:
-        super().__init__(code)
-        self.code = code
 
 
 class ConnectorError(Exception):
