@@ -69,7 +69,7 @@ export function onUnauthorized(listener: UnauthorizedListener): () => void {
 
 type Options = { method?: string; body?: unknown; csrf?: string; ignore401?: boolean };
 
-async function request(path: string, options: Options = {}): Promise<Response> {
+export async function request(path: string, options: Options = {}): Promise<Response> {
   const headers: Record<string, string> = { Accept: "application/json" };
   if (options.body !== undefined) headers["Content-Type"] = "application/json";
   if (options.csrf) headers["X-CSRF-Token"] = options.csrf;

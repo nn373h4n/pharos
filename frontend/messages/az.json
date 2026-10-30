@@ -136,5 +136,74 @@
       "unavailable": "Xidmət hazırda əlçatan deyil. Bir az sonra yenidən cəhd edin.",
       "incomplete": "Əvvəlki cavabların bəziləri çatışmır. Əvvəlcə onları cavablandırın."
     }
+  },
+  "Nav": {
+    "main": "Əsas naviqasiya",
+    "home": "Ana səhifə",
+    "items": "Məqalələr"
+  },
+  "Items": {
+    "metaTitle": "Məqalələr",
+    "title": "Məqalələr",
+    "intro": "Təşkilatınızın izlədiyi mənbələrdən yeni məqalələr.",
+    "results": "Məqalələr siyahısı",
+    "loading": "Məqalələr yüklənir…",
+    "loadFailed": "Məqalələri yükləmək mümkün olmadı. Bir az sonra yenidən cəhd edin.",
+    "retry": "Yenidən cəhd et",
+    "empty": {
+      "new": "Hələ məqalə yoxdur.",
+      "held": "Yoxlamanı gözləyən məqalə yoxdur.",
+      "hidden": "Gizlədilmiş məqalə yoxdur."
+    },
+    "filter": {
+      "label": "Göstər",
+      "new": "Cari",
+      "held": "Yoxlamada olanlar",
+      "hidden": "Gizlədilənlər"
+    },
+    "total": "Cəmi: {total}",
+    "range": "{from}–{to} / {total}",
+    "pagination": "Səhifələr",
+    "previous": "Əvvəlki",
+    "next": "Növbəti",
+    "opensInNewTab": " (yeni tabda açılır)",
+    "published": "Dərc olunub: {date}",
+    "from": "Mənbə: {sources}",
+    "unlinked": "Bu məqalənin linki veb ünvanı deyil və göstərilmir.",
+    "status": {
+      "new": "Cari",
+      "held": "Yoxlamada",
+      "hidden": "Gizlədilib"
+    },
+    "reasons": {
+      "link_ip_host": "Link IP ünvanına yönəlib.",
+      "link_odd_port": "Link qeyri-adi portdan istifadə edir.",
+      "instruction_phrase": "Mətn süni intellektə verilən təlimata bənzəyir.",
+      "editor_hold": "Redaktor tərəfindən saxlanılıb.",
+      "other": "Yoxlama üçün işarələnib."
+    },
+    "actions": {
+      "hold": "Yoxlamaya göndər",
+      "approve": "Təsdiqlə",
+      "hide": "Gizlət",
+      "restore": "Bərpa et"
+    },
+    "actionOn": "{action}: {title}",
+    "done": {
+      "hold": "Yoxlamaya göndərildi: {title}",
+      "approve": "Təsdiqləndi: {title}",
+      "hide": "Gizlədildi: {title}",
+      "restore": "Bərpa olundu: {title}"
+    }
+  },
+  "Problems": {
+    "forbidden": "Buna icazəniz yoxdur.",
+    "notFound": "Tapılmadı. Silinmiş ola bilər.",
+    "itemState": "Kimsə bu məqaləni əvvəl dəyişdi. Siyahı yeniləndi.",
+    "rateLimited": "Həddindən çox sorğu. {seconds} saniyə sonra yenidən cəhd edin.",
+    "rateLimitedNoWait": "Həddindən çox sorğu. Bir az sonra yenidən cəhd edin.",
+    "unavailable": "Xidmət hazırda əlçatan deyil. Bir az sonra yenidən cəhd edin.",
+    "csrf": "Sorğu rədd edildi. Səhifəni yeniləyib yenidən cəhd edin.",
+    "generic": "Nəsə səhv getdi. Yenidən cəhd edin."
   }
 }

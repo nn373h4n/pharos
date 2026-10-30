@@ -5,6 +5,7 @@ import { notFound } from "next/navigation";
 import type { ReactNode } from "react";
 import { SessionProvider } from "@/components/auth/session-provider";
 import { UserMenu } from "@/components/auth/user-menu";
+import { MainNav } from "@/components/layout/main-nav";
 import { LanguageSwitcher } from "@/components/language-switcher";
 import { routing } from "@/i18n/routing";
 import "../globals.css";
@@ -43,6 +44,7 @@ export default async function LocaleLayout({ children, params }: Props) {
             <header className="border-b border-border">
               <div className="mx-auto flex max-w-4xl flex-wrap items-center justify-between gap-3 px-4 py-3">
                 <p className="text-lg font-semibold">{"Pharos"}</p>
+                <MainNav />
                 <div className="flex flex-wrap items-center gap-4">
                   <UserMenu />
                   <LanguageSwitcher />

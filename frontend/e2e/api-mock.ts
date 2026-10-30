@@ -1,9 +1,10 @@
 import type { BrowserContext, Page } from "@playwright/test";
+import { defaultItems, handleItems, type ItemsOptions, type ItemsState } from "./items-mock";
 
 // The end-to-end tests run the production build of the web app alone, without the backend, so
 // the API is answered here. Every answer has the shape documented in docs/API.md.
 
-export type MockOptions = {
+export type MockOptions = ItemsOptions & {
   /** Starts with a session (the cookie of a signed-in person). */
   signedIn?: boolean;
   localLogin?: "off" | "break-glass" | "on";
@@ -43,7 +44,7 @@ export type MockState = {
   logoutCsrf: string | null;
   /** The X-CSRF-Token headers of the profile saves and of the completion. */
   profileCsrf: (string | null)[];
-};
+} & ItemsState;
 
 export const PROFESSIONS = [
   {
@@ -97,6 +98,8 @@ export async function mockApi(
     saves: [],
     logoutCsrf: null,
     profileCsrf: [],
+    items: options.items ?? defaultItems(),
+    conflictOnce: options.conflictOnce ?? false,
   };
   const user = () => ({
     id: "00000000-0000-4000-8000-000000000001",
@@ -202,6 +205,14 @@ export async function mockApi(
     if (path === "/api/me/profile/options") return route.fulfill({ json: OPTIONS });
     if (path === "/api/professions") return route.fulfill({ json: PROFESSIONS });
     if (path === "/api/departments") return route.fulfill({ json: DEPARTMENTS });
+    if (!state.signedIn && path.startsWith("/api/items")) {
+      return route.fulfill(problem(401, "not_authenticated"));
+    }
+    if (
+      await handleItems(route, request, path, state, options, options.role ?? "member", problem)
+    ) {
+      return;
+    }
     return route.fulfill(problem(404, "not_found"));
   });
   return state;
