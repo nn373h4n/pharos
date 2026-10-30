@@ -61,7 +61,17 @@ _SOURCES_TEST = (
     "integration/test_sources_api.py::test_administrators_never_reach_another_organizations_sources"
 )
 
+_ITEMS_TEST = (
+    "integration/test_items_api.py::test_administrators_never_reach_another_organizations_items"
+)
+
 ROLE_MATRIX: dict[Route, Rule] = {
+    ("GET", "/api/items"): Rule(_ALL_ROLES, _ITEMS_TEST),
+    ("GET", "/api/items/{item_id}"): Rule(_ALL_ROLES, _ITEMS_TEST),
+    ("POST", "/api/items/{item_id}/hold"): Rule(_ADMIN_OR_EDITOR, _ITEMS_TEST),
+    ("POST", "/api/items/{item_id}/approve"): Rule(_ADMIN_OR_EDITOR, _ITEMS_TEST),
+    ("POST", "/api/items/{item_id}/hide"): Rule(_ADMIN_OR_EDITOR, _ITEMS_TEST),
+    ("POST", "/api/items/{item_id}/restore"): Rule(_ADMIN_OR_EDITOR, _ITEMS_TEST),
     ("GET", "/api/sources"): Rule(_ADMIN_OR_EDITOR, _SOURCES_TEST),
     ("POST", "/api/sources"): Rule(_ADMIN_ONLY, _SOURCES_TEST),
     ("GET", "/api/sources/{source_id}"): Rule(_ADMIN_OR_EDITOR, _SOURCES_TEST),

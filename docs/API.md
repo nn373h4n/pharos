@@ -70,6 +70,7 @@ Every error is an [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) document wi
 | `status_locked` | 409 | The user was removed by the identity provider (`deprovisioned`); the status is not changed here. |
 | `source_conflict` | 409 | The same source (same type and configuration, in any spelling of the address) exists already. |
 | `source_limit` | 409 | The organization has 200 sources, the most it may have. |
+| `item_state` | 409 | The article is not in a state that allows this step (for example approving a hidden article). |
 | `rate_limited` | 429 | Too many attempts. `Retry-After` gives the seconds to wait; waiting is enough, there is no lockout. |
 | `validation_failed` | 422 | The body, query or path is not valid. `errors` lists `{loc, type}` for each problem, never the value. |
 | `organization_not_configured` | 503 | The organization of this installation has not been created yet. |
@@ -162,6 +163,23 @@ A source shows `enabled`, `interval_seconds`, `next_fetch_at`, `last_fetched_at`
 Validation: a bad configuration answers `422 validation_failed` with `{loc: ["body", "config"], type: CODE}` where CODE is one of `url_required`, `url_invalid`, `repo_required`, `repo_invalid`, `query_required`, `query_invalid`, `min_points_invalid`, `unknown_setting` or `unknown_type`. An address that can only be an internal machine answers `url_not_allowed`: an IP address in any spelling a browser accepts (`127.1`, `2130706433`, `[::1]`, or followed by an ideographic full stop), `localhost`, a name without a dot (`redis`, `api`), a name ending in `.local`, `.internal`, `.lan` and similar, and the address of this installation. The refusal is audited, and the address is checked again when a source is switched on. This check only saves the administrator a wasted fetch; `SafeHttpClient` still decides when a connection is opened, after the name has been resolved.
 
 Rules: the same source twice answers `409 source_conflict`; the 201st answers `409 source_limit`; two administrators changing one source queue up on its row lock and both changes are kept; a change that changes nothing is neither saved nor audited. Changing a source never touches what the worker keeps about it (failures, validators, lease). Audit events: `source.created`, `source.updated` (with the names of the changed fields), `source.enabled`, `source.disabled`, `source.deleted`; entries never contain the configuration.
+
+## Items (articles)
+
+Every signed-in person reads; administrators and editors also review. An article is a title, a short plain-text excerpt and a link to the original; the page behind the link was never fetched. An article of another organization answers `404 not_found`. A person's own articles (M3-13) are never part of this list or of the review. Requests that change data also need `Origin` and `X-CSRF-Token`.
+
+| Method | Path | Who | Purpose |
+| --- | --- | --- | --- |
+| GET | `/api/items` | everyone | Articles, newest first (publication time, else the time they were fetched). `status` (`new`, `held`, `hidden`), `source_id`, `limit` (1-100, default 50), `offset`. Answers `{items, total}`. |
+| GET | `/api/items/{id}` | everyone | One article. |
+| POST | `/api/items/{id}/hold` | admin, editor | `new` becomes `held` (reason `editor_hold`). |
+| POST | `/api/items/{id}/approve` | admin, editor | `held` becomes `new`; the flag and its reason are cleared. |
+| POST | `/api/items/{id}/hide` | admin, editor | `new` or `held` becomes `hidden`: out of the list for everyone but reviewers. |
+| POST | `/api/items/{id}/restore` | admin, editor | `hidden` becomes `new`. |
+
+A member sees only `new` articles: asking for another status, or for one `source_id`, answers `403`, and a held or hidden article answers `404` exactly like an id that does not exist. `sources` (which organization sources reported the article), `hold_reason` and `updated_at` (a change in it would say that an article was reviewed) are for administrators and editors; a member gets an empty `sources` and `null` for the other two. A held article is one that a rule flagged during ingestion (`link_ip_host`, `link_odd_port`, `instruction_phrase`) or that an editor held; the flag is a prompt to look, not a verdict.
+
+Each step is one move of a small state machine. Asking for the state an article is in already (hiding a hidden one, approving a `new` one) changes nothing and is not recorded; a step that does not exist (restoring a held article, holding a hidden one) answers `409 item_state`. Two editors acting on one article queue up on its row lock, and the second decides on what the first left behind. The worker cannot undo a decision: it has no right to change `status` or `hold_reason`, and a hidden article is not created again by a later fetch of the same link (a feed that publishes it under another address makes a new article: near-duplicates are for M4). Restoring a hidden article is an explicit decision to show it, even if a rule had flagged it before it was hidden; the audit entry of the hide keeps the reason that was cleared (`was`). Audit events: `item.held`, `item.approved`, `item.hidden`, `item.restored`, each with the state it came from (`from`) and the reason that was cleared (`was`); entries never contain article text.
 
 ## Single sign-on (OpenID Connect)
 

@@ -56,6 +56,10 @@ class AuditAction(StrEnum):
     SOURCE_ENABLED = "source.enabled"
     SOURCE_DISABLED = "source.disabled"
     SOURCE_DELETED = "source.deleted"
+    ITEM_HELD = "item.held"
+    ITEM_APPROVED = "item.approved"
+    ITEM_HIDDEN = "item.hidden"
+    ITEM_RESTORED = "item.restored"
 
 
 class Outcome(StrEnum):

@@ -34,6 +34,7 @@ class ErrorCode(StrEnum):
     STATUS_LOCKED = "status_locked"
     SOURCE_CONFLICT = "source_conflict"
     SOURCE_LIMIT = "source_limit"
+    ITEM_STATE = "item_state"
     ORGANIZATION_NOT_CONFIGURED = "organization_not_configured"
     SERVICE_UNAVAILABLE = "service_unavailable"
     INTERNAL_ERROR = "internal_error"
@@ -54,6 +55,7 @@ _TITLES = {
     ErrorCode.STATUS_LOCKED: "The status is managed by the identity provider",
     ErrorCode.SOURCE_CONFLICT: "The same source exists already",
     ErrorCode.SOURCE_LIMIT: "The organization has the most sources it may have",
+    ErrorCode.ITEM_STATE: "The article is not in a state that allows this",
     ErrorCode.ORGANIZATION_NOT_CONFIGURED: "The organization is not set up yet",
     ErrorCode.SERVICE_UNAVAILABLE: "Service unavailable",
     ErrorCode.INTERNAL_ERROR: "Internal error",
