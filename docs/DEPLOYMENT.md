@@ -46,7 +46,7 @@ The slug must equal `PHAROS_ORG_SLUG`. For scripts, add `--password-stdin` (and 
 
 ### Add the starter sources
 
-Pharos ships a list of public sources (`backend/src/pharos/sources/starter_sources.json`). Import it once; every source is added **switched off**, so nothing is fetched until an administrator reads the list on the Sources page and switches on what the organization wants:
+Pharos ships a list of 25 public sources (`backend/src/pharos/sources/starter_sources.json`: AI news feeds, releases of open-source tools and two Hacker News searches). Import it once; every source is added **switched off**, so nothing is fetched until an administrator reads the list on the Sources page and switches on what the organization wants:
 
 ```bash
 docker compose --env-file deploy/.env -f deploy/docker-compose.yml exec api \

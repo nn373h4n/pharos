@@ -27,7 +27,7 @@ def feed(
 
 def test_the_catalogue_that_ships_is_valid() -> None:
     entries = catalogue.load()
-    assert len(entries) <= catalogue.MAX_ENTRIES
+    assert 0 < len(entries) <= catalogue.MAX_ENTRIES  # the list the maintainer approved
     assert all(entry.config and entry.note for entry in entries)
     # Only public web addresses: nothing here may be fetched over plain HTTP.
     for entry in entries:
