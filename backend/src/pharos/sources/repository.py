@@ -108,6 +108,18 @@ async def count_sources(session: AsyncSession, org: uuid.UUID) -> int:
     )
 
 
+async def exists_source(session: AsyncSession, org: uuid.UUID, dedupe_key: str) -> bool:
+    return (
+        await session.execute(
+            text(
+                "SELECT 1 FROM sources WHERE org_id = :org AND owner_user_id IS NULL "
+                "AND dedupe_key = :key"
+            ),
+            {"org": org, "key": dedupe_key},
+        )
+    ).first() is not None
+
+
 async def get_source(
     session: AsyncSession, org: uuid.UUID, source: uuid.UUID, *, lock: bool = False
 ) -> SourceView | None:
@@ -149,9 +161,10 @@ async def insert_source(
     dedupe_key: str,
     enabled: bool,
     interval_seconds: int,
-    created_by: uuid.UUID,
+    created_by: uuid.UUID | None,
 ) -> SourceView | None:
-    """The new source, or None if the same source exists already."""
+    """The new source, or None if the same source exists already. `created_by` is None for a source
+    that comes from the operator and not from a person."""
     row = (
         await session.execute(
             text(

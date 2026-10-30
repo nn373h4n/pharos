@@ -44,6 +44,19 @@ With `make` the same two steps are `make org ORG_SLUG=default ORG_NAME="Your org
 
 The slug must equal `PHAROS_ORG_SLUG`. For scripts, add `--password-stdin` (and `-T` to `exec`) and pipe the password in. `set-password` changes a password and `unlock --username NAME` clears the sign-in delays of an account.
 
+### Add the starter sources
+
+Pharos ships a list of public sources (`backend/src/pharos/sources/starter_sources.json`). Import it once; every source is added **switched off**, so nothing is fetched until an administrator reads the list on the Sources page and switches on what the organization wants:
+
+```bash
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml exec api \
+  python -m pharos.cli import-sources --dry-run
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml exec api \
+  python -m pharos.cli import-sources
+```
+
+`--dry-run` shows how many sources would be added and how many are there already, and writes nothing. Running the command again adds only what is missing and never changes a source that is already there, so what an administrator renamed or switched on stays as it is. `--file PATH` imports your own list in the same format (`version` 1; each entry has `type`, `name`, `config`, `interval_seconds` and `note`; an entry cannot ask to be switched on). The whole file is checked first with the rules of the Sources API, and either everything is added or nothing is.
+
 `PHAROS_LOCAL_LOGIN` controls password sign-in: `break-glass` (default) lets administrators sign in with a password so you can always get in when the identity provider is down, `on` allows every local account, `off` disables it. After repeated wrong passwords an account and address are slowed down with growing waits (never locked out); `unlock` removes the waits at once.
 
 ## Configuration (`deploy/.env`)
