@@ -140,7 +140,8 @@
   "Nav": {
     "main": "Main navigation",
     "home": "Home",
-    "items": "Articles"
+    "items": "Articles",
+    "sources": "Sources"
   },
   "Items": {
     "metaTitle": "Articles",
@@ -194,6 +195,10 @@
       "approve": "Approved: {title}",
       "hide": "Hidden: {title}",
       "restore": "Restored: {title}"
+    },
+    "source": {
+      "only": "Showing only the articles of one source.",
+      "all": "Show all articles"
     }
   },
   "Problems": {
@@ -204,6 +209,188 @@
     "rateLimitedNoWait": "Too many requests. Try again in a moment.",
     "unavailable": "The service is not available right now. Try again later.",
     "csrf": "The request was refused. Reload the page and try again.",
-    "generic": "Something went wrong. Try again."
+    "generic": "Something went wrong. Try again.",
+    "sourceConflict": "This source exists already.",
+    "sourceLimit": "The organization has the most sources it may have.",
+    "validation": "Some entries are not valid. Check them and try again."
+  },
+  "Sources": {
+    "metaTitle": "Sources",
+    "title": "Sources",
+    "intro": "Where Pharos gets its articles from. A new source stays switched off until an administrator switches it on.",
+    "readOnly": "You can look at the sources. Only administrators change them.",
+    "results": "List of sources",
+    "loading": "Loading the sources…",
+    "loadFailed": "The sources could not be loaded. Try again later.",
+    "retry": "Try again",
+    "empty": "No source has been added yet.",
+    "emptyAdmin": "No source has been added yet. Add the first one.",
+    "filters": {
+      "label": "Filter",
+      "type": "Type",
+      "allTypes": "All types",
+      "state": "State",
+      "allStates": "All states",
+      "on": "Switched on",
+      "off": "Switched off"
+    },
+    "total": "Total: {total}",
+    "range": "{from}–{to} of {total}",
+    "pagination": "Pages",
+    "previous": "Previous",
+    "next": "Next",
+    "types": {
+      "rss": "Feed (RSS or Atom)",
+      "github": "GitHub releases",
+      "hackernews": "Hacker News"
+    },
+    "health": {
+      "off": "Switched off",
+      "failing": "Failing",
+      "ok": "Working",
+      "new": "Not fetched yet"
+    },
+    "facts": {
+      "lastSuccess": "Last success: {date}",
+      "never": "No successful fetch yet",
+      "failures": "Failed in a row: {count}",
+      "lastError": "Last problem: {problem}",
+      "next": "Next fetch: {date}",
+      "createdAt": "Added: {date}"
+    },
+    "intervals": {
+      "300": "Every 5 minutes",
+      "900": "Every 15 minutes",
+      "1800": "Every 30 minutes",
+      "3600": "Every hour",
+      "7200": "Every 2 hours",
+      "21600": "Every 6 hours",
+      "43200": "Every 12 hours",
+      "86400": "Every day",
+      "604800": "Every week"
+    },
+    "intervalOther": "Every {seconds} seconds",
+    "actions": {
+      "add": "Add a source",
+      "edit": "Edit",
+      "enable": "Switch on",
+      "disable": "Switch off",
+      "delete": "Delete",
+      "test": "Try a fetch",
+      "articles": "Articles",
+      "runs": "Latest fetches",
+      "actionOn": "{action}: {name}"
+    },
+    "done": {
+      "created": "Added: {name}",
+      "updated": "Saved: {name}",
+      "enabled": "Switched on: {name}",
+      "disabled": "Switched off: {name}",
+      "deleted": "Deleted: {name}"
+    },
+    "form": {
+      "addTitle": "Add a source",
+      "editTitle": "Edit the source",
+      "type": "Type",
+      "typeFixed": "The type cannot be changed. Add a new source instead.",
+      "name": "Name",
+      "nameHint": "Plain text, up to 200 characters.",
+      "url": "Address of the feed",
+      "urlHint": "A web address starting with http:// or https://. Addresses inside the network are not allowed.",
+      "repo": "Repository",
+      "repoHint": "Written as owner/name, for example acme/widget.",
+      "query": "Search words",
+      "queryHint": "Up to 100 characters.",
+      "points": "Fewest points",
+      "pointsHint": "A whole number from 0 to 10000. Empty means 20.",
+      "interval": "How often",
+      "enabledNow": "Switch it on now",
+      "save": "Save",
+      "saving": "Saving…",
+      "cancel": "Cancel",
+      "problems": "Please correct the entries marked below."
+    },
+    "fieldErrors": {
+      "urlRequired": "Enter the address of the feed.",
+      "urlInvalid": "This is not a web address that starts with http:// or https://.",
+      "urlNotAllowed": "This address leads to a machine inside the network, which is not allowed.",
+      "repoInvalid": "Write the repository as owner/name.",
+      "queryInvalid": "Enter search words of up to 100 characters, without markup.",
+      "pointsInvalid": "Use a whole number from 0 to 10000.",
+      "nameInvalid": "The name must be plain text.",
+      "nameMissing": "Enter a name.",
+      "nameTooLong": "The name is too long (200 characters at most).",
+      "intervalInvalid": "Choose how often to fetch.",
+      "configInvalid": "The settings are not valid.",
+      "formInvalid": "Some entries are not valid."
+    },
+    "deleteDialog": {
+      "title": "Delete this source?",
+      "body": "“{name}” will be removed together with its fetch history. The articles it brought stay.",
+      "confirm": "Delete",
+      "cancel": "Cancel",
+      "deleting": "Deleting…"
+    },
+    "runs": {
+      "title": "Latest fetches",
+      "loading": "Loading the fetches…",
+      "empty": "No fetch yet.",
+      "failed": "The fetches could not be loaded.",
+      "started": "Started",
+      "result": "Result",
+      "http": "Answer",
+      "seen": "Seen",
+      "added": "New"
+    },
+    "outcome": {
+      "running": "Running",
+      "ok": "Fetched",
+      "not_modified": "Nothing new",
+      "blocked": "Not allowed",
+      "timeout": "Too slow",
+      "too_large": "Too large",
+      "bad_status": "Server refused",
+      "bad_content": "Not readable",
+      "network": "Not reachable",
+      "error": "Failed",
+      "host_busy": "Server was busy",
+      "source_missing": "Source not found",
+      "other": "Other"
+    },
+    "lastError": {
+      "http_error": "The server refused the request.",
+      "not_allowed": "The address is not allowed.",
+      "redirects": "Too many redirects.",
+      "timed_out": "The server did not answer in time.",
+      "too_large": "The answer was too large.",
+      "unexpected": "An unexpected error.",
+      "unreachable": "The server could not be reached.",
+      "unreadable": "The answer could not be read.",
+      "json_invalid": "The answer was not valid JSON.",
+      "json_shape": "The answer had an unexpected shape.",
+      "bad_config": "The settings are not valid.",
+      "config_invalid": "The stored settings are not valid.",
+      "store_failed": "The result could not be stored.",
+      "unsupported": "This kind of source is not supported.",
+      "unsupported_type": "This kind of source is not supported.",
+      "bad_content": "The answer was not a feed.",
+      "too_complex": "The feed is too complex.",
+      "other": "Another problem."
+    },
+    "test": {
+      "title": "Trial fetch",
+      "waiting": "Waiting for the worker…",
+      "gaveUp": "No answer yet. Try again in a moment.",
+      "unavailable": "The answer of the worker could not be used.",
+      "result": "Result: {outcome}",
+      "problem": "Problem: {problem}",
+      "status": "Server answer: {status}",
+      "counts": "Articles seen: {seen}, left out: {skipped}",
+      "noSample": "No article to show.",
+      "sample": "First articles found",
+      "close": "Close",
+      "opensInNewTab": " (opens in a new tab)"
+    },
+    "articlesNote": "Articles of this source"
   }
 }

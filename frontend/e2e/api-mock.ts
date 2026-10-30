@@ -1,25 +1,32 @@
 import type { BrowserContext, Page } from "@playwright/test";
 import { defaultItems, handleItems, type ItemsOptions, type ItemsState } from "./items-mock";
+import {
+  defaultSources,
+  handleSources,
+  type SourcesOptions,
+  type SourcesState,
+} from "./sources-mock";
 
 // The end-to-end tests run the production build of the web app alone, without the backend, so
 // the API is answered here. Every answer has the shape documented in docs/API.md.
 
-export type MockOptions = ItemsOptions & {
-  /** Starts with a session (the cookie of a signed-in person). */
-  signedIn?: boolean;
-  localLogin?: "off" | "break-glass" | "on";
-  /** Name of the single sign-on provider; null means none is configured. */
-  provider?: string | null;
-  /** What the password sign-in answers: success, wrong credentials or too many attempts. */
-  loginResult?: "ok" | "wrong" | "limited";
-  role?: "admin" | "editor" | "member";
-  /** Sign-out of a single sign-on session answers with the provider's sign-out page. */
-  providerLogoutUrl?: string;
-  /** False: the person still has to answer the onboarding questions. Default: done. */
-  onboarded?: boolean;
-  /** Answers already saved, for someone who left onboarding halfway. */
-  profile?: Partial<Profile>;
-};
+export type MockOptions = ItemsOptions &
+  SourcesOptions & {
+    /** Starts with a session (the cookie of a signed-in person). */
+    signedIn?: boolean;
+    localLogin?: "off" | "break-glass" | "on";
+    /** Name of the single sign-on provider; null means none is configured. */
+    provider?: string | null;
+    /** What the password sign-in answers: success, wrong credentials or too many attempts. */
+    loginResult?: "ok" | "wrong" | "limited";
+    role?: "admin" | "editor" | "member";
+    /** Sign-out of a single sign-on session answers with the provider's sign-out page. */
+    providerLogoutUrl?: string;
+    /** False: the person still has to answer the onboarding questions. Default: done. */
+    onboarded?: boolean;
+    /** Answers already saved, for someone who left onboarding halfway. */
+    profile?: Partial<Profile>;
+  };
 
 export const CSRF_TOKEN = "csrf-e2e";
 export const USER_NAME = "Test User";
@@ -44,7 +51,8 @@ export type MockState = {
   logoutCsrf: string | null;
   /** The X-CSRF-Token headers of the profile saves and of the completion. */
   profileCsrf: (string | null)[];
-} & ItemsState;
+} & ItemsState &
+  SourcesState;
 
 export const PROFESSIONS = [
   {
@@ -100,6 +108,8 @@ export async function mockApi(
     profileCsrf: [],
     items: options.items ?? defaultItems(),
     conflictOnce: options.conflictOnce ?? false,
+    sources: options.sources ?? defaultSources(),
+    testReads: {},
   };
   const user = () => ({
     id: "00000000-0000-4000-8000-000000000001",
@@ -210,6 +220,14 @@ export async function mockApi(
     }
     if (
       await handleItems(route, request, path, state, options, options.role ?? "member", problem)
+    ) {
+      return;
+    }
+    if (!state.signedIn && path.startsWith("/api/sources")) {
+      return route.fulfill(problem(401, "not_authenticated"));
+    }
+    if (
+      await handleSources(route, request, path, state, options, options.role ?? "member", problem)
     ) {
       return;
     }

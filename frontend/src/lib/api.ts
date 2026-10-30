@@ -27,10 +27,37 @@ export class ApiProblem extends Error {
     readonly status: number,
     readonly code: string,
     readonly retryAfter: number | null = null,
+    /** What was wrong with which field, for a `validation_failed` answer. Never the value. */
+    readonly fields: FieldProblem[] = [],
   ) {
     super(code);
     this.name = "ApiProblem";
   }
+}
+
+/** One problem with one field of a request: where it is (`["body", "config"]`) and what it is. */
+export type FieldProblem = { loc: string[]; type: string };
+
+const MAX_FIELD_PROBLEMS = 20;
+
+/** The field problems of an answer, keeping only entries of exactly the documented shape. */
+export function fieldProblems(problem: unknown): FieldProblem[] {
+  if (!problem || typeof problem !== "object" || !("errors" in problem)) return [];
+  const errors = (problem as { errors: unknown }).errors;
+  if (!Array.isArray(errors)) return [];
+  const found: FieldProblem[] = [];
+  for (const entry of errors.slice(0, MAX_FIELD_PROBLEMS)) {
+    if (!entry || typeof entry !== "object") continue;
+    const { loc, type } = entry as { loc?: unknown; type?: unknown };
+    if (
+      Array.isArray(loc) &&
+      loc.every((part) => typeof part === "string" || typeof part === "number") &&
+      typeof type === "string"
+    ) {
+      found.push({ loc: loc.map(String), type });
+    }
+  }
+  return found;
 }
 
 const MAX_NEXT = 512;
@@ -87,18 +114,20 @@ export async function request(path: string, options: Options = {}): Promise<Resp
   }
   if (response.ok) return response;
   let code = "http_error";
+  let fields: FieldProblem[] = [];
   try {
     const problem: unknown = await response.json();
     if (problem && typeof problem === "object" && "code" in problem) {
       const found = (problem as { code: unknown }).code;
       if (typeof found === "string") code = found;
     }
+    fields = fieldProblems(problem);
   } catch {
     // A proxy error page or an empty body: the status alone tells what happened.
   }
   const retry = Number.parseInt(response.headers.get("Retry-After") ?? "", 10);
   if (response.status === 401 && !options.ignore401) listeners.forEach((listener) => listener());
-  throw new ApiProblem(response.status, code, Number.isFinite(retry) ? retry : null);
+  throw new ApiProblem(response.status, code, Number.isFinite(retry) ? retry : null, fields);
 }
 
 function isSession(value: unknown): value is Session {

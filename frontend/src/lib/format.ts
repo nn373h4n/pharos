@@ -9,3 +9,17 @@ export function formatDate(value: string | null | undefined, locale: string): st
     return null;
   }
 }
+
+/** A date and time as the reader's language writes them, or null. */
+export function formatDateTime(value: string | null | undefined, locale: string): string | null {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  try {
+    return new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short" }).format(
+      date,
+    );
+  } catch {
+    return null;
+  }
+}

@@ -140,7 +140,8 @@
   "Nav": {
     "main": "Əsas naviqasiya",
     "home": "Ana səhifə",
-    "items": "Məqalələr"
+    "items": "Məqalələr",
+    "sources": "Mənbələr"
   },
   "Items": {
     "metaTitle": "Məqalələr",
@@ -194,6 +195,10 @@
       "approve": "Təsdiqləndi: {title}",
       "hide": "Gizlədildi: {title}",
       "restore": "Bərpa olundu: {title}"
+    },
+    "source": {
+      "only": "Yalnız bir mənbənin məqalələri göstərilir.",
+      "all": "Bütün məqalələri göstər"
     }
   },
   "Problems": {
@@ -204,6 +209,188 @@
     "rateLimitedNoWait": "Həddindən çox sorğu. Bir az sonra yenidən cəhd edin.",
     "unavailable": "Xidmət hazırda əlçatan deyil. Bir az sonra yenidən cəhd edin.",
     "csrf": "Sorğu rədd edildi. Səhifəni yeniləyib yenidən cəhd edin.",
-    "generic": "Nəsə səhv getdi. Yenidən cəhd edin."
+    "generic": "Nəsə səhv getdi. Yenidən cəhd edin.",
+    "sourceConflict": "Bu mənbə artıq mövcuddur.",
+    "sourceLimit": "Təşkilat icazə verilən maksimum mənbə sayına çatıb.",
+    "validation": "Bəzi daxil edilənlər düzgün deyil. Yoxlayıb yenidən cəhd edin."
+  },
+  "Sources": {
+    "metaTitle": "Mənbələr",
+    "title": "Mənbələr",
+    "intro": "Pharos məqalələri haradan alır. Yeni mənbə administrator onu işə salana qədər söndürülü qalır.",
+    "readOnly": "Mənbələrə baxa bilərsiniz. Onları yalnız administratorlar dəyişir.",
+    "results": "Mənbələr siyahısı",
+    "loading": "Mənbələr yüklənir…",
+    "loadFailed": "Mənbələri yükləmək mümkün olmadı. Bir az sonra yenidən cəhd edin.",
+    "retry": "Yenidən cəhd et",
+    "empty": "Hələ mənbə əlavə edilməyib.",
+    "emptyAdmin": "Hələ mənbə əlavə edilməyib. İlk mənbəni əlavə edin.",
+    "filters": {
+      "label": "Filtr",
+      "type": "Tip",
+      "allTypes": "Bütün tiplər",
+      "state": "Vəziyyət",
+      "allStates": "Bütün vəziyyətlər",
+      "on": "İşə salınıb",
+      "off": "Söndürülüb"
+    },
+    "total": "Cəmi: {total}",
+    "range": "{from}–{to} / {total}",
+    "pagination": "Səhifələr",
+    "previous": "Əvvəlki",
+    "next": "Növbəti",
+    "types": {
+      "rss": "Lent (RSS və ya Atom)",
+      "github": "GitHub buraxılışları",
+      "hackernews": "Hacker News"
+    },
+    "health": {
+      "off": "Söndürülüb",
+      "failing": "Xəta verir",
+      "ok": "İşləyir",
+      "new": "Hələ çəkilməyib"
+    },
+    "facts": {
+      "lastSuccess": "Son uğurlu çəkiliş: {date}",
+      "never": "Hələ uğurlu çəkiliş olmayıb",
+      "failures": "Ardıcıl uğursuzluq: {count}",
+      "lastError": "Son problem: {problem}",
+      "next": "Növbəti çəkiliş: {date}",
+      "createdAt": "Əlavə olunub: {date}"
+    },
+    "intervals": {
+      "300": "Hər 5 dəqiqədən bir",
+      "900": "Hər 15 dəqiqədən bir",
+      "1800": "Hər 30 dəqiqədən bir",
+      "3600": "Hər saat",
+      "7200": "Hər 2 saatdan bir",
+      "21600": "Hər 6 saatdan bir",
+      "43200": "Hər 12 saatdan bir",
+      "86400": "Hər gün",
+      "604800": "Hər həftə"
+    },
+    "intervalOther": "Hər {seconds} saniyədən bir",
+    "actions": {
+      "add": "Mənbə əlavə et",
+      "edit": "Redaktə et",
+      "enable": "İşə sal",
+      "disable": "Söndür",
+      "delete": "Sil",
+      "test": "Sınaq çəkilişi",
+      "articles": "Məqalələr",
+      "runs": "Son çəkilişlər",
+      "actionOn": "{action}: {name}"
+    },
+    "done": {
+      "created": "Əlavə olundu: {name}",
+      "updated": "Yadda saxlanıldı: {name}",
+      "enabled": "İşə salındı: {name}",
+      "disabled": "Söndürüldü: {name}",
+      "deleted": "Silindi: {name}"
+    },
+    "form": {
+      "addTitle": "Mənbə əlavə et",
+      "editTitle": "Mənbəni redaktə et",
+      "type": "Tip",
+      "typeFixed": "Tip dəyişdirilə bilməz. Əvəzinə yeni mənbə əlavə edin.",
+      "name": "Ad",
+      "nameHint": "Sadə mətn, 200 simvola qədər.",
+      "url": "Lentin ünvanı",
+      "urlHint": "http:// və ya https:// ilə başlayan veb ünvanı. Şəbəkə daxilindəki ünvanlara icazə verilmir.",
+      "repo": "Repozitoriya",
+      "repoHint": "owner/name şəklində yazılır, məsələn acme/widget.",
+      "query": "Axtarış sözləri",
+      "queryHint": "100 simvola qədər.",
+      "points": "Ən az bal",
+      "pointsHint": "0-dan 10000-ə qədər tam ədəd. Boş buraxsanız 20 olur.",
+      "interval": "Nə qədər tez-tez",
+      "enabledNow": "İndi işə sal",
+      "save": "Yadda saxla",
+      "saving": "Yadda saxlanılır…",
+      "cancel": "Ləğv et",
+      "problems": "Aşağıda işarələnmiş sahələri düzəldin."
+    },
+    "fieldErrors": {
+      "urlRequired": "Lentin ünvanını daxil edin.",
+      "urlInvalid": "Bu, http:// və ya https:// ilə başlayan veb ünvanı deyil.",
+      "urlNotAllowed": "Bu ünvan şəbəkə daxilindəki maşına aparır, buna icazə verilmir.",
+      "repoInvalid": "Repozitoriyanı owner/name şəklində yazın.",
+      "queryInvalid": "Markasız, 100 simvola qədər axtarış sözləri daxil edin.",
+      "pointsInvalid": "0-dan 10000-ə qədər tam ədəd yazın.",
+      "nameInvalid": "Ad sadə mətn olmalıdır.",
+      "nameMissing": "Ad daxil edin.",
+      "nameTooLong": "Ad çox uzundur (ən çox 200 simvol).",
+      "intervalInvalid": "Nə qədər tez-tez çəkiləcəyini seçin.",
+      "configInvalid": "Parametrlər düzgün deyil.",
+      "formInvalid": "Bəzi daxil edilənlər düzgün deyil."
+    },
+    "deleteDialog": {
+      "title": "Bu mənbə silinsin?",
+      "body": "“{name}” çəkiliş tarixçəsi ilə birlikdə silinəcək. Gətirdiyi məqalələr qalır.",
+      "confirm": "Sil",
+      "cancel": "Ləğv et",
+      "deleting": "Silinir…"
+    },
+    "runs": {
+      "title": "Son çəkilişlər",
+      "loading": "Çəkilişlər yüklənir…",
+      "empty": "Hələ çəkiliş olmayıb.",
+      "failed": "Çəkilişləri yükləmək mümkün olmadı.",
+      "started": "Başlayıb",
+      "result": "Nəticə",
+      "http": "Cavab",
+      "seen": "Görünən",
+      "added": "Yeni"
+    },
+    "outcome": {
+      "running": "İşləyir",
+      "ok": "Çəkildi",
+      "not_modified": "Yenilik yoxdur",
+      "blocked": "İcazə verilmir",
+      "timeout": "Çox yavaş",
+      "too_large": "Çox böyük",
+      "bad_status": "Server rədd etdi",
+      "bad_content": "Oxunmur",
+      "network": "Əlçatan deyil",
+      "error": "Alınmadı",
+      "host_busy": "Server məşğul idi",
+      "source_missing": "Mənbə tapılmadı",
+      "other": "Digər"
+    },
+    "lastError": {
+      "http_error": "Server sorğunu rədd etdi.",
+      "not_allowed": "Ünvana icazə verilmir.",
+      "redirects": "Çox sayda yönləndirmə.",
+      "timed_out": "Server vaxtında cavab vermədi.",
+      "too_large": "Cavab çox böyük idi.",
+      "unexpected": "Gözlənilməz xəta.",
+      "unreachable": "Serverə çatmaq mümkün olmadı.",
+      "unreadable": "Cavabı oxumaq mümkün olmadı.",
+      "json_invalid": "Cavab düzgün JSON deyildi.",
+      "json_shape": "Cavabın quruluşu gözlənilməz idi.",
+      "bad_config": "Parametrlər düzgün deyil.",
+      "config_invalid": "Saxlanılmış parametrlər düzgün deyil.",
+      "store_failed": "Nəticəni saxlamaq mümkün olmadı.",
+      "unsupported": "Bu tip mənbə dəstəklənmir.",
+      "unsupported_type": "Bu tip mənbə dəstəklənmir.",
+      "bad_content": "Cavab lent deyildi.",
+      "too_complex": "Lent çox mürəkkəbdir.",
+      "other": "Başqa problem."
+    },
+    "test": {
+      "title": "Sınaq çəkilişi",
+      "waiting": "İşçi proses gözlənilir…",
+      "gaveUp": "Hələ cavab yoxdur. Bir az sonra yenidən cəhd edin.",
+      "unavailable": "İşçi prosesin cavabından istifadə etmək mümkün olmadı.",
+      "result": "Nəticə: {outcome}",
+      "problem": "Problem: {problem}",
+      "status": "Serverin cavabı: {status}",
+      "counts": "Görünən məqalə: {seen}, kənarda qalan: {skipped}",
+      "noSample": "Göstəriləcək məqalə yoxdur.",
+      "sample": "Tapılan ilk məqalələr",
+      "close": "Bağla",
+      "opensInNewTab": " (yeni tabda açılır)"
+    },
+    "articlesNote": "Bu mənbənin məqalələri"
   }
 }

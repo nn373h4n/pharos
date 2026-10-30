@@ -26,7 +26,7 @@ vi.mock("@/i18n/navigation", () => ({
 
 const { MainNav } = await import("./main-nav");
 
-function user(onboarded: boolean) {
+function user(onboarded: boolean, role = "member") {
   return {
     status: "authenticated",
     session: {
@@ -35,7 +35,7 @@ function user(onboarded: boolean) {
         id: "u1",
         display_name: "A",
         email: null,
-        role: "member",
+        role,
         locale: null,
         department: null,
         last_login_at: null,
@@ -118,5 +118,18 @@ describe("MainNav", () => {
     show(ru, "ru");
     expect(screen.getByRole("navigation", { name: ru.Nav.main })).toBeDefined();
     expect(screen.getByRole("link", { name: ru.Nav.items })).toBeDefined();
+  });
+
+  it.each([
+    ["admin", true],
+    ["editor", true],
+    ["member", false],
+  ])("shows the sources page to %s: %s", (role, seen) => {
+    sessionState = user(true, role);
+    show();
+    const hrefs = [...screen.getByRole("navigation").querySelectorAll("a")].map((link) =>
+      link.getAttribute("href"),
+    );
+    expect(hrefs.includes("/sources")).toBe(seen);
   });
 });

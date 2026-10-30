@@ -4,7 +4,9 @@ import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useRef, useState } from "react";
 import { useSession } from "@/components/auth/session-provider";
 import { ItemCard } from "@/components/items/item-card";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { Link } from "@/i18n/navigation";
+import { cn } from "@/lib/utils";
 import { ApiProblem } from "@/lib/api";
 import {
   actOnItem,
@@ -28,7 +30,7 @@ type Notice = { kind: "done" | "error"; text: string };
  * look at the held and hidden ones and review (hold, approve, hide, restore). What is shown is
  * decided by the backend: a member who asks for more gets a refusal, not data.
  */
-export function ItemsView() {
+export function ItemsView({ sourceId }: { sourceId?: string }) {
   const t = useTranslations("Items");
   const problems = useTranslations("Problems");
   const locale = useLocale();
@@ -46,12 +48,12 @@ export function ItemsView() {
   const role = state.status === "authenticated" ? state.session.user.role : null;
   const csrf = state.status === "authenticated" ? state.session.csrf_token : "";
   const reviewer = role === "admin" || role === "editor";
-  const key = `${status}|${offset}|${reloads}`;
+  const key = `${status}|${offset}|${reloads}|${sourceId ?? ""}`;
 
   useEffect(() => {
     if (role === null) return;
     let current = true;
-    listItems({ status, offset }).then(
+    listItems({ status, offset, sourceId }).then(
       (page) => {
         if (current) setLoaded({ key, page });
       },
@@ -62,7 +64,7 @@ export function ItemsView() {
     return () => {
       current = false;
     };
-  }, [key, status, offset, role]);
+  }, [key, status, offset, role, sourceId]);
 
   if (role === null) return null;
   const settled = loaded !== null && loaded.key === key ? loaded : null;
@@ -124,6 +126,14 @@ export function ItemsView() {
   return (
     <>
       <p className="mt-2 max-w-2xl text-muted-foreground">{t("intro")}</p>
+      {sourceId && (
+        <p className="mt-4 flex flex-wrap items-center gap-3 rounded-md border border-border bg-muted p-3 text-sm">
+          <span>{t("source.only")}</span>
+          <Link href="/items" className={cn(buttonVariants({ variant: "outline", size: "sm" }))}>
+            {t("source.all")}
+          </Link>
+        </p>
+      )}
 
       {reviewer && (
         <div role="group" aria-label={t("filter.label")} className="mt-6 flex flex-wrap gap-2">

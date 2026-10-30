@@ -7,6 +7,7 @@ export default defineConfig({
   },
   test: {
     environment: "jsdom",
+    setupFiles: ["./src/test-setup.ts"],
     include: ["src/**/*.test.{ts,tsx}", "scripts/**/*.test.mjs"],
     // Playwright specs live in e2e/ and run with `pnpm test:e2e`.
     exclude: ["e2e/**", "node_modules/**", ".next/**"],
