@@ -136,5 +136,74 @@
       "unavailable": "The service is not available right now. Try again later.",
       "incomplete": "Some earlier answers are missing. Please answer them first."
     }
+  },
+  "Nav": {
+    "main": "Main navigation",
+    "home": "Home",
+    "items": "Articles"
+  },
+  "Items": {
+    "metaTitle": "Articles",
+    "title": "Articles",
+    "intro": "New articles from the sources your organization follows.",
+    "results": "List of articles",
+    "loading": "Loading the articles…",
+    "loadFailed": "The articles could not be loaded. Try again later.",
+    "retry": "Try again",
+    "empty": {
+      "new": "There are no articles yet.",
+      "held": "No article is waiting for review.",
+      "hidden": "No article is hidden."
+    },
+    "filter": {
+      "label": "Show",
+      "new": "Current",
+      "held": "Held for review",
+      "hidden": "Hidden"
+    },
+    "total": "Total: {total}",
+    "range": "{from}–{to} of {total}",
+    "pagination": "Pages",
+    "previous": "Previous",
+    "next": "Next",
+    "opensInNewTab": " (opens in a new tab)",
+    "published": "Published {date}",
+    "from": "From {sources}",
+    "unlinked": "The link of this article is not a web address and is not shown.",
+    "status": {
+      "new": "Current",
+      "held": "Held",
+      "hidden": "Hidden"
+    },
+    "reasons": {
+      "link_ip_host": "The link points to an IP address.",
+      "link_odd_port": "The link uses an unusual port.",
+      "instruction_phrase": "The text looks like an instruction to an AI.",
+      "editor_hold": "Held by an editor.",
+      "other": "Flagged for review."
+    },
+    "actions": {
+      "hold": "Hold",
+      "approve": "Approve",
+      "hide": "Hide",
+      "restore": "Restore"
+    },
+    "actionOn": "{action}: {title}",
+    "done": {
+      "hold": "Held: {title}",
+      "approve": "Approved: {title}",
+      "hide": "Hidden: {title}",
+      "restore": "Restored: {title}"
+    }
+  },
+  "Problems": {
+    "forbidden": "You are not allowed to do this.",
+    "notFound": "This was not found. It may have been removed.",
+    "itemState": "Someone changed this article first. The list was refreshed.",
+    "rateLimited": "Too many requests. Try again in {seconds} seconds.",
+    "rateLimitedNoWait": "Too many requests. Try again in a moment.",
+    "unavailable": "The service is not available right now. Try again later.",
+    "csrf": "The request was refused. Reload the page and try again.",
+    "generic": "Something went wrong. Try again."
   }
 }

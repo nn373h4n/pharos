@@ -136,5 +136,74 @@
       "unavailable": "Hizmet şu anda kullanılamıyor. Daha sonra tekrar deneyin.",
       "incomplete": "Önceki yanıtlardan bazıları eksik. Lütfen önce onları yanıtlayın."
     }
+  },
+  "Nav": {
+    "main": "Ana gezinti",
+    "home": "Ana sayfa",
+    "items": "Makaleler"
+  },
+  "Items": {
+    "metaTitle": "Makaleler",
+    "title": "Makaleler",
+    "intro": "Kuruluşunuzun takip ettiği kaynaklardan yeni makaleler.",
+    "results": "Makale listesi",
+    "loading": "Makaleler yükleniyor…",
+    "loadFailed": "Makaleler yüklenemedi. Biraz sonra tekrar deneyin.",
+    "retry": "Tekrar dene",
+    "empty": {
+      "new": "Henüz makale yok.",
+      "held": "İncelemeyi bekleyen makale yok.",
+      "hidden": "Gizlenmiş makale yok."
+    },
+    "filter": {
+      "label": "Göster",
+      "new": "Güncel",
+      "held": "İncelemeye bekletilenler",
+      "hidden": "Gizlenenler"
+    },
+    "total": "Toplam: {total}",
+    "range": "{from}–{to} / {total}",
+    "pagination": "Sayfalar",
+    "previous": "Önceki",
+    "next": "Sonraki",
+    "opensInNewTab": " (yeni sekmede açılır)",
+    "published": "Yayın tarihi: {date}",
+    "from": "Kaynak: {sources}",
+    "unlinked": "Bu makalenin bağlantısı bir web adresi değil ve gösterilmiyor.",
+    "status": {
+      "new": "Güncel",
+      "held": "Bekletildi",
+      "hidden": "Gizlendi"
+    },
+    "reasons": {
+      "link_ip_host": "Bağlantı bir IP adresine gidiyor.",
+      "link_odd_port": "Bağlantı olağandışı bir port kullanıyor.",
+      "instruction_phrase": "Metin, yapay zekâya verilen bir talimata benziyor.",
+      "editor_hold": "Bir editör tarafından bekletildi.",
+      "other": "İnceleme için işaretlendi."
+    },
+    "actions": {
+      "hold": "Beklet",
+      "approve": "Onayla",
+      "hide": "Gizle",
+      "restore": "Geri getir"
+    },
+    "actionOn": "{action}: {title}",
+    "done": {
+      "hold": "Bekletildi: {title}",
+      "approve": "Onaylandı: {title}",
+      "hide": "Gizlendi: {title}",
+      "restore": "Geri getirildi: {title}"
+    }
+  },
+  "Problems": {
+    "forbidden": "Bunu yapma izniniz yok.",
+    "notFound": "Bulunamadı. Kaldırılmış olabilir.",
+    "itemState": "Biri bu makaleyi önce değiştirdi. Liste yenilendi.",
+    "rateLimited": "Çok fazla istek. {seconds} saniye sonra tekrar deneyin.",
+    "rateLimitedNoWait": "Çok fazla istek. Biraz sonra tekrar deneyin.",
+    "unavailable": "Hizmet şu anda kullanılamıyor. Daha sonra tekrar deneyin.",
+    "csrf": "İstek reddedildi. Sayfayı yenileyip tekrar deneyin.",
+    "generic": "Bir şeyler ters gitti. Tekrar deneyin."
   }
 }
