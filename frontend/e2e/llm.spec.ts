@@ -57,7 +57,7 @@ test.describe("the model page", () => {
     await expect(main(page).getByRole("alert")).toHaveText(en.Llm.budget.warned);
     await page.getByRole("button", { name: en.Llm.key.test }).click();
     await expect(main(page).getByRole("status")).toHaveText(en.Llm.key.waiting);
-    await expect(main(page).getByRole("status")).toHaveText("Result: The key works", {
+    await expect(main(page).getByRole("status")).toHaveText("Result: The key works.", {
       timeout: 15_000,
     });
     expect(state.calls).toContain("POST /api/llm/key-test");
