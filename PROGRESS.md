@@ -4,7 +4,7 @@ Management view, kept short. Task detail is in [TASKS.md](TASKS.md).
 
 ## Where the project is
 
-- **Phase:** 1 (MVP). Milestones **M1** (skeleton and security baseline) and **M2** (sign-in, organization, onboarding) are complete. **M3** (sources and ingestion) is built: 16 of 17 tasks are Done, and **M3-14** (real-stack end-to-end tests, CI job, whole-milestone review, documentation) stays in **Review** until its pull request merges. Next: **M4** (enrichment, translation, personal feed, "Try this"), which needs a plan approved by the maintainer first.
+- **Phase:** 1 (MVP). Milestones **M1** (skeleton and security baseline) and **M2** (sign-in, organization, onboarding) are complete. **M3** (sources and ingestion) is complete (2026-10-31): all 17 tasks are Done, including **M3-14** (real-stack end-to-end tests, CI job, whole-milestone review, documentation; merged as PR #53). Next: **M4** (enrichment, translation, personal feed, "Try this"), which needs a plan approved by the maintainer first.
 - **What exists:** a platform people can sign in to (single sign-on with any OpenID Connect provider, local break-glass administrators, roles, onboarding in four languages, audit log, Docker Compose stack). On top of it, M3 adds:
   - **Sources:** administrators and editors manage RSS and Atom feeds, GitHub release feeds and Hacker News searches; a starter catalogue of 25 sources approved by the maintainer is imported switched off; a trial fetch shows what a source would bring before it is switched on.
   - **Ingestion:** a dispatcher runs every minute and leases due sources; the worker fetches only through `SafeHttpClient` (addresses checked at connect time, redirects checked by hand, size and time limits, no internal or own-host addresses); hostile feed input is refused or cut; the pipeline removes duplicates and holds suspicious items for review.
@@ -12,7 +12,7 @@ Management view, kept short. Task detail is in [TASKS.md](TASKS.md).
   - **Personal feeds:** each person may add up to 5 RSS feeds, at most one fetch an hour, visible to that person only; they stop being fetched when the person is disabled.
   - **Worker isolation:** the worker has its own database role and its own Redis user, so it cannot read or write sessions (F-14 closed).
 - **What does not exist yet:** no LLM, no embeddings, no ranking, no "Try this" and no Reddit or commercial news source (the legal question is open).
-- **Completion (counted from TASKS.md):** M1 10 of 10 tasks, M2 15 of 15, M3 16 of 17 (M3-14 in Review). Overall 2 of 5 milestones complete, M3 in review. These are counts, not effort estimates; the milestones differ a lot in size.
+- **Completion (counted from TASKS.md):** M1 10 of 10 tasks, M2 15 of 15, M3 17 of 17. Overall 3 of 5 milestones complete. These are counts, not effort estimates; the milestones differ a lot in size.
 - **Schedule (estimate):** M3 was built in about three calendar days (2026-10-28 to 2026-10-31), including review rounds and a parallel session. That is an observation, not a basis for estimating M4 and M5.
 
 ## Checks (state on `main` after PR #52; the M3-14 pull request is pending)

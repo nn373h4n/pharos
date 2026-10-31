@@ -98,7 +98,7 @@ SSRF has many corner cases (mitigated by the address allowlist, connect-time val
 
 ## Result
 
-Status on 2026-10-31: 16 of 17 tasks are Done. M3-14 (this end-to-end and review task) stays in Review until its pull request merges. Results per criterion, with the evidence file and test name where it is known. PASS means the named tests run and pass; PARTLY means the criterion is only partly shown.
+Status on 2026-10-31: all 17 tasks are Done; M3-14 (this end-to-end and review task) merged as PR #53. Results per criterion, with the evidence file and test name where it is known. PASS means the named tests run and pass; PARTLY means the criterion is only partly shown.
 
 | # | Criterion | Result | Evidence |
 | --- | --- | --- | --- |
