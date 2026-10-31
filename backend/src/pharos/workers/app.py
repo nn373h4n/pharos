@@ -12,6 +12,7 @@ from celery import Celery, signals
 from pharos.core.config import Settings, get_settings
 from pharos.core.heartbeat import HEARTBEAT_INTERVAL_SECONDS
 from pharos.core.logging import configure_logging
+from pharos.workers import llm_tasks  # noqa: F401  (registers the model-layer tasks)
 from pharos.workers.ingest_tasks import CLEANUP_TASK, DISPATCH_TASK
 from pharos.workers.runtime import WorkerRoleError, runtime, verify_database_role
 from pharos.workers.tasks import HEARTBEAT_TASK, write_heartbeat

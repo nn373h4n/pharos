@@ -58,6 +58,12 @@ return {n <= tonumber(ARGV[1]) and 1 or 0, n}
 """
 
 
+def spent_key(org: UUID, day: str) -> str:
+    """The key of an organization's counter for a day (`day` as YYYYMMDD, UTC). The API reads it for
+    the admin page; only the worker writes it."""
+    return f"{KEY_PREFIX}spent:{org}:{day}"
+
+
 @dataclass(frozen=True, slots=True)
 class Reservation:
     org: UUID
@@ -89,7 +95,7 @@ class Budget:
         return self._clock.now().strftime("%Y%m%d")
 
     def _spent_key(self, org: UUID) -> str:
-        return f"{KEY_PREFIX}spent:{org}:{self._day()}"
+        return spent_key(org, self._day())
 
     async def reserve(self, org: UUID, estimate: int) -> Reservation | Refusal:
         """Book `estimate` micro-dollars, or refuse. Raises BudgetUnavailable if Redis fails."""

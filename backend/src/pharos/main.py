@@ -43,6 +43,8 @@ from pharos.identity.service import LocalAuthService, LocalLoginMode
 from pharos.identity.users_router import router as users_router
 from pharos.items.router import router as items_router
 from pharos.items.service import ItemService
+from pharos.llmadmin.router import router as llm_admin_router
+from pharos.llmadmin.service import ModelAdminService, ModelSettings
 from pharos.profile.router import router as profile_router
 from pharos.profile.service import ProfileService
 from pharos.sources.router import router as sources_router
@@ -145,11 +147,25 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             )
         # The host of this installation is never a source, whatever name it is written with.
         own_host = (urlsplit(settings.public_url).hostname or "").lower()
+        queue = CeleryQueue(settings.redis_url.get_secret_value())
         app.state.sources = SourceService(
             audit=app.state.audit,
             blocked_hosts=[own_host] if own_host else [],
             redis=redis,  # the broker's database: the trial fetch keeps its markers there
-            queue=CeleryQueue(settings.redis_url.get_secret_value()),
+            queue=queue,
+        )
+        app.state.llm_admin = ModelAdminService(
+            audit=app.state.audit,
+            clock=SystemClock(),
+            settings=ModelSettings(
+                provider=settings.llm_provider,
+                model_filter=settings.llm_model_filter,
+                model_enrichment=settings.llm_model_enrichment,
+                model_insight=settings.llm_model_insight,
+                daily_cap_micro_usd=settings.llm_daily_budget_micro_usd,
+            ),
+            redis=redis,
+            queue=queue,
         )
         app.state.items = ItemService(audit=app.state.audit)
         app.state.feeds = FeedService(
@@ -215,5 +231,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(sources_router, prefix=API_PREFIX)
     app.include_router(items_router, prefix=API_PREFIX)
     app.include_router(feeds_router, prefix=API_PREFIX)
+    app.include_router(llm_admin_router, prefix=API_PREFIX)
     app.include_router(oidc_router, prefix=API_PREFIX)
     return app
