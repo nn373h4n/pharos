@@ -35,6 +35,12 @@ def _is_placeholder(password: str) -> bool:
     return re.sub(r"[^a-z]", "", password.lower()) in _PLACEHOLDER_PASSWORDS or password == ""
 
 
+# Labels of letters, digits and hyphens; the last starts with a letter, so no IPv4 spelling fits.
+_DNS_NAME = re.compile(
+    r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?"
+)
+
+
 class Settings(BaseSettings):
     """Runtime configuration of the API and worker processes.
 
@@ -73,6 +79,28 @@ class Settings(BaseSettings):
     # the worker does not fetch the ones that exist. The operator's switch against abuse, as
     # nobody else, administrators included, can see a person's feeds.
     personal_feeds: bool = True
+
+    # The model layer (M4, ADR-0002, ADR-0015, ADR-0016). Off unless a provider is named, and the
+    # product works without it. The key is held by the worker only (it makes the calls).
+    llm_provider: Literal["off", "fake", "anthropic", "openai", "azure"] = "off"
+    llm_api_key: SecretStr | None = None
+    # Only for a provider that needs a different endpoint (Azure, a gateway). https only.
+    llm_base_url: str | None = None
+    # The model of each stage; a stage without a model makes no call.
+    llm_model_filter: str = ""
+    llm_model_enrichment: str = ""
+    llm_model_insight: str = ""
+    # A small cap on purpose; an administrator raises it after the pilot shows the real cost.
+    # In millionths of a US dollar per day: 2_000_000 is two dollars.
+    llm_daily_budget_micro_usd: int = Field(default=2_000_000, ge=0)
+    llm_calls_per_minute: int = Field(default=30, ge=1, le=10_000)
+    llm_timeout_seconds: float = Field(default=60.0, gt=0, le=300)
+    llm_max_retries: int = Field(default=2, ge=0, le=5)
+    # What a model costs, in millionths of a dollar per token (the same number as dollars per
+    # million tokens), for the budget. Conservative on purpose; raise them for a dearer model,
+    # or the day's cap is reached later than it should be.
+    llm_price_in_micro_usd: int = Field(default=20, ge=1, le=100_000)
+    llm_price_out_micro_usd: int = Field(default=100, ge=1, le=100_000)
     # Root secret. Separate keys for separate purposes are derived from it (see core/secrets.py).
     secret_key: SecretStr = SecretStr(_DEVELOPMENT_SECRET_KEY)
 
@@ -212,6 +240,32 @@ class Settings(BaseSettings):
     def fetch_test_allowed_ports_list(self) -> list[int]:
         return [int(part) for part in self.fetch_test_allowed_ports.split(",") if part.strip()]
 
+    @field_validator("llm_api_key", "llm_base_url", mode="before")
+    @classmethod
+    def _llm_blank_is_unset(cls, value: object) -> object:
+        # Compose passes an empty string for a variable that is not set.
+        return None if isinstance(value, str) and not value.strip() else value
+
+    @model_validator(mode="after")
+    def _llm_is_consistent(self) -> Self:
+        if self.llm_provider == "fake" and self.environment == "production":
+            raise ValueError("the fake model provider is refused in production")
+        if self.llm_base_url is not None:
+            parts = urlsplit(self.llm_base_url)
+            host = (parts.hostname or "").lower()
+            if parts.scheme != "https" or not host or parts.username or parts.password:
+                raise ValueError("llm_base_url must be an https address without credentials")
+            # A provider is reached by a DNS name: its last label starts with a letter. That
+            # refuses every spelling of an address (2130706433, 127.1, 0x7f.1, [::1]) and a name
+            # with a trailing dot. The name is also looked up before the first call (M4-03).
+            if (
+                not _DNS_NAME.fullmatch(host)
+                or host == "localhost"
+                or host.endswith((".localhost", ".local", ".internal", ".lan", ".home.arpa"))
+            ):
+                raise ValueError("llm_base_url must be a public DNS name, not inside the network")
+        return self
+
     @model_validator(mode="after")
     def _fetch_allowance_only_in_tests(self) -> Self:
         networks = self.fetch_test_allowed_networks_list
@@ -281,6 +335,8 @@ class Settings(BaseSettings):
             return self
         if self.github_token is not None:
             raise ValueError("only the worker may be given the GitHub token")
+        if self.llm_api_key is not None:
+            raise ValueError("only the worker may be given the model key")
         if self.oidc_issuer is not None:
             if not self.oidc_issuer.startswith("https://"):
                 raise ValueError("oidc_issuer must use https in production")

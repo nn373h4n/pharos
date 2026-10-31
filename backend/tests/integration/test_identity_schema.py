@@ -877,6 +877,8 @@ EXPECTED_TABLE_PRIVILEGES = {
         "fetch_runs",
         "items",
         "item_sources",
+        # Migration 0005: the record of model calls, read for the budget page.
+        "llm_usage",
     )
 } | {("sources", "r", "DELETE")}
 EXPECTED_COLUMN_PRIVILEGES = (
@@ -1026,7 +1028,7 @@ async def test_downgrade_refuses_to_delete_data_unless_told_to(
         revision = (
             await connection.execute(text("SELECT version_num FROM alembic_version"))
         ).scalar_one()
-    assert remaining == 2 and revision == "0004"
+    assert remaining == 2 and revision == "0005"
 
     monkeypatch.setenv("PHAROS_ALLOW_DATA_LOSS", "yes")
     try:

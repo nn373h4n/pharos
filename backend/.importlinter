@@ -112,6 +112,32 @@ ignore_imports =
 allow_indirect_imports = True
 unmatched_ignore_imports_alerting = none
 
+[importlinter:contract:litellm-in-one-module]
+name = Only one module imports LiteLLM (ADR-0002, ADR-0015)
+type = forbidden
+source_modules =
+    pharos
+forbidden_modules =
+    litellm
+ignore_imports =
+    pharos.llm.litellm_provider -> litellm
+# The fixture projects of test_import_contracts.py do not contain that module.
+unmatched_ignore_imports_alerting = none
+
+[importlinter:contract:llm-is-not-an-api-module]
+name = The API never imports the model layer's providers (ADR-0004)
+type = forbidden
+source_modules =
+    pharos.*.router
+    pharos.*.service
+    pharos.main
+forbidden_modules =
+    pharos.llm.litellm_provider
+    pharos.llm.factory
+    pharos.llm.gateway
+allow_indirect_imports = True
+unmatched_ignore_imports_alerting = none
+
 # Still to add when the modules exist:
 # - a module never imports another module's repository (one contract per module pair or a layers
 #   contract over the module list, once there is more than one module with a repository);

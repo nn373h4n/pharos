@@ -1,6 +1,12 @@
 [tool.uv.workspace]
 members = ["backend"]
 
+[tool.uv]
+# litellm asks for filelock below 4, but filelock below 4.2.1 has a HIGH vulnerability (CVE-2026-112940,
+# file overwrite through insecure reopening of a lock file). The only caller is litellm's optional disk
+# cache, which Pharos does not use. Remove this once litellm allows 4.x.
+override-dependencies = ["filelock==4.2.1"]
+
 # Applies to Python outside backend/ (for example .claude/hooks). backend/ has its own settings.
 [tool.ruff]
 line-length = 100

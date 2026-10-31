@@ -470,3 +470,86 @@ def test_only_a_worker_may_hold_the_github_credential_in_production() -> None:
         github_token=credential,  # type: ignore[arg-type]
     )
     assert worker.github_token is not None
+
+
+class TestModelLayerSettings:
+    def test_it_is_off_by_default_with_a_small_cap(self) -> None:
+        settings = Settings(environment="test")  # type: ignore[arg-type]
+        assert settings.llm_provider == "off" and settings.llm_api_key is None
+        assert settings.llm_daily_budget_micro_usd == 2_000_000
+
+    @pytest.mark.parametrize("provider", ["anthropic", "openai", "azure"])
+    def test_a_process_that_makes_no_calls_needs_no_key(self, provider: str) -> None:
+        # The API and the scheduler get the provider's name but never the key (the worker only).
+        for process in ("api", "worker"):
+            settings = Settings(environment="test", llm_provider=provider, process=process)  # type: ignore[arg-type]
+            assert settings.llm_api_key is None
+
+    def test_the_api_in_production_refuses_the_key(self) -> None:
+        with pytest.raises(ValidationError, match="only the worker may be given the model key"):
+            production(llm_provider="anthropic", llm_api_key="KEY")
+        worker = Settings(  # type: ignore[arg-type]
+            environment="test", process="worker", llm_provider="anthropic", llm_api_key="KEY"
+        )  # the worker holds it
+        assert worker.llm_api_key is not None
+
+    def test_an_empty_key_from_compose_is_no_key(self) -> None:
+        settings = Settings(environment="test", llm_provider="anthropic", llm_api_key=" ")  # type: ignore[arg-type]
+        assert settings.llm_api_key is None
+        assert Settings(environment="test", llm_base_url="").llm_base_url is None  # type: ignore[arg-type]
+
+    def test_the_fake_provider_is_refused_in_production(self) -> None:
+        with pytest.raises(ValueError, match="fake model provider"):
+            production(llm_provider="fake")
+        Settings(environment="development", llm_provider="fake")  # type: ignore[arg-type]
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "http://api.example.com",
+            "https://user:pw@api.example.com",
+            "https://localhost/v1",
+            "https://127.0.0.1/v1",
+            "https://10.0.0.5/v1",
+            "https://169.254.169.254/",
+            "https://[::1]/",
+            "https://2130706433/",
+            "https://127.1/",
+            "https://0x7f.1/",
+            "https://0177.0.0.1/",
+            "https://localhost./",
+            "https://api.example.com./",
+            "https://[::ffff:7f00:1]/",
+            "https://model.internal/",
+            "https://printer.lan/",
+            "https://service.local/",
+            "ftp://api.example.com",
+            "api.example.com",
+        ],
+    )
+    def test_the_endpoint_is_an_https_address_outside_the_network(self, url: str) -> None:
+        with pytest.raises(ValueError, match="llm_base_url"):
+            Settings(environment="test", llm_base_url=url)  # type: ignore[arg-type]
+
+    def test_an_ordinary_endpoint_is_accepted(self) -> None:
+        settings = Settings(environment="test", llm_base_url="https://example.openai.azure.com")  # type: ignore[arg-type]
+        assert settings.llm_base_url == "https://example.openai.azure.com"
+
+    def test_the_prices_are_conservative_and_can_be_raised(self) -> None:
+        settings = Settings(environment="test")  # type: ignore[arg-type]
+        assert (settings.llm_price_in_micro_usd, settings.llm_price_out_micro_usd) == (20, 100)
+        dearer = Settings(
+            environment="test", llm_price_in_micro_usd=75, llm_price_out_micro_usd=375
+        )  # type: ignore[arg-type]
+        assert dearer.llm_price_out_micro_usd == 375
+
+    @pytest.mark.parametrize("name", ["llm_price_in_micro_usd", "llm_price_out_micro_usd"])
+    def test_a_price_of_zero_cannot_switch_the_cap_off(self, name: str) -> None:
+        with pytest.raises(ValidationError):
+            Settings(environment="test", **{name: 0})  # type: ignore[arg-type]
+
+    def test_the_key_never_shows_in_the_settings(self) -> None:
+        settings = Settings(
+            environment="test", llm_provider="anthropic", llm_api_key="KEY-SENTINEL"
+        )  # type: ignore[arg-type]
+        assert "KEY-SENTINEL" not in repr(settings) and "KEY-SENTINEL" not in str(settings)
