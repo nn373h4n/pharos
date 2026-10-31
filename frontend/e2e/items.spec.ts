@@ -1,12 +1,11 @@
-import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
+import { violations } from "./axe";
 import { mockApi } from "./api-mock";
 import { defaultItems, item } from "./items-mock";
 import { az, en, ru, tr } from "./messages";
 
 const messages = { en, az, tr, ru } as const;
 const locales = Object.keys(messages) as (keyof typeof messages)[];
-const TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
 
 async function listed(page: Page, locale: keyof typeof messages) {
   await expect(
@@ -18,10 +17,6 @@ async function listed(page: Page, locale: keyof typeof messages) {
 /** The heading of one story (the notices say "Held: Story 1" too, so text alone is not enough). */
 function story(page: Page, n: number) {
   return page.getByRole("heading", { level: 3, name: new RegExp(`^Story ${n}\\b`) });
-}
-
-async function violations(page: Page) {
-  return (await new AxeBuilder({ page }).withTags(TAGS).analyze()).violations;
 }
 
 // --- every language, both themes, both sizes (the projects) ---------------------------------------
