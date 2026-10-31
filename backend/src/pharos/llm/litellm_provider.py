@@ -15,11 +15,14 @@ from typing import Any
 
 from pydantic import SecretStr
 
+from pharos.llm.endpoint import EndpointCheck
 from pharos.llm.errors import LLMNotConfigured, ProviderFailed, ProviderRejected
 from pharos.llm.provider import ProviderAnswer
 
 # Providers LiteLLM is asked to use, written as its model prefix. Anthropic first (the maintainer's
 # decision of 2026-10-31); others are a line here and a configuration value, not new code.
+# The API version of an Azure endpoint; an administrator picks the deployment name as the model.
+AZURE_API_VERSION = "2024-10-21"
 PREFIXES = {"anthropic": "anthropic", "openai": "openai", "azure": "azure"}
 
 # Every switch of LiteLLM 1.105.1 that keeps it from downloading configuration. A new version may
@@ -47,18 +50,57 @@ def _quiet_litellm() -> Any:
 
 
 class LiteLLMProvider:
-    def __init__(self, provider: str, api_key: SecretStr, *, base_url: str | None = None) -> None:
+    def __init__(
+        self,
+        provider: str,
+        api_key: SecretStr,
+        *,
+        base_url: str | None = None,
+        endpoint: EndpointCheck | None = None,
+    ) -> None:
         if provider not in PREFIXES:
             raise ValueError(f"unknown provider {provider!r}")
         self.name = provider
         self._prefix = PREFIXES[provider]
         self._api_key = api_key
         self._base_url = base_url
+        self._endpoint = endpoint or EndpointCheck()
         self._litellm: Any = None
+        self._http: Any = None
+
+    def _client(self) -> Any:
+        if self._http is None:
+            try:
+                if self.name == "anthropic":
+                    from litellm.llms.custom_httpx.http_handler import AsyncHTTPHandler
+
+                    self._http = AsyncHTTPHandler(follow_redirects=False)
+                else:
+                    import openai
+
+                    plain = openai.DefaultAsyncHttpxClient(follow_redirects=False)
+                    if self.name == "azure":
+                        self._http = openai.AsyncAzureOpenAI(
+                            azure_endpoint=self._base_url or "",
+                            api_key=self._api_key.get_secret_value(),
+                            api_version=AZURE_API_VERSION,
+                            http_client=plain,
+                        )
+                    else:
+                        self._http = openai.AsyncOpenAI(
+                            base_url=self._base_url,
+                            api_key=self._api_key.get_secret_value(),
+                            http_client=plain,
+                        )
+            except ImportError:
+                raise LLMNotConfigured("LiteLLM is not installed") from None
+        return self._http
 
     async def complete(
         self, *, model: str, system: str, user: str, max_tokens: int, deadline_seconds: float
     ) -> ProviderAnswer:
+        if self._base_url:
+            await self._endpoint.ensure_public(self._base_url)  # before anything is sent
         if self._litellm is None:
             try:
                 self._litellm = _quiet_litellm()
@@ -80,6 +122,9 @@ class LiteLLMProvider:
         }
         if self._base_url:
             arguments["api_base"] = self._base_url
+            # The address was looked up above, but an answer that says "go there" would send the
+            # request, with the key in a header, to a host nobody looked up. Redirects are refused.
+            arguments["client"] = self._client()
         # What went wrong is decided inside the handlers and raised after them, so the error that
         # reaches the caller carries no `__context__`: the original may hold a key fragment.
         failure: Exception | None = None

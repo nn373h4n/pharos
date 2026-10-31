@@ -65,6 +65,10 @@ _FENCE = re.compile(r"^\s*```(?:json)?\s*(\{.*\})\s*```\s*$", re.DOTALL)
 
 Event = Callable[[str, UUID], Awaitable[None]]
 
+# The key check says nothing but this: no article, no schema, a few tokens.
+KEY_TEST_SYSTEM = "You are a connectivity check. Answer with the single word: ok."
+KEY_TEST_USER = "Answer now."
+
 
 @dataclass(slots=True)
 class Pause:
@@ -242,6 +246,75 @@ class LLMGateway:
             await self._record(org_id, stage, provider.name, model, Usage(0, 0, 0), "failed")
         self._failed(stage)
         raise last or ProviderFailed()
+
+    async def check_key(self, org_id: UUID) -> str:
+        """The key check, with a budget store that does not answer reported as a failure."""
+        try:
+            return await self._check_key(org_id)
+        except BudgetUnavailable:
+            return "failed"
+
+    async def _check_key(self, org_id: UUID) -> str:
+        """One tiny call to see whether the key in the worker works (the administrator's "test the
+        key"). It carries no article and is booked, paced and recorded like any other call, with no
+        retry. Returns a word of `keytest.Outcome`; it never raises for the reasons below."""
+        provider = self._provider
+        if provider is None:
+            return "disabled"
+        stage = Stage.KEY_TEST
+        model = self._config.models.get(stage, "")
+        if not model:
+            return "not_configured"
+        try:
+            self._check_pause(stage)
+            if not await self._budget.pace(org_id, self._config.calls_per_minute):
+                await self._record(org_id, stage, provider.name, model, Usage(0, 0, 0), "refused")
+                return "paced"
+            estimate = self._estimate(
+                model, KEY_TEST_SYSTEM + KEY_TEST_USER, MAX_ANSWER_TOKENS[stage]
+            )
+            reservation = await self._book(org_id, estimate, stage, provider.name, model)
+        except StagePaused:
+            return "paused"
+        except BudgetExhausted:
+            return "budget"
+        try:
+            answer = await provider.complete(
+                model=model,
+                system=KEY_TEST_SYSTEM,
+                user=KEY_TEST_USER,
+                max_tokens=MAX_ANSWER_TOKENS[stage],
+                deadline_seconds=self._config.timeout_seconds,
+            )
+        except ProviderRejected:
+            await self._budget.release(reservation)
+            await self._record(org_id, stage, provider.name, model, Usage(0, 0, 0), "failed")
+            self._failed(stage)
+            return "rejected"
+        except ProviderFailed as error:
+            if error.sent:
+                await self._budget.settle(reservation, estimate)
+                await self._record(
+                    org_id, stage, provider.name, model, Usage(0, 0, estimate), "failed"
+                )
+            else:
+                await self._budget.release(reservation)
+                await self._record(org_id, stage, provider.name, model, Usage(0, 0, 0), "failed")
+            self._failed(stage)
+            return "failed"
+        except LLMNotConfigured:
+            await self._budget.release(reservation)
+            return "not_configured"
+        usage = Usage(
+            answer.tokens_in,
+            answer.tokens_out,
+            self._cost(model, answer.tokens_in, answer.tokens_out),
+        )
+        with contextlib.suppress(BudgetUnavailable):
+            await self._budget.settle(reservation, usage.cost_micro_usd)
+        await self._record(org_id, stage, provider.name, model, usage, "ok")
+        self._worked(stage)
+        return "ok"
 
     # --- parts ---
 

@@ -97,6 +97,25 @@ class TestTheRequest:
         assert stand.calls[1]["api_base"] == "https://example.openai.azure.com"
         assert stand.calls[1]["model"] == "azure/claude-test"
 
+    @pytest.mark.parametrize("provider", ["anthropic", "openai", "azure"])
+    async def test_a_configured_endpoint_gets_a_client_that_follows_no_redirect(
+        self, stand: Stand, provider: str
+    ) -> None:
+        class Looked:
+            async def ensure_public(self, _url: str) -> None:
+                return None
+
+        endpoint: Any = Looked()
+        await ask(
+            LiteLLMProvider(provider, KEY, base_url="https://llm.example.org", endpoint=endpoint)
+        )
+        [call] = stand.calls
+        client = call["client"]
+        inner = getattr(client, "client", None) or client._client
+        assert inner.follow_redirects is False
+        await ask(LiteLLMProvider(provider, KEY))
+        assert "client" not in stand.calls[1]
+
     def test_an_unknown_provider_is_refused(self) -> None:
         with pytest.raises(ValueError, match="unknown provider"):
             LiteLLMProvider("someone", KEY)

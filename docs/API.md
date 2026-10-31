@@ -157,6 +157,9 @@ Administrators and editors read; administrators alone create, change and delete 
 | GET | `/api/sources/{id}/runs` | admin, editor | The latest fetch runs, newest first. `limit` (1-50, default 20). |
 | POST | `/api/sources/{id}/test-fetch` | admin | One trial fetch by the worker, to see whether a source works before enabling it. Answers `202 {test_id, retry_after_seconds}`. |
 | GET | `/api/sources/{id}/test-fetch/{test_id}` | admin | The answer of that trial. |
+| GET | `/api/llm/status` | admin | Provider, model per stage, daily cap, spent today, warned and exhausted flags, the last key check (one word and a time) and seven days of usage by stage. Never the key. |
+| POST | `/api/llm/key-test` | admin | One tiny call by the worker to see whether the key works. Audited, counted against the budget, one per minute per organization (`429` with `Retry-After`). Answers `202 {test_id, retry_after_seconds}`. |
+| GET | `/api/llm/key-test/{test_id}` | admin | The answer: `pending`, `done` with an outcome, or `unavailable` if the worker's answer fails the strict reader. `404` for an unknown or another organization's test. |
 
 `config` depends on the type: `{"url"}` for `rss`, `{"repo": "owner/name"}` for `github`, `{"query", "min_points"?}` for `hackernews` (see [DATA_MODEL.md](DATA_MODEL.md)). `interval_seconds` is 300 to 604800 (default 3600). `name` is plain text of 1 to 200 characters; text that changes when cleaned (markup, control or invisible characters) is refused, not repaired.
 
