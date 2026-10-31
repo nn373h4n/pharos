@@ -7,10 +7,12 @@ import { Link, usePathname } from "@/i18n/navigation";
 import { cn } from "@/lib/utils";
 
 type Entry = {
-  href: "/" | "/items" | "/my-feeds" | "/sources";
-  label: "home" | "items" | "myFeeds" | "sources";
+  href: "/" | "/items" | "/my-feeds" | "/sources" | "/llm";
+  label: "home" | "items" | "myFeeds" | "sources" | "llm";
   /** Only for administrators and editors. */
   reviewers?: boolean;
+  /** Only for administrators. */
+  admins?: boolean;
 };
 
 const ENTRIES: Entry[] = [
@@ -18,6 +20,7 @@ const ENTRIES: Entry[] = [
   { href: "/items", label: "items" },
   { href: "/my-feeds", label: "myFeeds" },
   { href: "/sources", label: "sources", reviewers: true },
+  { href: "/llm", label: "llm", admins: true },
 ];
 
 /**
@@ -34,7 +37,9 @@ export function MainNav() {
 
   const role = state.session.user.role;
   const entries = ENTRIES.filter(
-    (entry) => !entry.reviewers || role === "admin" || role === "editor",
+    (entry) =>
+      (!entry.reviewers || role === "admin" || role === "editor") &&
+      (!entry.admins || role === "admin"),
   );
 
   return (
