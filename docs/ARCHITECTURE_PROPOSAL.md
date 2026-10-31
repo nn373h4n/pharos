@@ -410,7 +410,7 @@ M1-də 9 ADR yazılır; PLAN-da 3 ADR var idi, əlavə 6-sı yuxarıdakı ziddiy
 | ADR | Mövzu | Tövsiyə | Status |
 | --- | --- | --- | --- |
 | 0001 | Platforma | Modul monolit: FastAPI + PostgreSQL 16/pgvector; `uv` və `pnpm` | Proposed |
-| 0002 | LLM qatı | LiteLLM SDK + daxili `LLMGateway`; LiteLLM Proxy MVP-də yox; BYOK, testlər üçün fake provayder | Proposed |
+| 0002 | LLM qatı | LiteLLM SDK + daxili `LLMGateway`; LiteLLM Proxy MVP-də yox; BYOK, testlər üçün fake provayder | Accepted |
 | 0003 | Autentifikasiya | Ümumi OIDC (Entra ID preset, dev və testdə Keycloak), backend BFF, server sessiyası, lokal hesablar; LDAP və SAML Faza 2 | Accepted (qərar 3) |
 | 0004 | Fon işləri | Celery + Redis: yetkin beat cədvəli, retry, növbə marşrutu, geniş icma. arq daha yüngül və async-native, amma ekosistemi kiçikdir | Proposed |
 | 0005 | Tenancy | Bir quraşdırma = bir təşkilat; content plane + tenant plane, PostgreSQL RLS | Accepted (qərar 2) |
