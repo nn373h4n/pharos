@@ -167,7 +167,7 @@ jobs:
   stack-e2e:
     name: Stack end-to-end
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -183,7 +183,7 @@ jobs:
       - run: pnpm exec playwright install --with-deps chromium
         working-directory: frontend
       # Browser tests against the real stack: Caddy over HTTPS, the web app, the API, PostgreSQL,
-      # Redis and a development Keycloak.
+      # Redis, a development Keycloak, the worker and a fake feed host that only the worker reaches.
       - run: bash scripts/stack-e2e.sh
         env:
           CI: "true"

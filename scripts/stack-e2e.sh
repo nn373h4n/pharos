@@ -18,6 +18,10 @@ ISSUER="$KEYCLOAK/realms/pharos"
 ORG_SLUG=stack
 WORK=$(mktemp -d)
 ENV_FILE="$WORK/env"
+# The feeds the fake feed host serves (see deploy/docker-compose.stack-e2e.yml); the specs write them.
+export STACK_FEED_DIR="$WORK/feeds"
+mkdir "$STACK_FEED_DIR"
+chmod 755 "$STACK_FEED_DIR"
 
 secret() { openssl rand -hex 24; }
 ADMIN_PASSWORD=$(secret)
@@ -53,7 +57,7 @@ EOF
 
 compose() {
   docker compose -p "$PROJECT" -f deploy/docker-compose.yml -f deploy/docker-compose.sso-dev.yml \
-    --env-file "$ENV_FILE" "$@"
+    -f deploy/docker-compose.stack-e2e.yml --env-file "$ENV_FILE" "$@"
 }
 cleanup() {
   compose down --volumes --remove-orphans >/dev/null 2>&1
@@ -94,7 +98,8 @@ export STACK_KEYCLOAK_URL="$KEYCLOAK"
 export STACK_ADMIN_USER=stack-admin
 export STACK_ADMIN_PASSWORD="$ADMIN_PASSWORD"
 export STACK_ORG_SLUG="$ORG_SLUG"
-export STACK_PSQL="docker compose -p $PROJECT -f $PWD/deploy/docker-compose.yml -f $PWD/deploy/docker-compose.sso-dev.yml --env-file $ENV_FILE exec -T postgres psql -q -tA -U postgres -d pharos"
+export STACK_FEED_URL="http://feed.example.test:8080"
+export STACK_PSQL="docker compose -p $PROJECT -f $PWD/deploy/docker-compose.yml -f $PWD/deploy/docker-compose.sso-dev.yml -f $PWD/deploy/docker-compose.stack-e2e.yml --env-file $ENV_FILE exec -T postgres psql -q -tA -U postgres -d pharos"
 (cd frontend && pnpm exec playwright test -c playwright.stack.config.ts "$@")
 status=$?
 if [ "$status" -ne 0 ]; then

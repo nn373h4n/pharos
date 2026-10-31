@@ -6,6 +6,7 @@ All notable changes are listed here, newest first. The format follows [Keep a Ch
 
 ### Fixed
 
+- A feed in an encoding the XML parser does not know (for example EBCDIC) could hide its document type declaration from the check that refuses declarations and entities; such a feed is now refused (found by the whole-milestone review of M3).
 - Caddy listens on the same port numbers the host publishes, and the HTTP-to-HTTPS redirect now names the configured domain and HTTPS port. The automatic redirect reflected the request's Host header, an open redirect; it is disabled and `make test-compose` checks it.
 
 ### Changed
@@ -16,6 +17,7 @@ All notable changes are listed here, newest first. The format follows [Keep a Ch
 
 ### Added
 
+- Real-stack tests for ingestion (milestone M3, `make test-stack-e2e`): a fake feed host that only the worker can reach (a test-only Compose overlay), the whole path of an article, hostile and huge feeds, the places inside the stack that the worker must never reach, personal feeds and a disabled owner, and accessibility of the new pages.
 - The feeds of a person whose account is disabled or deprovisioned are no longer fetched (follow-up F-32, migration 0004): the worker role may read the state of an account (`users.org_id`, `id`, `status`) and nothing else about people, takes only the personal feeds of active owners when it leases, and checks again before it fetches. ADR-0014 (proposed).
 - Personal feeds (milestone M3, `pharos.feeds` and the page `/my-feeds`): every signed-in person can follow up to five RSS or Atom feeds of their own, fetched at most hourly, with their latest fetches and articles, seen by nobody else (not an administrator, not another organization). The address is checked like an organization source and a refused address is audited; `PHAROS_PERSONAL_FEEDS=off` removes the feature. No database migration.
 - `python -m pharos.cli import-sources [--file PATH] [--dry-run]` (milestone M3): adds the starter catalogue of public sources to the organization, every source switched off, all or nothing, never changing a source that already exists. The catalogue file is checked with the rules of the Sources API; the list that ships has 25 public sources approved by the maintainer (16 feeds, 7 GitHub repositories, 2 Hacker News searches), each checked against Pharos's own feed rules before it was listed.

@@ -95,3 +95,30 @@ SSRF has many corner cases (mitigated by the address allowlist, connect-time val
 ## Verification at the end of M3
 
 `make lint`, `make test`, `make test-integration`, `make test-compose`, `make test-sso-dev`, `make test-stack-e2e` all PASS; the mutation list above is recorded; manual run: `make env`, `make dev`, create the organization and an administrator, import the catalogue, enable one source, watch an item appear, try to add an internal address as a personal feed and see it refused, kill the worker and see no duplicates; the whole-milestone review has no open P0/P1; `TASKS.md`, `PROGRESS.md` and the session note say what was not tested.
+
+## Result
+
+Status on 2026-10-31: 16 of 17 tasks are Done. M3-14 (this end-to-end and review task) stays in Review until its pull request merges. Results per criterion, with the evidence file and test name where it is known. PASS means the named tests run and pass; PARTLY means the criterion is only partly shown.
+
+| # | Criterion | Result | Evidence |
+| --- | --- | --- | --- |
+| 1 | Lint, unit, integration, Compose and stack tests green locally and in CI | PARTLY | Green locally: `make lint`, 1650+ unit, 817 integration, `make test-compose`, `make test-stack-e2e` (104 tests). CI for the M3-14 pull request is pending. |
+| 2 | Each of the 12 listed mutations makes a named test fail | PARTLY | Every control was broken in its task (counts in the TASKS.md rows). The suites that carry these controls: `backend/tests/net/test_safe_http.py`, `backend/tests/net/test_settings_guard.py`, `backend/tests/ingest/test_feed.py`, `backend/tests/integration/test_ingest_scheduler.py`, `backend/tests/integration/test_redis_acl.py`, `backend/tests/integration/test_worker_role.py`, `backend/tests/test_deploy_wiring.py`. The item-by-item mapping is in the pull requests and was not re-checked here. |
+| 3 | SSRF suite of at least 40 cases; real-stack targets blocked | PARTLY | 226 tests in `backend/tests/net/` (ranges, URL rules, scripted network, real sockets). `frontend/e2e-stack/ingestion.spec.ts`, "the worker never reaches the places inside the stack, and says so": 12 targets end as `blocked`, none stores an item. Connections are not counted at socket level. |
+| 4 | As `pharos_worker`, `UPDATE users` and `SELECT local_credentials` fail; Redis `GET pharos:session:x` refused; F-14 closed | PASS | `backend/tests/integration/test_worker_role.py`, `test_the_worker_cannot_read_people_or_sign_in_tables` and `test_the_worker_cannot_write_or_create`; `backend/tests/integration/test_redis_acl.py`, `test_the_worker_cannot_read_or_delete_sign_in_state` (with a positive control). |
+| 5 | `http://127.1/` and `http://[::ffff:7f00:1]/` refused and audited | PASS | `backend/tests/integration/test_feeds_api.py`, `test_an_address_pointing_inwards_is_refused_and_the_attempt_is_audited` (its addresses include both) and `test_a_change_to_an_internal_address_is_refused_and_audited`; `frontend/e2e-stack/personal-feeds.spec.ts`, "addresses that point inwards are refused and the attempt is audited". |
+| 6 | Two dispatchers start at most one fetch per source per interval; a killed worker leaves no duplicates; a second run adds 0 | PARTLY | `backend/tests/integration/test_ingest_scheduler.py`, `test_two_dispatchers_at_once_never_lease_the_same_source` and `test_a_worker_that_dies_leaves_a_lease_that_runs_out_and_the_source_is_fetched_again`; `backend/tests/integration/test_ingest_pipeline.py`, `test_a_lease_lost_during_the_fetch_leaves_no_items`; second run: `test_ingest_scheduler.py`, `test_fetching_the_same_feed_again_adds_nothing_and_a_changed_entry_replaces_its_copy`, and `frontend/e2e-stack/ingestion.spec.ts`, "fetching the same feed again adds nothing". Not evidenced: a worker killed in a real container (controlled clock only). |
+| 7 | A feed of 10,000 entries stores 200 items, peak memory under 300 MB, under 20 s | PARTLY | Count and time: `backend/tests/integration/test_ingest_pipeline.py`, `test_a_feed_of_ten_thousand_entries_becomes_two_hundred_items_within_the_limits`; `frontend/e2e-stack/ingestion.spec.ts`, "a feed of ten thousand entries is cut to what is allowed, quickly" (under 20 s in the stack). Memory: `backend/tests/ingest/test_feed.py`, `test_a_feed_of_ten_thousand_entries_is_cut_quickly_and_cheaply`, Python allocations only. Not measured in the stack. |
+| 8 | Duplicate rate under 5% on a recorded corpus of overlapping feeds | PARTLY | `backend/tests/integration/test_ingest_pipeline.py`, `test_overlapping_feeds_leave_almost_no_duplicates`. The corpus is synthetic; no recorded corpus exists. |
+| 9 | All new UI text in en, az, tr, ru; axe clean on the new pages (4 locales x 2 themes x 2 sizes) | PASS | `frontend/messages/{en,az,tr,ru}.json` (the build fails on a missing key); `frontend/e2e-stack/a11y.spec.ts` for `/items`, `/sources` and `/my-feeds`; 593 vitest tests. The az, tr and ru wording is not reviewed (F-01). |
+| 10 | Independent whole-milestone security review with no open P0 or P1 | PASS | Recorded in the M3-14 pull request and the TASKS.md M3-14 row: no open P0 or P1; the P2 findings are fixed with tests. |
+
+### Not evidenced
+
+- A worker killed in a real container; peak memory of the 10,000-entry feed in the stack.
+- A recorded corpus for the duplicate rate; a real internet feed in CI; the GitHub and Hacker News APIs themselves.
+- The Entra ID path (M0-02); screen readers (F-28); az, tr and ru wording (F-01); load, performance, backup and restore.
+
+### What M3 does not prove, by design
+
+Egress control by destination host (F-04); a strict CSP (F-03); resistance to hostile connector plugins (only built-in connectors exist); any LLM or prompt-injection resistance (M4); behaviour with several organizations; feed quality, relevance or Azerbaijani quality; load beyond the 10,000-entry feed.

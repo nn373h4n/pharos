@@ -89,3 +89,75 @@ for (const locale of locales) {
     });
   }
 }
+
+// --- the pages of milestone M3, with an article, a source and a personal feed in the database ------
+
+const SLUG = process.env.STACK_ORG_SLUG ?? "stack";
+
+function seedIngestion() {
+  setFinished();
+  sql(
+    `INSERT INTO sources (org_id, type, name, config, dedupe_key, enabled, interval_seconds, ` +
+      `next_fetch_at) SELECT id, 'rss', 'A11y source', '{"url": "https://news.example.org/feed.xml"}'::jsonb, ` +
+      `md5('a11y-source') || md5('a11y-source-2'), false, 3600, now() + interval '30 days' ` +
+      `FROM organizations WHERE slug = '${SLUG}' ON CONFLICT DO NOTHING`,
+  );
+  sql(
+    `INSERT INTO items (org_id, canonical_url, url_hash, title, excerpt, content_sha256) ` +
+      `SELECT id, 'https://news.example.org/a11y', md5('a11y-item') || md5('a11y-item-2'), ` +
+      `'A11y article', 'An excerpt of the article.', md5('a11y-content') || md5('a11y-content-2') ` +
+      `FROM organizations WHERE slug = '${SLUG}' ON CONFLICT DO NOTHING`,
+  );
+  sql(
+    `INSERT INTO sources (org_id, owner_user_id, type, name, config, dedupe_key, enabled, ` +
+      `interval_seconds, next_fetch_at) SELECT u.org_id, u.id, 'rss', 'A11y personal feed', ` +
+      `'{"url": "https://blog.example.org/feed.xml"}'::jsonb, md5('a11y-personal') || md5('a11y-personal-2'), ` +
+      `false, 3600, now() + interval '30 days' FROM users u WHERE u.subject = '${ADMIN_USER}' ` +
+      `ON CONFLICT DO NOTHING`,
+  );
+}
+
+const m3Pages = [
+  {
+    path: "items",
+    heading: (t: typeof en) => t.Items.title,
+    ready: (t: typeof en) => t.Items.results,
+  },
+  {
+    path: "sources",
+    heading: (t: typeof en) => t.Sources.title,
+    ready: (t: typeof en) => t.Sources.results,
+  },
+  {
+    path: "my-feeds",
+    heading: (t: typeof en) => t.Feeds.title,
+    ready: (t: typeof en) => t.Feeds.results,
+  },
+] as const;
+
+for (const locale of locales) {
+  const text = messages[locale];
+  for (const colorScheme of ["light", "dark"] as const) {
+    for (const found of m3Pages) {
+      test(`/${found.path} has no WCAG 2.2 AA violations (${locale}, ${colorScheme})`, async ({
+        page,
+      }) => {
+        seedIngestion();
+        await page.emulateMedia({ colorScheme });
+        await page.goto(`/${locale}/${found.path}`);
+        await expect(page.getByRole("heading", { level: 1 })).toHaveText(
+          found.heading(text as unknown as typeof en),
+        );
+        await expect(
+          page.getByRole("heading", { level: 2, name: found.ready(text as unknown as typeof en) }),
+        ).toBeVisible();
+        await page.addStyleTag({
+          content:
+            "*, *::before, *::after { transition: none !important; animation: none !important; }",
+        });
+        const results = await new AxeBuilder({ page }).withTags(WCAG).analyze();
+        expect(results.violations).toEqual([]);
+      });
+    }
+  }
+}
