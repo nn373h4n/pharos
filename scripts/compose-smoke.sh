@@ -296,9 +296,16 @@ check "the worker role is neither superuser nor allowed to bypass row-level secu
   test "$(sql pharos_worker "$WORKER_DB_PASSWORD" "select rolsuper or rolbypassrls or rolcreaterole or rolcreatedb from pg_roles where rolname = current_user" 2>&1)" = f
 check "the application role can read users (positive control)" \
   test "$(sql pharos_app "$APP_PASSWORD" "select count(*) >= 0 from users" 2>&1)" = t
-for table in users local_credentials audit_logs user_profiles departments organizations; do
+for table in local_credentials audit_logs user_profiles departments organizations; do
   check_blocked "the worker role cannot read $table" sql pharos_worker "$WORKER_DB_PASSWORD" "select 1 from $table limit 1"
 done
+# The one thing it may know about a person is the state of the account (migration 0004, ADR-0014).
+check "the worker role can read the state of an account (positive control)" \
+  test "$(sql pharos_worker "$WORKER_DB_PASSWORD" "select count(status) >= 0 from users" 2>&1)" = t
+for column in email display_name role subject; do
+  check_blocked "the worker role cannot read users.$column" sql pharos_worker "$WORKER_DB_PASSWORD" "select $column from users limit 1"
+done
+check_blocked "the worker role cannot change an account" sql pharos_worker "$WORKER_DB_PASSWORD" "update users set status = 'active'"
 check_blocked "the worker role cannot create a table" sql pharos_worker "$WORKER_DB_PASSWORD" "create table worker_probe (id int)"
 check_blocked "the worker role cannot log in with the application password" sql pharos_worker "$APP_PASSWORD" 'select 1'
 

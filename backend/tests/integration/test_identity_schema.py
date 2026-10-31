@@ -1026,7 +1026,7 @@ async def test_downgrade_refuses_to_delete_data_unless_told_to(
         revision = (
             await connection.execute(text("SELECT version_num FROM alembic_version"))
         ).scalar_one()
-    assert remaining == 2 and revision == "0003"
+    assert remaining == 2 and revision == "0004"
 
     monkeypatch.setenv("PHAROS_ALLOW_DATA_LOSS", "yes")
     try:

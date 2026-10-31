@@ -29,7 +29,11 @@ ALLOWED: dict[str, set[str]] = {
     "raw_items": {"SELECT", "DELETE"},
     "items": {"SELECT", "DELETE"},
     "item_sources": {"SELECT"},
+    # Only by column (state of an account, ADR-0014): no table-level privilege at all.
+    "users": set(),
 }
+# The one thing the worker may read about a person: whether the owner of a personal feed is active.
+USER_COLUMNS_FOR_WORKER = {"org_id", "id", "status"}
 PRIVILEGES = ("SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER")
 
 
@@ -97,7 +101,7 @@ async def test_the_worker_has_no_privilege_on_any_table_but_the_allowed_ones(
 
 @pytest.mark.parametrize(
     "table",
-    ["users", "local_credentials", "audit_logs", "user_profiles", "departments", "organizations"],
+    ["local_credentials", "audit_logs", "user_profiles", "departments", "organizations"],
 )
 async def test_the_worker_cannot_read_people_or_sign_in_tables(
     worker_engine: AsyncEngine, app_engine: AsyncEngine, table: str
@@ -312,3 +316,78 @@ def test_tasks_run_as_the_worker_role_on_one_loop_and_one_engine(database: TestD
         assert len(set(seen)) == 1  # the same loop and the same engine every time
     finally:
         runtime.close()
+
+
+async def test_the_worker_reads_of_a_person_only_the_state_of_the_account(
+    owner_engine: AsyncEngine, worker_engine: AsyncEngine, app_engine: AsyncEngine
+) -> None:
+    async with owner_engine.connect() as connection:
+        columns = [
+            row[0]
+            for row in await connection.execute(
+                text(
+                    "SELECT column_name FROM information_schema.columns "
+                    "WHERE table_schema = 'public' AND table_name = 'users'"
+                )
+            )
+        ]
+        assert set(columns) > USER_COLUMNS_FOR_WORKER and len(columns) > 3  # control: there is more
+        readable: set[str] = set()
+        for column in columns:
+            for privilege in ("SELECT", "INSERT", "UPDATE", "REFERENCES"):
+                row = await connection.execute(
+                    text("SELECT has_column_privilege(:role, 'public.users', :col, :priv)"),
+                    {"role": WORKER_ROLE, "col": column, "priv": privilege},
+                )
+                if row.scalar_one():
+                    assert privilege == "SELECT", (column, privilege)
+                    readable.add(column)
+    assert readable == USER_COLUMNS_FOR_WORKER
+    # and the database says the same when the worker tries, column by column
+    for column in sorted(set(columns) - USER_COLUMNS_FOR_WORKER):
+        with pytest.raises(DBAPIError, match="permission denied"):
+            await scalar(worker_engine, f"SELECT count({column}) FROM users")
+    assert await scalar(app_engine, "SELECT count(email) >= 0 FROM users") is True  # control
+    for statement in (
+        "UPDATE users SET status = 'active'",
+        "DELETE FROM users",
+        "INSERT INTO users (org_id, status) VALUES (gen_random_uuid(), 'active')",
+    ):
+        async with worker_engine.connect() as connection:
+            with pytest.raises(DBAPIError, match="permission denied"):
+                await connection.execute(text(statement))
+
+
+async def test_the_worker_sees_only_the_accounts_of_the_organization_it_entered(
+    worker_engine: AsyncEngine, orgs: Orgs, owner_engine: AsyncEngine
+) -> None:
+    alpha, beta = orgs
+    async with owner_engine.begin() as connection:
+        for org, name in ((alpha, "a"), (beta, "b")):
+            await connection.execute(
+                text(
+                    "INSERT INTO users (org_id, issuer, subject, display_name, role, status) "
+                    "VALUES (:o, 'local', :s, :s, 'member', 'active')"
+                ),
+                {"o": org, "s": f"worker-view-{name}"},
+            )
+    async with worker_engine.begin() as connection:
+        # nothing entered: nothing seen
+        assert (await connection.execute(text("SELECT count(*) FROM users"))).scalar_one() == 0
+        await connection.execute(
+            text("SELECT set_config('app.org_id', :o, true)"), {"o": str(alpha)}
+        )
+        own = (
+            await connection.execute(
+                text("SELECT count(*) FROM users WHERE org_id = :o"), {"o": alpha}
+            )
+        ).scalar_one()
+        other = (
+            await connection.execute(
+                text("SELECT count(*) FROM users WHERE org_id = :o"), {"o": beta}
+            )
+        ).scalar_one()
+    assert own >= 1  # positive control
+    assert other == 0
+    async with owner_engine.begin() as connection:
+        await connection.execute(text("DELETE FROM users WHERE subject LIKE 'worker-view-%'"))

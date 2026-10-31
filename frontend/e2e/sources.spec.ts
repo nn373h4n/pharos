@@ -1,21 +1,16 @@
-import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
+import { violations } from "./axe";
 import { mockApi } from "./api-mock";
 import { az, en, ru, tr } from "./messages";
 
 const messages = { en, az, tr, ru } as const;
 const locales = Object.keys(messages) as (keyof typeof messages)[];
-const TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
 
 async function listed(page: Page, locale: keyof typeof messages) {
   await expect(
     page.getByRole("heading", { level: 2, name: messages[locale].Sources.results }),
   ).toBeVisible();
   await expect(page.getByText(messages[locale].Sources.loading)).toHaveCount(0);
-}
-
-async function violations(page: Page) {
-  return (await new AxeBuilder({ page }).withTags(TAGS).analyze()).violations;
 }
 
 /** A button of one source, named as a person using a screen reader hears it: "Action: name". */
