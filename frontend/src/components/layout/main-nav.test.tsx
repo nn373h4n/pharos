@@ -137,4 +137,17 @@ describe("MainNav", () => {
     );
     expect(hrefs.includes("/sources")).toBe(seen);
   });
+
+  it.each([
+    ["admin", true],
+    ["editor", false],
+    ["member", false],
+  ])("shows the model page to %s: %s", (role, seen) => {
+    sessionState = user(true, role);
+    show();
+    const hrefs = [...screen.getByRole("navigation").querySelectorAll("a")].map((link) =>
+      link.getAttribute("href"),
+    );
+    expect(hrefs.includes("/llm")).toBe(seen);
+  });
 });

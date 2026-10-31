@@ -142,7 +142,8 @@
     "home": "Ana səhifə",
     "items": "Məqalələr",
     "myFeeds": "Mənim feedlərim",
-    "sources": "Mənbələr"
+    "sources": "Mənbələr",
+    "llm": "Model"
   },
   "Items": {
     "metaTitle": "Məqalələr",
@@ -393,6 +394,71 @@
       "opensInNewTab": " (yeni tabda açılır)"
     },
     "articlesNote": "Bu mənbənin məqalələri"
+  },
+  "Llm": {
+    "metaTitle": "Model qatı",
+    "title": "Model qatı",
+    "intro": "Pharos hansı dil modelindən istifadə edir, bu gün nəyə başa gəlib və açar işləyirmi. Modelə yalnız açıq məqalə mətni göndərilir.",
+    "offNote": "Heç bir model qoşulmayıb. Məhsul modelsiz də işləyir; modelin xülasələri və sıralaması söndürülüb.",
+    "loading": "Model səhifəsi yüklənir…",
+    "loadFailed": "Model səhifəsi yüklənmədi. Bir az sonra yenidən cəhd edin.",
+    "retry": "Yenidən cəhd et",
+    "setup": {
+      "title": "Ayarlar",
+      "provider": "Provayder",
+      "noModel": "Göstərilməyib",
+      "keyNote": "Açar serverin ayar faylında saxlanır və burada heç vaxt göstərilmir. Dəyişmək üçün serveri idarə edən şəxs həmin faylı redaktə edib işçi prosesi yenidən başladır."
+    },
+    "provider": {
+      "off": "Söndürülüb",
+      "fake": "Sınaq provayderi (real model yoxdur)",
+      "anthropic": "Anthropic (Claude)",
+      "openai": "OpenAI",
+      "azure": "Azure OpenAI"
+    },
+    "stage": {
+      "filter": "Süzgəc (kiçik model)",
+      "enrichment": "Zənginləşdirmə",
+      "insight": "Təhlil",
+      "key_test": "Açar yoxlaması"
+    },
+    "budget": {
+      "title": "Bugünkü xərc",
+      "spent": "{cap} həddindən {spent} istifadə olunub ({percent}%).",
+      "warned": "Bugünkü həddin səksən faizi istifadə olunub.",
+      "exhausted": "Bugünkü hədd çatıb. Sabaha qədər yeni xülasə hazırlanmır; mövcud olanlar göstərilməyə davam edir."
+    },
+    "key": {
+      "title": "Açar",
+      "never": "Açar hələ yoxlanmayıb.",
+      "last": "Son yoxlama: {outcome} ({when}).",
+      "test": "Açarı yoxla",
+      "waiting": "İşçi prosesin cavabı gözlənilir…",
+      "gaveUp": "İşçi proses vaxtında cavab vermədi. Bir az sonra yenidən cəhd edin.",
+      "unavailable": "Cavabı oxumaq mümkün olmadı.",
+      "result": "Nəticə: {outcome}."
+    },
+    "outcome": {
+      "ok": "Açar işləyir",
+      "disabled": "Heç bir model qoşulmayıb",
+      "not_configured": "Provayder və ya model adı göstərilməyib",
+      "rejected": "Provayder açarı və ya sorğunu qəbul etmədi",
+      "failed": "Provayder cavab vermədi və ya xəta verdi",
+      "budget": "Bugünkü hədd çatıb",
+      "paced": "Bir dəqiqədə çox sorğu göndərilib",
+      "paused": "Təkrar xətalardan sonra fasilədədir"
+    },
+    "usage": {
+      "title": "Son yeddi gün",
+      "empty": "Hələ heç bir model sorğusu göndərilməyib.",
+      "day": "Gün",
+      "stage": "Mərhələ",
+      "calls": "Sorğu",
+      "refused": "Rədd edilən",
+      "failed": "Uğursuz",
+      "tokens": "Token (giriş / çıxış)",
+      "cost": "Xərc"
+    }
   },
   "Feeds": {
     "metaTitle": "Mənim feedlərim",

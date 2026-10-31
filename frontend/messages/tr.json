@@ -142,7 +142,8 @@
     "home": "Ana sayfa",
     "items": "Makaleler",
     "myFeeds": "Beslemelerim",
-    "sources": "Kaynaklar"
+    "sources": "Kaynaklar",
+    "llm": "Model"
   },
   "Items": {
     "metaTitle": "Makaleler",
@@ -393,6 +394,71 @@
       "opensInNewTab": " (yeni sekmede açılır)"
     },
     "articlesNote": "Bu kaynağın makaleleri"
+  },
+  "Llm": {
+    "metaTitle": "Model katmanı",
+    "title": "Model katmanı",
+    "intro": "Pharos'un hangi dil modelini kullandığı, bugün neye mal olduğu ve anahtarın çalışıp çalışmadığı. Modele yalnızca herkese açık makale metni gönderilir.",
+    "offNote": "Hiçbir model açık değil. Ürün modelsiz de çalışır; modelin özetleri ve sıralaması kapalıdır.",
+    "loading": "Model sayfası yükleniyor…",
+    "loadFailed": "Model sayfası yüklenemedi. Daha sonra tekrar deneyin.",
+    "retry": "Tekrar dene",
+    "setup": {
+      "title": "Ayarlar",
+      "provider": "Sağlayıcı",
+      "noModel": "Ayarlanmadı",
+      "keyNote": "Anahtar sunucunun ayar dosyasında tutulur ve burada hiçbir zaman gösterilmez. Değiştirmek için sunucuyu yöneten kişi bu dosyayı düzenler ve işçi sürecini yeniden başlatır."
+    },
+    "provider": {
+      "off": "Kapalı",
+      "fake": "Deneme sağlayıcısı (gerçek model yok)",
+      "anthropic": "Anthropic (Claude)",
+      "openai": "OpenAI",
+      "azure": "Azure OpenAI"
+    },
+    "stage": {
+      "filter": "Filtre (küçük model)",
+      "enrichment": "Zenginleştirme",
+      "insight": "İçgörü",
+      "key_test": "Anahtar denetimi"
+    },
+    "budget": {
+      "title": "Bugünkü harcama",
+      "spent": "{cap} sınırının {spent} kadarı kullanıldı (%{percent}).",
+      "warned": "Bugünkü sınırın yüzde sekseni kullanıldı.",
+      "exhausted": "Bugünkü sınıra ulaşıldı. Yarına kadar yeni özet üretilmez; mevcut olanlar gösterilmeye devam eder."
+    },
+    "key": {
+      "title": "Anahtar",
+      "never": "Anahtar henüz denetlenmedi.",
+      "last": "Son denetim: {outcome} ({when}).",
+      "test": "Anahtarı dene",
+      "waiting": "İşçi sürecin yanıtı bekleniyor…",
+      "gaveUp": "İşçi süreç zamanında yanıt vermedi. Daha sonra tekrar deneyin.",
+      "unavailable": "Yanıt okunamadı.",
+      "result": "Sonuç: {outcome}."
+    },
+    "outcome": {
+      "ok": "Anahtar çalışıyor",
+      "disabled": "Hiçbir model açık değil",
+      "not_configured": "Sağlayıcı veya model adı ayarlanmadı",
+      "rejected": "Sağlayıcı anahtarı veya isteği reddetti",
+      "failed": "Sağlayıcı yanıt vermedi veya hata verdi",
+      "budget": "Bugünkü sınıra ulaşıldı",
+      "paced": "Bir dakikada çok fazla çağrı yapıldı",
+      "paused": "Tekrarlanan hatalardan sonra dinleniyor"
+    },
+    "usage": {
+      "title": "Son yedi gün",
+      "empty": "Henüz hiç model çağrısı yapılmadı.",
+      "day": "Gün",
+      "stage": "Aşama",
+      "calls": "Çağrı",
+      "refused": "Reddedilen",
+      "failed": "Başarısız",
+      "tokens": "Token (giriş / çıkış)",
+      "cost": "Maliyet"
+    }
   },
   "Feeds": {
     "metaTitle": "Beslemelerim",
