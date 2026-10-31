@@ -27,10 +27,11 @@ def _lint(project: Path) -> subprocess.CompletedProcess[str]:
 
 def _project(root: Path, files: dict[str, str]) -> Path:
     shutil.copy(CONFIG, root / ".importlinter")
-    for name in ("", "orgs", "ingest", "sources", "items", "feeds"):
+    for name in ("", "orgs", "ingest", "sources", "items", "feeds", "llm"):
         package = root / "pharos" / name
         package.mkdir(parents=True, exist_ok=True)
         (package / "__init__.py").write_text("")
+    (root / "pharos" / "main.py").write_text("")
     for relative, content in files.items():
         (root / "pharos" / "orgs" / relative).write_text(content)
     return root
@@ -358,3 +359,47 @@ def test_the_feeds_api_may_not_reach_the_http_client_even_through_another_module
     result = _lint(project)
     assert result.returncode != 0
     assert f"{SOURCES_RULE} BROKEN" in result.stdout
+
+
+# --- LiteLLM lives in one module (M4-02) ---
+
+LITELLM_RULE = "Only one module imports LiteLLM (ADR-0002, ADR-0015) BROKEN"
+
+
+@pytest.mark.parametrize("statement", ["import litellm", "from litellm import acompletion"])
+@pytest.mark.parametrize("where", ["orgs", "llm", "ingest", "sources"])
+def test_litellm_may_only_be_imported_by_the_provider_module(
+    tmp_path: Path, statement: str, where: str
+) -> None:
+    project = _project(tmp_path, {})
+    (project / "pharos" / where / "elsewhere.py").write_text(statement + "\n")
+    result = _lint(project)
+    assert result.returncode != 0
+    assert LITELLM_RULE in result.stdout
+
+
+def test_the_provider_module_may_import_litellm(tmp_path: Path) -> None:
+    project = _project(tmp_path, {})
+    (project / "pharos" / "llm" / "litellm_provider.py").write_text("import litellm\n")
+    result = _lint(project)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_an_api_module_may_not_import_the_provider_module(tmp_path: Path) -> None:
+    project = _project(tmp_path, {})
+    (project / "pharos" / "llm" / "litellm_provider.py").write_text("VALUE = 1\n")
+    (project / "pharos" / "orgs" / "service.py").write_text(
+        "from pharos.llm import litellm_provider\n"
+    )
+    result = _lint(project)
+    assert result.returncode != 0
+    assert "The API never imports the model layer's providers (ADR-0004) BROKEN" in result.stdout
+
+
+def test_the_application_entry_may_not_import_the_gateway(tmp_path: Path) -> None:
+    project = _project(tmp_path, {})
+    (project / "pharos" / "llm" / "gateway.py").write_text("VALUE = 1\n")
+    (project / "pharos" / "main.py").write_text("from pharos.llm import gateway\n")
+    result = _lint(project)
+    assert result.returncode != 0
+    assert "The API never imports the model layer's providers (ADR-0004) BROKEN" in result.stdout

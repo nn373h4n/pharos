@@ -1,0 +1,1 @@
+Explain how the article applies to the work of the profession named below, in the language named below. Answer with the JSON object described below.

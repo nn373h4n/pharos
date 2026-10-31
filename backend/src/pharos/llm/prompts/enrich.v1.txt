@@ -1,0 +1,1 @@
+Summarize the article in one or two plain sentences, name its category, and rate how well it fits each profession and its quality. Answer with the JSON object described below.

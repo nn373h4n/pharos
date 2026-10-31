@@ -87,6 +87,11 @@ At sign-in the application does not know the organization yet, and RLS hides eve
 
 `ideas`, `idea_votes`, `success_stories`, `time_savings`, `badges`, `user_badges`, `challenges`. Company-internal content never goes to a cloud LLM by default; when an admin enables it, masking is applied and the choice is audited.
 
+## Model usage (0005)
+
+- `llm_usage` (M4-02, ADR-0016): one row per model call or refusal: `org_id`, `stage` (`filter`, `enrichment`, `insight`, `key_test`), `provider`, `model`, `tokens_in`, `tokens_out`, `cost_micro_usd` (millionths of a US dollar), `outcome` (`ok`, `rejected`, `failed`, `refused`), `created_at`. Numbers and words from fixed lists only: never a prompt, an answer, an article, a person or a key. Under the ordinary tenant policy. `pharos_worker` may only add rows, by column (it cannot read, change or delete them, and cannot set `id` or `created_at`); `pharos_app` may read them for the budget page and change nothing. Both are pinned by `test_worker_role.py`.
+- The day's running total is not in the database but in Redis under `pharos:worker:llm:` (a counter per organization and day, atomic reserve and settle); if Redis does not answer no call is made.
+
 ## Ingestion tables (0003)
 
 - **Tenant isolation.** All five tables carry `org_id` and the ordinary tenant policy; there are no `public` rows and no role that writes across organizations. Foreign keys include `org_id`, so a row cannot point into another organization.

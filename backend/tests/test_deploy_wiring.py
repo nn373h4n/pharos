@@ -37,7 +37,7 @@ NOT_PASSED_BY_COMPOSE = {
 
 # Settings only the worker is given: the API has no use for them and must not hold them. They are
 # still documented in .env.example, and a test below checks which service receives them.
-WORKER_ONLY = {"PHAROS_GITHUB_TOKEN"}
+WORKER_ONLY = {"PHAROS_GITHUB_TOKEN", "PHAROS_LLM_API_KEY"}
 
 # Settings that are documented in .env.example only as a commented example, or not at all.
 NOT_IN_ENV_EXAMPLE = NOT_PASSED_BY_COMPOSE
@@ -208,7 +208,7 @@ def test_only_the_api_service_uses_the_full_environment() -> None:
     beat = re.search(r"^  beat:\n(.*?)(?=^  \w)", compose, re.DOTALL | re.MULTILINE)
     assert beat
     assert "environment: *worker-env" in beat.group(1)  # exactly the worker's, nothing added
-    # The worker is the worker's environment plus the optional GitHub token, and nothing else.
+    # The worker is the worker's environment plus the optional GitHub token and model key.
     worker = re.search(
         r"^  worker:\n.*?^    environment:\n((?:      [^\n]*\n)+)",
         compose,
@@ -217,7 +217,8 @@ def test_only_the_api_service_uses_the_full_environment() -> None:
     assert worker
     assert "<<: *worker-env" in worker.group(1)
     assert re.findall(r"^\s+(PHAROS_[A-Z_]+):", worker.group(1), re.MULTILINE) == [
-        "PHAROS_GITHUB_TOKEN"
+        "PHAROS_GITHUB_TOKEN",
+        "PHAROS_LLM_API_KEY",
     ]
     assert "backend-env" not in worker.group(1)
     api = re.search(r"^  api:\n(.*?)(?=^  \w)", compose, re.DOTALL | re.MULTILINE)

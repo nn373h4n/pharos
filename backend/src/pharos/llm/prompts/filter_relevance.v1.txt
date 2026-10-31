@@ -1,0 +1,1 @@
+Decide whether the article is about practical use of AI at work. Answer with the JSON object described below.

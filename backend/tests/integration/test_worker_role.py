@@ -31,6 +31,8 @@ ALLOWED: dict[str, set[str]] = {
     "item_sources": {"SELECT"},
     # Only by column (state of an account, ADR-0014): no table-level privilege at all.
     "users": set(),
+    # The record of model calls: the worker may only add rows, by column (ADR-0016).
+    "llm_usage": set(),
 }
 # The one thing the worker may read about a person: whether the owner of a personal feed is active.
 USER_COLUMNS_FOR_WORKER = {"org_id", "id", "status"}
@@ -391,3 +393,65 @@ async def test_the_worker_sees_only_the_accounts_of_the_organization_it_entered(
     assert other == 0
     async with owner_engine.begin() as connection:
         await connection.execute(text("DELETE FROM users WHERE subject LIKE 'worker-view-%'"))
+
+
+async def test_the_worker_may_only_add_numbers_to_the_record_of_model_calls(
+    owner_engine: AsyncEngine, worker_engine: AsyncEngine, app_engine: AsyncEngine
+) -> None:
+    columns = [
+        "org_id",
+        "stage",
+        "provider",
+        "model",
+        "tokens_in",
+        "tokens_out",
+        "cost_micro_usd",
+        "outcome",
+    ]
+    async with owner_engine.connect() as connection:
+        every = [
+            row[0]
+            for row in await connection.execute(
+                text(
+                    "SELECT column_name FROM information_schema.columns "
+                    "WHERE table_schema = 'public' AND table_name = 'llm_usage'"
+                )
+            )
+        ]
+        insertable = set()
+        for column in every:
+            for privilege in ("SELECT", "UPDATE", "REFERENCES"):
+                held = await connection.execute(
+                    text("SELECT has_column_privilege(:r, 'public.llm_usage', :c, :p)"),
+                    {"r": WORKER_ROLE, "c": column, "p": privilege},
+                )
+                assert held.scalar_one() is False, (column, privilege)
+            held = await connection.execute(
+                text("SELECT has_column_privilege(:r, 'public.llm_usage', :c, 'INSERT')"),
+                {"r": WORKER_ROLE, "c": column},
+            )
+            if held.scalar_one():
+                insertable.add(column)
+        # control: the application role reads the table, and cannot change it
+        assert (
+            await connection.execute(
+                text("SELECT has_table_privilege(:r, 'public.llm_usage', 'SELECT')"),
+                {"r": APP_ROLE},
+            )
+        ).scalar_one() is True
+        assert (
+            await connection.execute(
+                text("SELECT has_table_privilege(:r, 'public.llm_usage', 'INSERT')"),
+                {"r": APP_ROLE},
+            )
+        ).scalar_one() is False
+    assert insertable == set(columns)
+    assert set(every) > insertable  # there are columns the worker cannot even set (id, created_at)
+    for statement in (
+        "SELECT 1 FROM llm_usage",
+        "UPDATE llm_usage SET tokens_in = 0",
+        "DELETE FROM llm_usage",
+    ):
+        async with worker_engine.connect() as connection:
+            with pytest.raises(DBAPIError, match="permission denied"):
+                await connection.execute(text(statement))
