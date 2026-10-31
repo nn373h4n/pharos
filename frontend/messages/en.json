@@ -142,7 +142,8 @@
     "home": "Home",
     "items": "Articles",
     "myFeeds": "My feeds",
-    "sources": "Sources"
+    "sources": "Sources",
+    "llm": "Model"
   },
   "Items": {
     "metaTitle": "Articles",
@@ -393,6 +394,71 @@
       "opensInNewTab": " (opens in a new tab)"
     },
     "articlesNote": "Articles of this source"
+  },
+  "Llm": {
+    "metaTitle": "Model layer",
+    "title": "Model layer",
+    "intro": "Which language model Pharos uses, what it has cost today, and whether its key works. Only public article text is ever sent to a model.",
+    "offNote": "No model is switched on. The product works without one; summaries and ranking by a model stay off.",
+    "loading": "Loading the model page…",
+    "loadFailed": "The model page could not be loaded. Try again later.",
+    "retry": "Try again",
+    "setup": {
+      "title": "Settings",
+      "provider": "Provider",
+      "noModel": "Not set",
+      "keyNote": "The key is kept in the server's settings file and is never shown here. To change it, the person who runs the server edits that file and restarts the worker."
+    },
+    "provider": {
+      "off": "Off",
+      "fake": "Test provider (no real model)",
+      "anthropic": "Anthropic (Claude)",
+      "openai": "OpenAI",
+      "azure": "Azure OpenAI"
+    },
+    "stage": {
+      "filter": "Filter (small model)",
+      "enrichment": "Enrichment",
+      "insight": "Insight",
+      "key_test": "Key check"
+    },
+    "budget": {
+      "title": "Today's spending",
+      "spent": "{spent} of {cap} used ({percent}%).",
+      "warned": "Eighty percent of today's limit is used.",
+      "exhausted": "Today's limit is reached. No new summaries are made until tomorrow; the ones that exist keep showing."
+    },
+    "key": {
+      "title": "Key",
+      "never": "The key has not been checked yet.",
+      "last": "Last check: {outcome} ({when}).",
+      "test": "Test the key",
+      "waiting": "Waiting for the worker…",
+      "gaveUp": "The worker did not answer in time. Try again later.",
+      "unavailable": "The answer could not be read.",
+      "result": "Result: {outcome}."
+    },
+    "outcome": {
+      "ok": "The key works",
+      "disabled": "No model is switched on",
+      "not_configured": "The provider or a model name is not set",
+      "rejected": "The provider refused the key or the request",
+      "failed": "The provider did not answer or failed",
+      "budget": "Today's limit is reached",
+      "paced": "Too many calls in a minute",
+      "paused": "Resting after repeated failures"
+    },
+    "usage": {
+      "title": "Last seven days",
+      "empty": "No model call has been made yet.",
+      "day": "Day",
+      "stage": "Stage",
+      "calls": "Calls",
+      "refused": "Refused",
+      "failed": "Failed",
+      "tokens": "Tokens in / out",
+      "cost": "Cost"
+    }
   },
   "Feeds": {
     "metaTitle": "My feeds",

@@ -166,7 +166,7 @@ describe("switching on and off", () => {
     fireEvent.click(act(en.Sources.actions.disable, "Feed 1"));
     await waitFor(() => expect(status().textContent).toContain("Switched off: Feed 1"));
     expect(updateFeed).toHaveBeenCalledWith(id(1), { enabled: false }, "token-1");
-    expect(listFeeds).toHaveBeenCalledTimes(2);
+    await waitFor(() => expect(listFeeds).toHaveBeenCalledTimes(2)); // the reload follows the notice
     expect(document.activeElement).toBe(
       screen.getByRole("heading", { level: 2, name: en.Feeds.results }),
     );
