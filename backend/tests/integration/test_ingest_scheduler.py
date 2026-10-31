@@ -165,6 +165,85 @@ async def test_personal_feeds_are_left_alone_when_the_operator_switched_them_off
     assert {s for s, _ in sent} == {mine}
 
 
+async def set_status(owner_engine: AsyncEngine, org: Org, user: uuid.UUID, status: str) -> None:
+    async with owner_engine.begin() as connection:
+        await connection.execute(
+            text("UPDATE users SET status = :s WHERE org_id = :o AND id = :u"),
+            {"s": status, "o": org.id, "u": user},
+        )
+
+
+@pytest.mark.parametrize("status", ["disabled", "deprovisioned"])
+async def test_the_feeds_of_a_person_who_is_not_active_are_never_leased(
+    worker_engine: AsyncEngine, owner_engine: AsyncEngine, alpha: Org, slug: str, status: str
+) -> None:
+    shared = await make_source(owner_engine, alpha, "shared", next_fetch_at=T0 - timedelta(hours=1))
+    mine = await make_source(
+        owner_engine, alpha, "mine", owner=alpha.user, next_fetch_at=T0 - timedelta(hours=2)
+    )
+    other = await make_source(
+        owner_engine, alpha, "other", owner=alpha.other_user, next_fetch_at=T0 - timedelta(hours=2)
+    )
+    await set_status(owner_engine, alpha, alpha.user, status)
+    sent, enqueue = collect()
+    await dispatch(worker_engine, slug=slug, now=T0, enqueue=enqueue)
+    # the organization's source and another active person's feed go on; this person's stops
+    assert {s for s, _ in sent} == {shared, other}
+    assert (await row(owner_engine, mine)).lease_token is None
+    # the person comes back: the feed is fetched again
+    await set_status(owner_engine, alpha, alpha.user, "active")
+    sent, enqueue = collect()
+    await dispatch(worker_engine, slug=slug, now=T0, enqueue=enqueue)
+    assert {s for s, _ in sent} == {mine}
+
+
+async def test_a_lease_taken_before_the_person_was_disabled_is_dropped(
+    worker_engine: AsyncEngine, owner_engine: AsyncEngine, alpha: Org, slug: str
+) -> None:
+    mine = await make_source(
+        owner_engine, alpha, "mine", owner=alpha.user, next_fetch_at=T0 - timedelta(hours=1)
+    )
+    shared = await make_source(owner_engine, alpha, "shared", next_fetch_at=T0 - timedelta(hours=1))
+    sent, enqueue = collect()
+    await dispatch(worker_engine, slug=slug, now=T0, enqueue=enqueue)
+    tokens = dict(sent)
+    assert set(tokens) == {mine, shared}
+
+    async def load(source: uuid.UUID) -> object:
+        async with worker_engine.begin() as connection:
+            await repository.enter_org(connection, alpha.id)
+            return await repository.load_leased(connection, source, tokens[source], T0)
+
+    assert await load(mine) is not None  # positive control: the lease is live
+    await set_status(owner_engine, alpha, alpha.user, "disabled")
+    assert await load(mine) is None
+    assert await load(shared) is not None  # the organization's source does not depend on a person
+
+
+async def test_a_fetch_does_not_begin_for_a_person_who_was_disabled_after_the_lease(
+    worker_engine: AsyncEngine, owner_engine: AsyncEngine, alpha: Org, slug: str
+) -> None:
+    mine = await make_source(
+        owner_engine, alpha, "mine", owner=alpha.user, next_fetch_at=T0 - timedelta(hours=1)
+    )
+    shared = await make_source(owner_engine, alpha, "shared", next_fetch_at=T0 - timedelta(hours=1))
+    sent, enqueue = collect()
+    await dispatch(worker_engine, slug=slug, now=T0, enqueue=enqueue)
+    tokens = dict(sent)
+    assert set(tokens) == {mine, shared}
+    await set_status(owner_engine, alpha, alpha.user, "disabled")
+
+    async def begin(source: uuid.UUID) -> object:
+        async with worker_engine.begin() as connection:
+            await repository.enter_org(connection, alpha.id)
+            return await repository.start_run(
+                connection, alpha.id, source, tokens[source], T0, timedelta(seconds=30)
+            )
+
+    assert await begin(mine) is None  # the last look before the network
+    assert await begin(shared) is not None  # positive control: the organization's source goes on
+
+
 async def test_when_there_is_not_room_for_everything_the_longest_waiting_go_first(
     worker_engine: AsyncEngine, owner_engine: AsyncEngine, alpha: Org, slug: str
 ) -> None:

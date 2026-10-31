@@ -1,5 +1,6 @@
 """The SQL of the ingestion worker. Everything here runs as `pharos_worker`, inside row-level
-security, with grants that cover the ingestion tables only (migration 0003).
+security, with grants that cover the ingestion tables and, for the state of an account only, three
+columns of `users` (migrations 0003 and 0004, ADR-0014).
 
 Time is always passed in, never read from the database, so the scheduling logic can be tested with
 a clock that moves when the test says so.
@@ -71,9 +72,11 @@ async def lease_due_sources(
             "  SELECT id FROM sources"
             "  WHERE enabled AND next_fetch_at <= :now"
             "    AND (lease_until IS NULL OR lease_until <= :now)"
-            "    AND (owner_user_id IS NULL OR :personal)"
+            "    AND (owner_user_id IS NULL OR (:personal AND EXISTS ("
+            "      SELECT 1 FROM users u WHERE u.org_id = sources.org_id"
+            "        AND u.id = sources.owner_user_id AND u.status = 'active')))"
             "  ORDER BY (owner_user_id IS NOT NULL), next_fetch_at, id"
-            "  LIMIT :limit FOR UPDATE SKIP LOCKED"
+            "  LIMIT :limit FOR UPDATE OF sources SKIP LOCKED"
             ") UPDATE sources s SET lease_token = gen_random_uuid(), lease_until = :until "
             "FROM due WHERE s.id = due.id RETURNING s.id, s.lease_token"
         ),
@@ -95,13 +98,17 @@ async def release_lease(connection: AsyncConnection, source: uuid.UUID, token: u
 async def load_leased(
     connection: AsyncConnection, source: uuid.UUID, token: uuid.UUID, now: datetime
 ) -> SourceRow | None:
-    """The source, if this lease is still the live one and the source is still enabled."""
+    """The source, if this lease is still the live one, the source is still enabled and, for a
+    personal feed, its owner is still an active person."""
     row = (
         await connection.execute(
             text(
                 "SELECT id, type, config, interval_seconds, etag, last_modified, "
                 "consecutive_failures, owner_user_id FROM sources "
-                "WHERE id = :id AND lease_token = :token AND lease_until > :now AND enabled"
+                "WHERE id = :id AND lease_token = :token AND lease_until > :now AND enabled "
+                "AND (owner_user_id IS NULL OR EXISTS ("
+                "  SELECT 1 FROM users u WHERE u.org_id = sources.org_id"
+                "    AND u.id = sources.owner_user_id AND u.status = 'active'))"
             ),
             {"id": source, "token": token, "now": now},
         )
@@ -154,6 +161,9 @@ async def start_run(
         text(
             "UPDATE sources SET last_fetched_at = :now, lease_token = gen_random_uuid() "
             "WHERE id = :id AND lease_token = :token AND lease_until > :earliest "
+            "AND (owner_user_id IS NULL OR EXISTS ("
+            "  SELECT 1 FROM users u WHERE u.org_id = sources.org_id"
+            "    AND u.id = sources.owner_user_id AND u.status = 'active')) "
             "RETURNING lease_token"
         ),
         {"id": source, "token": token, "now": now, "earliest": now + min_lease_left},

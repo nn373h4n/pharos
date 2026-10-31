@@ -36,7 +36,7 @@ API where it matters most:
 - **Database.** A role `pharos_worker` (no login privileges beyond what is listed) is created with the
   other roles in `deploy/postgres/init/01-roles.sh`. Its grants are column-level and limited to the
   ingestion tables (`sources`, `fetch_runs`, `raw_items`, `items`, `item_sources`) plus
-  `EXECUTE` on `pharos_org_id_for_slug`. It cannot read or write `users`, `local_credentials`,
+  `EXECUTE` on `pharos_org_id_for_slug`. It cannot read or write `users` (except `org_id`, `id` and `status`, read-only: ADR-0014), `local_credentials`,
   `user_profiles`, `audit_logs` or anything else. Row-level security still applies to it.
 - **Redis.** Two ACL users replace the single password: the API user may use everything it uses today;
   the worker user may use only the Celery/kombu keys and channels and keys under `pharos:worker:`,

@@ -634,7 +634,9 @@ async def test_the_worker_can_run_the_pipeline_and_nothing_beyond_it(
         "UPDATE raw_items SET external_id = 'other'",
         "UPDATE item_sources SET item_id = item_id",
         "DELETE FROM item_sources",
-        "SELECT 1 FROM users",
+        "SELECT email FROM users",
+        "SELECT role FROM users",
+        "UPDATE users SET status = 'active'",
         "SELECT 1 FROM organizations",
     ):
         async with session(worker_engine, alpha) as connection:
@@ -789,7 +791,7 @@ async def test_downgrade_refuses_to_delete_ingested_data_unless_told_to(
         revision = (
             await connection.execute(text("SELECT version_num FROM alembic_version"))
         ).scalar_one()
-    assert revision == "0003"
+    assert revision == "0004"  # the refused downgrade rolled everything back
     monkeypatch.setenv("PHAROS_ALLOW_DATA_LOSS", "yes")
     try:
         await asyncio.to_thread(command.downgrade, database.alembic, "0002")
@@ -798,3 +800,24 @@ async def test_downgrade_refuses_to_delete_ingested_data_unless_told_to(
         await asyncio.to_thread(command.upgrade, database.alembic, "head")
     async with owner_engine.connect() as connection:
         assert await count(connection, "sources") == 0
+
+
+async def test_migration_0004_takes_the_workers_view_of_accounts_away_when_reverted(
+    database: TestDatabase, owner_engine: AsyncEngine
+) -> None:
+    async def worker_reads_status() -> bool:
+        async with owner_engine.connect() as connection:
+            row = await connection.execute(
+                text(
+                    "SELECT has_column_privilege('pharos_worker', 'public.users', 'status', 'SELECT')"
+                )
+            )
+            return bool(row.scalar_one())
+
+    assert await worker_reads_status() is True
+    await asyncio.to_thread(command.downgrade, database.alembic, "0003")
+    try:
+        assert await worker_reads_status() is False
+    finally:
+        await asyncio.to_thread(command.upgrade, database.alembic, "head")
+    assert await worker_reads_status() is True
