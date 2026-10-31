@@ -71,7 +71,12 @@ class ParsedFeed:
 def _decodings(body: bytes) -> list[str]:
     """The text of `body` under the encodings a declaration could be hidden in."""
     texts = [body.decode("latin-1")]  # sees ASCII-compatible encodings, never fails
-    for encoding in ("utf-16", "utf-16-le", "utf-16-be", "utf-32", "utf-32-le", "utf-32-be"):
+    for encoding in (
+        "utf-16", "utf-16-le", "utf-16-be", "utf-32", "utf-32-le", "utf-32-be",
+        # EBCDIC: the parser may not know the declared encoding, and then it cannot be read here
+        # as ASCII either.
+        "cp037", "cp273", "cp500", "cp1026", "cp1140",
+    ):  # fmt: skip
         try:
             texts.append(body.decode(encoding, errors="ignore"))
         except (UnicodeError, LookupError):  # pragma: no cover - errors="ignore" does not raise
@@ -98,7 +103,11 @@ def check_xml(body: bytes) -> None:
         raise FeedError(
             "bad_content"
         ) from None  # a declaration, an entity or an external reference
-    except ParseError:
+    except ParseError as error:
+        # An encoding the parser does not know hides everything after the declaration from this
+        # check, so such a document is refused whatever else it holds.
+        if "encoding" in str(error).lower():
+            raise FeedError("bad_content") from None
         # Not well-formed XML. The tolerant parser may still read it, but only if no declaration or
         # entity is hiding anywhere in the bytes.
         if any(_DECLARATION.search(text) for text in _decodings(body)):

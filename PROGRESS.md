@@ -4,36 +4,52 @@ Management view, kept short. Task detail is in [TASKS.md](TASKS.md).
 
 ## Where the project is
 
-- **Phase:** 1 (MVP). Milestones **M1** (skeleton and security baseline) and **M2** (sign-in, organization, onboarding) are complete (M2 on 2026-10-28). Next: **M3** (sources and content), which needs a plan approved by the maintainer first.
-- **What exists:** a platform people can sign in to. Single sign-on with any OpenID Connect provider (Keycloak tested end to end, a Microsoft Entra ID preset tested with recorded shapes), local break-glass administrators, sessions, roles (administrator, editor, member) with people management for administrators, a four-question onboarding in four languages, an audit log, operator commands, and the Docker Compose stack with a development Keycloak. There is no content, no feed and no LLM yet.
-- **Completion:** M1 10 of 10 tasks, M2 15 of 15 tasks (measured). Overall 2 of 5 milestones; that is a count, not an effort estimate, because the milestones differ a lot in size.
+- **Phase:** 1 (MVP). Milestones **M1** (skeleton and security baseline) and **M2** (sign-in, organization, onboarding) are complete. **M3** (sources and ingestion) is built: 16 of 17 tasks are Done, and **M3-14** (real-stack end-to-end tests, CI job, whole-milestone review, documentation) stays in **Review** until its pull request merges. Next: **M4** (enrichment, translation, personal feed, "Try this"), which needs a plan approved by the maintainer first.
+- **What exists:** a platform people can sign in to (single sign-on with any OpenID Connect provider, local break-glass administrators, roles, onboarding in four languages, audit log, Docker Compose stack). On top of it, M3 adds:
+  - **Sources:** administrators and editors manage RSS and Atom feeds, GitHub release feeds and Hacker News searches; a starter catalogue of 25 sources approved by the maintainer is imported switched off; a trial fetch shows what a source would bring before it is switched on.
+  - **Ingestion:** a dispatcher runs every minute and leases due sources; the worker fetches only through `SafeHttpClient` (addresses checked at connect time, redirects checked by hand, size and time limits, no internal or own-host addresses); hostile feed input is refused or cut; the pipeline removes duplicates and holds suspicious items for review.
+  - **Articles:** members see current articles; administrators and editors hold, approve, hide and restore them. Feed text is shown as text only.
+  - **Personal feeds:** each person may add up to 5 RSS feeds, at most one fetch an hour, visible to that person only; they stop being fetched when the person is disabled.
+  - **Worker isolation:** the worker has its own database role and its own Redis user, so it cannot read or write sessions (F-14 closed).
+- **What does not exist yet:** no LLM, no embeddings, no ranking, no "Try this" and no Reddit or commercial news source (the legal question is open).
+- **Completion (counted from TASKS.md):** M1 10 of 10 tasks, M2 15 of 15, M3 16 of 17 (M3-14 in Review). Overall 2 of 5 milestones complete, M3 in review. These are counts, not effort estimates; the milestones differ a lot in size.
+- **Schedule (estimate):** M3 was built in about three calendar days (2026-10-28 to 2026-10-31), including review rounds and a parallel session. That is an observation, not a basis for estimating M4 and M5.
 
-## Checks (state on `main` after the last merge)
+## Checks (state on `main` after PR #52; the M3-14 pull request is pending)
 
 | Check | Result |
 | --- | --- |
-| Pull-request pipeline (14 required checks: DCO, backend, integration, frontend, end-to-end, docs, Compose, secret scan, CodeQL x2, Trivy x2, Keycloak stack, stack end-to-end) | PASS |
-| Backend: 541 unit, 383 integration (real PostgreSQL and Redis) | PASS |
-| Frontend: 143 vitest, 250 Playwright against a mocked API (four languages, two themes, desktop and phone, axe WCAG 2.2 AA) | PASS |
-| Real stack (Caddy over HTTPS, web app, API, PostgreSQL, Redis, development Keycloak): 46 Playwright tests incl. keyboard-only onboarding under two minutes and axe in four languages x two themes x two sizes | PASS |
-| Compose stack: 72 checks (isolation, hardening, TLS, sign-in through the proxy, forged forwarded headers) | PASS |
-| Keycloak stack: 35 checks (issuer, certificate trust, the whole sign-in as a browser does it, replay refused, sign-out) | PASS |
-| Mutation checks (deliberately breaking security controls) | every new control caught; more than ten tests were too weak at first and were strengthened (see the session note) |
-| Independent security reviews | M1: 3, M2: sessions, local accounts, single sign-on (2), people management and Entra (by the second session), onboarding, and the whole milestone. No P0 or P1; P2 fixed except F-14 (documented) |
+| `make lint` (ruff, mypy strict, import contracts, eslint, tsc) | PASS |
+| Backend: 1650+ unit tests | PASS |
+| Backend: 817 integration tests (real PostgreSQL and Redis, worker role, Redis ACL users) | PASS |
+| Frontend: 593 vitest tests | PASS |
+| Frontend: whole Playwright suite against a mocked API (about 550 tests; four languages, two themes, desktop and phone, axe WCAG 2.2 AA) | PASS |
+| `make test-compose` (Compose stack: isolation, hardening, TLS, forged forwarded headers) | PASS |
+| `make test-stack-e2e` (real stack: Caddy over HTTPS, web, API, worker, beat, PostgreSQL, Redis, fake feed host): 104 tests, incl. ingestion, personal feeds and axe on `/items`, `/sources`, `/my-feeds` in 4 languages x 2 themes x 2 sizes | PASS |
+| Pull-request pipeline (14 required checks) | PASS on `main` through PR #52; the M3-14 pull request is pending |
+| Mutation checks (deliberately breaking each new control) | every new control caught by a named test; counts per task are in the TASKS.md rows and the pull-request descriptions |
+| Independent whole-milestone security review | no open P0 or P1; its P2 findings fixed (an EBCDIC feed hid a document type declaration from the check; the SSRF stack targets mostly proved the port rule; conflicting specs) |
+| `make test-sso-dev` (Keycloak stack, 35 checks) | NOT RUN in M3; last PASS on 2026-10-28 |
 | Coverage | NOT MEASURED |
-| Load, performance, backup restore | NOT RUN |
-| Real Entra ID tenant, any provider except a development Keycloak, a public domain with ACME | NOT TESTED |
+| Load, performance, backup and restore | NOT RUN |
+| Real Entra ID tenant; a real internet feed in CI; a real GitHub or Hacker News API call through the connectors | NOT TESTED |
 
-## M2 acceptance criteria
+## M3 acceptance criteria
 
-| Criterion | Result |
-| --- | --- |
-| Sign-in end to end through Keycloak and through the Entra preset | Keycloak PASS (real stack); Entra PASS against recorded shapes only, **real Entra NOT TESTABLE** until M0-02 |
-| User and department created on first sign-in; actions of the local admin in the audit log | PASS (integration and real-stack tests read the audit log) |
-| RBAC in the service layer; a test fails for any route that is not covered, with a cross-tenant test | PASS (route-coverage gate, now also comparing the roles in the matrix with the roles enforced) |
-| Onboarding keyboard-only, under two minutes, timestamps stored | PASS (mocked API and real stack) |
-| All new text in four languages; axe on authenticated pages in 4 languages x 2 themes x 2 sizes | PASS (translations are the assistant's and unreviewed, F-01) |
-| OIDC negative suite; independent review without open P0/P1; mutation checks | PASS |
+The ten criteria of [the M3 plan](docs/plans/m3-sources-and-ingestion.md). PASS means the named tests run and pass; PARTLY means the criterion is only partly shown; the detail is in the [plan's result section](docs/plans/m3-sources-and-ingestion.md#result).
+
+| # | Criterion | Result |
+| --- | --- | --- |
+| 1 | Lint, unit, integration, Compose and stack tests green locally and in CI | PARTLY: green locally; CI for the M3-14 pull request pending |
+| 2 | Each of the 12 listed mutations makes a named test fail | PARTLY: every control was broken in its task; the per-mutation list is in the pull requests and was not re-checked here |
+| 3 | SSRF suite of at least 40 cases; real-stack targets blocked | PARTLY: 226 tests in `backend/tests/net`; the stack test asserts `blocked` and zero stored items, it does not count connections |
+| 4 | As the worker role, `UPDATE users` and reading `local_credentials` fail; Redis `GET pharos:session:x` refused; F-14 closed | PASS |
+| 5 | `http://127.1/` and `http://[::ffff:7f00:1]/` refused and audited | PASS |
+| 6 | Two dispatchers start at most one fetch per source; killed worker leaves no duplicates; second run adds 0 | PARTLY: proven with a controlled clock and in the stack; a worker killed in a real container is not evidenced |
+| 7 | 10,000 entries give 200 items, under 300 MB and under 20 s | PARTLY: count and time PASS; peak memory measured only as Python allocations in a unit test |
+| 8 | Duplicate rate under 5% on a recorded corpus | PARTLY: the corpus is synthetic, not recorded |
+| 9 | UI text in en, az, tr, ru; axe clean in 4 x 2 x 2 | PASS for presence and axe; az, tr and ru wording unreviewed (F-01) |
+| 10 | Independent whole-milestone review with no open P0 or P1 | PASS |
 
 ## Risks
 
@@ -41,16 +57,19 @@ Management view, kept short. Task detail is in [TASKS.md](TASKS.md).
 | --- | --- |
 | R1 sensitive data pasted into an AI tool through "Try this" (P0) | Open by design; the card and admin tool list arrive with M4 |
 | R2 pilot preparation (Entra registration, server, LLM budget) | Not started; blocks only the pilot (M0). Entra is the one provider path that has never met a real tenant |
-| A compromised worker can write session records in Redis (F-14) | Open, documented; to be closed before the worker handles untrusted content (M3) |
-| Egress by destination is not enforced by Compose | Open, documented (F-04) |
-| Translations are unreviewed | Open (F-01) |
-| Backup and restore undefined | Open (F-02) |
-| Schedule: the plan assumes one developer with an assistant | M1 and M2 were built in about four calendar days including review rounds and a second parallel session; that is no basis for estimating M3-M5 |
+| Worker takes hostile input from the internet | Contained by SafeHttpClient, the worker role and the Redis user; not proven against a real internet feed or a killed container |
+| Egress by destination is not enforced by Compose | Open (F-04); M3 proves the address policy, not network egress |
+| Strict CSP | Open (F-03); new pages render plain text only |
+| Personal feed first fetch is due at once | Open (F-31): bounded by 10 new addresses an hour |
+| Translations are unreviewed | Open (F-01), including the M3 text in az, tr and ru |
+| Backup and restore undefined | Open (F-02); restore NOT RUN |
+| Starter sources can move or die | Open (F-30): the Sources page shows failures; a periodic check is planned |
+| Schedule: the plan assumes one developer with an assistant | M1 and M2 took about four calendar days and M3 about three (estimates, with review rounds and a parallel session); that is no basis for estimating M4 and M5 |
 
 ## Next steps
 
-1. Maintainer reviews ADR-0011 and the other ADRs marked Proposed ([TASKS.md](TASKS.md#decisions-waiting-for-the-maintainer)), and tries sign-in with the Keycloak guide (`make dev-sso`).
-2. Start the M0 items that take calendar time: server and Entra ID test registration (M0-02, M0-03). Until then the Entra path is unproven.
-3. Plan M3 and get the plan approved; close F-14 as part of it.
-4. Have the az, tr and ru translations reviewed (F-01).
-5. Decide the egress approach (F-04) before real data is stored.
+1. Merge the M3-14 pull request once CI is green, then mark M3-14 Done in TASKS.md.
+2. Maintainer reviews the ADRs marked Proposed (0005 amendment, 0006, 0007, 0009, 0010, 0011, 0012, 0013, 0014; see [TASKS.md](TASKS.md#decisions-waiting-for-the-maintainer)), and decides F-31 (first fetch of a new personal feed).
+3. Have the az, tr and ru text reviewed (F-01); decide the CSP (F-03) and the egress approach (F-04) before real data is stored.
+4. Run the checks that are NOT RUN: load and performance, backup and restore (F-02), a worker killed in a real container, peak memory of the 10,000-entry feed in the stack, a recorded corpus for the duplicate rate, and the Entra ID path (M0-02).
+5. Plan M4 (enrichment, translation, personal feed, "Try this") and get the plan approved before coding.

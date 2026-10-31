@@ -1,0 +1,41 @@
+# ONLY for scripts/stack-e2e.sh (make test-stack-e2e). Never part of a real installation: it runs the
+# worker with PHAROS_ENVIRONMENT=test, which is the only way to let it fetch from one fake feed host,
+# and it relaxes the production checks of the worker's settings. A test (test_deploy_wiring.py)
+# keeps this file and the settings it uses out of the real Compose file and `.env.example`.
+#
+# The fake host is a plain static server on a network of its own. The worker may reach exactly that
+# one address and port; the API, PostgreSQL, Redis and the metadata address stay blocked, which the
+# end-to-end tests prove by pointing sources at them.
+
+networks:
+  feedtest:
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.28.77.0/24
+
+services:
+  feedhost:
+    image: pharos-backend:${PHAROS_IMAGE_TAG:-local}
+    command: ["python", "-m", "http.server", "8080", "--bind", "0.0.0.0", "--directory", "/feeds"]
+    volumes:
+      - ${STACK_FEED_DIR:?set STACK_FEED_DIR}:/feeds:ro
+    networks:
+      feedtest:
+        ipv4_address: 172.28.77.10
+        aliases: [feed.example.test]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    restart: "no"
+    # The same hardening as the other services: a static file server needs nothing more.
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 128m
+
+  worker:
+    environment:
+      PHAROS_ENVIRONMENT: test
+      PHAROS_FETCH_TEST_ALLOWED_NETWORKS: 172.28.77.10/32
+      PHAROS_FETCH_TEST_ALLOWED_PORTS: "8080"
+    networks: [data, egress, feedtest]

@@ -107,7 +107,8 @@ test("a person who has finished is not asked again", async ({ page }) => {
       `SELECT u.id, u.org_id, (SELECT id FROM professions ORDER BY code LIMIT 1), 'beginner', ` +
       `'["research"]', now() - interval '1 minute', now() FROM users u WHERE u.email = '${ALICE_EMAIL}'`,
   );
-  await page.goto("/en/onboarding");
+  // The page redirects at once; do not wait for a load that the redirect interrupts.
+  await page.goto("/en/onboarding", { waitUntil: "commit" });
   await expect(page).toHaveURL(/\/en$/);
 });
 

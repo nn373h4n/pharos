@@ -84,6 +84,19 @@ Six idempotent Celery tasks. The LLM is called in three of them and has no tools
 
 Cost control: insights are generated only for profession/language pairs that have active users and only for items that reach a feed. The AI level is not part of the cache key. A budget check runs in `LLMGateway`: at 80% the admin is warned, at 100% new generation stops while cached insights keep being served.
 
+### Ingestion as built in M3
+
+Steps 1 and 2 of the pipeline above exist in this form (M3, ADR-0006, ADR-0012, ADR-0013). Steps 3 to 6 do not exist yet, and nothing here calls an LLM.
+
+- **Sources.** Rows in `sources`: RSS or Atom feeds, GitHub releases and Hacker News searches, each configuration validated for its type by `pharos.ingest.sourceconfig`. An organization source has no owner; a personal feed has one. Every source has an `enabled` switch. The starter catalogue is imported switched off.
+- **Scheduling.** Beat (on the `data` network only) runs `pharos.ingest.dispatch` every minute. It leases due sources and enqueues `pharos.ingest.fetch` with identifiers only (see the scheduling paragraph above).
+- **Fetch.** The worker runs the connector. All outbound HTTP goes through `SafeHttpClient` (`pharos.net`): addresses checked at connect time, redirects checked by hand, size and time limits, and the GitHub token sent only to `api.github.com`. Feed bytes go to the parser, which refuses document type declarations and entities before parsing.
+- **Pipeline.** Runs in the same transaction as the raw entries: canonical link, exact duplicate check on organization, owner and URL hash, three hold rules that only set flags, and links between items and their sources. Personal items are never merged into organization items.
+- **Items.** `pharos.items`: members see current articles; administrators and editors hold, approve, hide and restore them. The `/items` page shows feed text as text only.
+- **Personal feeds.** `pharos.feeds` under `/api/me/feeds`: five per person, at least 60 minutes between fetches, visible to the owner only. The address is checked when it is added and again when it is switched on, and `SafeHttpClient` checks it at every fetch. The worker skips the feeds of people who are not active.
+- **Trial fetch.** The API queues `pharos.ingest.test_fetch` with identifiers only. The worker fetches the source, writes nothing to the database, and stores a small result under its own Redis prefix (`pharos:worker:testfetch:<test id>`, two minutes). The API reads that result as untrusted data and returns it to the administrator. The API's markers and cooldowns live under its own prefix (ADR-0013).
+- **Boundaries.** The worker connects as the `pharos_worker` database role (column grants only) and as a Redis user limited to the Celery queue and `pharos:worker:*` (ADR-0012). Sessions and sign-in state are out of its reach.
+
 ## 4. Tenancy
 
 One installation serves one organization, but the code is tenant-aware (ADR-0005).

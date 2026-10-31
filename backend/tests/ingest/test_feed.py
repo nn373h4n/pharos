@@ -371,3 +371,30 @@ def test_a_declaration_in_utf_32_is_refused(encoding: str) -> None:
         '<?xml version="1.0"?><!DOCTYPE rss [<!ENTITY a "b">]><rss version="2.0"><channel/></rss>'
     )
     assert refused(text.encode(encoding)) == "bad_content"
+
+
+@pytest.mark.parametrize(
+    "encoding", ["cp037", "cp500", "cp273", "cp1026", "cp1140", "cp424", "koi8-r"]
+)
+@pytest.mark.parametrize(
+    "extra",
+    [
+        '<!DOCTYPE rss [<!ENTITY x "boom">]>',
+        '<!DOCTYPE rss [<!ENTITY x SYSTEM "file:///etc/hostname">]>',
+        '<!DOCTYPE lolz [<!ENTITY a "aaaa"><!ENTITY b "&a;&a;&a;&a;">]>',
+    ],
+)
+def test_a_feed_in_an_encoding_the_parser_does_not_know_is_refused(
+    encoding: str, extra: str
+) -> None:
+    """The declaration is hidden from the ASCII scan in such an encoding, so the document is refused."""
+    text = (
+        f'<?xml version="1.0" encoding="{encoding}"?>{extra}'
+        "<rss><channel><title>t</title><item><title>&x;</title></item></channel></rss>"
+    )
+    try:
+        body = text.encode(encoding)
+    except UnicodeError:  # pragma: no cover - the codec cannot spell the text
+        pytest.skip(f"{encoding} cannot spell the text")
+    with pytest.raises(FeedError):
+        parse_feed(body, NOW)
