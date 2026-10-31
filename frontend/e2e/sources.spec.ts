@@ -99,7 +99,7 @@ for (const locale of locales) {
       await expect(page).toHaveTitle(m.metaTitle);
       await expect(
         page.getByRole("navigation", { name: messages[locale].Nav.main }).getByRole("link"),
-      ).toHaveCount(4);
+      ).toHaveCount(5); // home, articles, my feeds, sources, model (an administrator)
     });
   });
 }
