@@ -243,7 +243,15 @@ export function LlmView() {
         {status.usage.length === 0 ? (
           <p className="mt-3 text-sm">{t("usage.empty")}</p>
         ) : (
-          <div className="mt-3 overflow-x-auto">
+          <div
+            role="region"
+            aria-labelledby="llm-usage"
+            // A region that scrolls sideways must be reachable with the keyboard (WCAG 2.1.1; axe:
+            // scrollable-region-focusable), which the rule against tabindex on a plain element misses.
+            // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex
+            tabIndex={0}
+            className="mt-3 overflow-x-auto"
+          >
             <table className="w-full text-left text-sm">
               <caption className="sr-only">{t("usage.title")}</caption>
               <thead>
