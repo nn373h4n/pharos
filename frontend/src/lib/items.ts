@@ -21,7 +21,23 @@ export type Item = {
   updated_at: string | null;
   /** Reviewers only; empty for a member. */
   sources: { id: string; name: string }[];
+  /** What the model said, as plain text. Empty until the article has been read. */
+  summary?: string | null;
+  category?: string | null;
+  /** 1 to 5, reviewers only. */
+  quality?: number | null;
 };
+
+export const CATEGORIES = [
+  "tool",
+  "technique",
+  "case_study",
+  "research",
+  "policy",
+  "tutorial",
+  "news",
+  "other",
+] as const;
 
 export type ItemPage = { items: Item[]; total: number };
 
@@ -67,6 +83,14 @@ export function isItem(value: unknown): value is Item {
     STATUSES.includes(item.status) &&
     isTextOrNull(item.hold_reason) &&
     isTextOrNull(item.updated_at ?? null) &&
+    isTextOrNull(item.summary ?? null) &&
+    isTextOrNull(item.category ?? null) &&
+    (item.quality === undefined ||
+      item.quality === null ||
+      (typeof item.quality === "number" &&
+        Number.isInteger(item.quality) &&
+        item.quality >= 1 &&
+        item.quality <= 5)) &&
     Array.isArray(item.sources) &&
     item.sources.every(
       (source) =>

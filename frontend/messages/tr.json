@@ -183,6 +183,7 @@
       "link_odd_port": "Bağlantı olağandışı bir port kullanıyor.",
       "instruction_phrase": "Metin, yapay zekâya verilen bir talimata benziyor.",
       "editor_hold": "Bir editör tarafından bekletildi.",
+      "low_quality": "Model tarafından bekletildi: düşük kalite veya konu dışı.",
       "other": "İnceleme için işaretlendi."
     },
     "actions": {
@@ -201,6 +202,18 @@
     "source": {
       "only": "Yalnızca tek bir kaynağın makaleleri gösteriliyor.",
       "all": "Tüm makaleleri göster"
+    },
+    "quality": "Kalite: 5 üzerinden {score}",
+    "summary": "Özet",
+    "categories": {
+      "tool": "Araç",
+      "technique": "Teknik",
+      "case_study": "Örnek olay",
+      "research": "Araştırma",
+      "policy": "Politika",
+      "tutorial": "Eğitim",
+      "news": "Haber",
+      "other": "Diğer"
     }
   },
   "Problems": {

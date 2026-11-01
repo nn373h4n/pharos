@@ -242,7 +242,7 @@ async def test_an_editor_lists_every_status_newest_first_and_filters_and_pages(
     assert body["items"][0]["id"] == str(undated)  # no date: the time it was fetched, which is now
     assert set(body["items"][1]) == {
         "id", "url", "title", "excerpt", "lang", "published_at", "fetched_at", "status",
-        "hold_reason", "updated_at", "sources",
+        "hold_reason", "updated_at", "sources", "summary", "category", "quality",
     }  # fmt: skip
     for status, expected in (("new", {old, undated}), ("held", {mid}), ("hidden", {new})):
         found = (await editor.client.get("/api/items", params={"status": status})).json()
@@ -543,3 +543,30 @@ async def test_a_persons_decision_is_remembered_so_the_model_never_overrules_it(
     for action in ("hold", "approve"):
         assert (await act(editor, item, action)).status_code == 200
     assert await reviewed() is not None  # approved: back to new, but a person has decided
+
+
+@pytest.mark.anyio
+async def test_what_the_model_said_is_shown_to_everyone_and_its_score_to_reviewers_only(
+    make_stack: MakeStack,
+) -> None:
+    stack: Stack = await make_stack("on")
+    editor = await person(stack, "editor")
+    member = await person(stack, "member")
+    read = await make_item(stack, title="Read")
+    unread = await make_item(stack, title="Unread")
+    async with stack.owner.begin() as connection:
+        await connection.execute(
+            text(
+                "UPDATE items SET summary = 'A plain summary.', category = 'tool', quality = 4, "
+                "enriched_at = now(), enrichment_version = 'v1' WHERE id = :i"
+            ),
+            {"i": read},
+        )
+    for who, sees_score in ((member, False), (editor, True)):
+        answer = (await who.client.get(f"/api/items/{read}")).json()
+        assert (answer["summary"], answer["category"]) == ("A plain summary.", "tool")
+        assert answer["quality"] == (4 if sees_score else None)
+        empty = (await who.client.get(f"/api/items/{unread}")).json()
+        assert (empty["summary"], empty["category"], empty["quality"]) == (None, None, None)
+        listed = {i["id"]: i for i in (await who.client.get("/api/items")).json()["items"]}
+        assert listed[str(read)]["summary"] == "A plain summary."

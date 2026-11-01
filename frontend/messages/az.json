@@ -183,6 +183,7 @@
       "link_odd_port": "Link qeyri-adi portdan istifadə edir.",
       "instruction_phrase": "Mətn süni intellektə verilən təlimata bənzəyir.",
       "editor_hold": "Redaktor tərəfindən saxlanılıb.",
+      "low_quality": "Model tərəfindən saxlanıb: keyfiyyəti aşağıdır və ya mövzudan kənardır.",
       "other": "Yoxlama üçün işarələnib."
     },
     "actions": {
@@ -201,6 +202,18 @@
     "source": {
       "only": "Yalnız bir mənbənin məqalələri göstərilir.",
       "all": "Bütün məqalələri göstər"
+    },
+    "quality": "Keyfiyyət: 5-dən {score}",
+    "summary": "Xülasə",
+    "categories": {
+      "tool": "Alət",
+      "technique": "Texnika",
+      "case_study": "Nümunə",
+      "research": "Tədqiqat",
+      "policy": "Siyasət",
+      "tutorial": "Təlimat",
+      "news": "Xəbər",
+      "other": "Digər"
     }
   },
   "Problems": {

@@ -335,6 +335,52 @@ describe("a reviewer", () => {
   });
 });
 
+describe("what the model said", () => {
+  const read = {
+    summary: "<b>Cuts</b> month-end work. See https://evil.example now",
+    category: "tool",
+    quality: 4,
+  };
+
+  it("shows the summary as text and the category to a member, but not the score", async () => {
+    listItems.mockResolvedValue(page([item(1, read)]));
+    const { container } = show();
+    await loaded();
+    expect(container.querySelector("b")).toBeNull(); // third-party-influenced text stays text
+    expect(container.textContent).toContain("<b>Cuts</b> month-end work.");
+    expect(screen.getByText(en.Items.categories.tool)).toBeDefined();
+    expect(screen.queryByText(/Quality:/)).toBeNull();
+    // the summary is never a link, whatever it contains
+    expect(container.querySelectorAll("a")).toHaveLength(1); // only the title
+  });
+
+  it("shows nothing extra for an article nobody has read yet", async () => {
+    listItems.mockResolvedValue(page([item(1)]));
+    show();
+    await loaded();
+    expect(screen.queryByText(en.Items.summary)).toBeNull();
+    expect(screen.queryByText(en.Items.categories.tool)).toBeNull();
+  });
+
+  it("ignores a category it does not know", async () => {
+    listItems.mockResolvedValue(page([item(1, { ...read, category: "<script>" })]));
+    const { container } = show();
+    await loaded();
+    expect(container.textContent).not.toContain("<script>");
+  });
+
+  it("shows the score and the reason to a reviewer", async () => {
+    role = "editor";
+    listItems.mockResolvedValue(
+      page([item(1, { ...read, status: "held", hold_reason: "low_quality", quality: 2 })]),
+    );
+    show();
+    await loaded();
+    expect(screen.getByText("Quality: 2 of 5")).toBeDefined();
+    expect(screen.getByText(en.Items.reasons.low_quality)).toBeDefined();
+  });
+});
+
 describe("states", () => {
   it("shows that it is loading", async () => {
     listItems.mockReturnValue(new Promise(() => {}));

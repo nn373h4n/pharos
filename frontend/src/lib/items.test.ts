@@ -53,6 +53,23 @@ describe("the review steps", () => {
   });
 });
 
+describe("isItem and what the model said", () => {
+  it("accepts a summary, a category and a score, or none of them", () => {
+    expect(isItem({ ...item, summary: "Text", category: "tool", quality: 3 })).toBe(true);
+    expect(isItem({ ...item, summary: null, category: null, quality: null })).toBe(true);
+  });
+  it.each([
+    { summary: 5 },
+    { category: {} },
+    { quality: 0 },
+    { quality: 6 },
+    { quality: 2.5 },
+    { quality: "3" },
+  ])("refuses %j", (change) => {
+    expect(isItem({ ...item, ...change })).toBe(false);
+  });
+});
+
 describe("isItem", () => {
   it("accepts an article, with or without the reviewer fields", () => {
     expect(isItem(item)).toBe(true);

@@ -194,7 +194,7 @@ Every signed-in person reads; administrators and editors also review. An article
 | Method | Path | Who | Purpose |
 | --- | --- | --- | --- |
 | GET | `/api/items` | everyone | Articles, newest first (publication time, else the time they were fetched). `status` (`new`, `held`, `hidden`), `source_id`, `limit` (1-100, default 50), `offset`. Answers `{items, total}`. |
-| GET | `/api/items/{id}` | everyone | One article. |
+| GET | `/api/items/{id}` | everyone | One article. Both answers carry what the model said once it has read the article (`summary`, `category`, both empty before; plain text only) and, for administrators and editors, its `quality` score from 1 to 5. A held article may carry the reason `low_quality`. |
 | POST | `/api/items/{id}/hold` | admin, editor | `new` becomes `held` (reason `editor_hold`). |
 | POST | `/api/items/{id}/approve` | admin, editor | `held` becomes `new`; the flag and its reason are cleared. |
 | POST | `/api/items/{id}/hide` | admin, editor | `new` or `held` becomes `hidden`: out of the list for everyone but reviewers. |

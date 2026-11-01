@@ -28,6 +28,9 @@ class ItemOut(BaseModel):
     status: ItemStatus
     hold_reason: str | None
     updated_at: datetime | None  # reviewers only
+    summary: str | None  # what the model said; plain text, empty until the article is read
+    category: str | None
+    quality: int | None  # 1 to 5, reviewers only
     sources: list[SourceRef]
 
 

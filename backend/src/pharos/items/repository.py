@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 _VIEW = (
     "i.id, i.canonical_url AS url, i.title, i.excerpt, i.lang, i.published_at, i.fetched_at, "
-    "i.status, i.hold_reason, i.updated_at"
+    "i.status, i.hold_reason, i.updated_at, i.summary, i.category, i.quality"
 )
 
 
@@ -31,6 +31,9 @@ class ItemView:
     status: str
     hold_reason: str | None
     updated_at: datetime
+    summary: str | None
+    category: str | None
+    quality: int | None
 
 
 def _view(row: Any) -> ItemView:

@@ -183,6 +183,7 @@
       "link_odd_port": "The link uses an unusual port.",
       "instruction_phrase": "The text looks like an instruction to an AI.",
       "editor_hold": "Held by an editor.",
+      "low_quality": "Held by the model: low quality or off topic.",
       "other": "Flagged for review."
     },
     "actions": {
@@ -201,6 +202,18 @@
     "source": {
       "only": "Showing only the articles of one source.",
       "all": "Show all articles"
+    },
+    "quality": "Quality: {score} of 5",
+    "summary": "Summary",
+    "categories": {
+      "tool": "Tool",
+      "technique": "Technique",
+      "case_study": "Case study",
+      "research": "Research",
+      "policy": "Policy",
+      "tutorial": "Tutorial",
+      "news": "News",
+      "other": "Other"
     }
   },
   "Problems": {
