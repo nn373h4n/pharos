@@ -27,7 +27,7 @@ def _lint(project: Path) -> subprocess.CompletedProcess[str]:
 
 def _project(root: Path, files: dict[str, str]) -> Path:
     shutil.copy(CONFIG, root / ".importlinter")
-    for name in ("", "orgs", "ingest", "sources", "items", "feeds", "llm"):
+    for name in ("", "orgs", "ingest", "sources", "items", "feeds", "llm", "evaluation"):
         package = root / "pharos" / name
         package.mkdir(parents=True, exist_ok=True)
         (package / "__init__.py").write_text("")
@@ -403,3 +403,47 @@ def test_the_application_entry_may_not_import_the_gateway(tmp_path: Path) -> Non
     result = _lint(project)
     assert result.returncode != 0
     assert "The API never imports the model layer's providers (ADR-0004) BROKEN" in result.stdout
+
+
+CORPUS_DOOR_RULE = "Only the evaluation runner uses the corpus door (M4-09)"
+EVALUATION_RULE = "The evaluation opens no connection of its own (M4-09)"
+
+
+def _with_corpus_door(project: Path) -> None:
+    (project / "pharos" / "llm" / "corpus_door.py").write_text("VALUE = 1\n")
+
+
+def test_the_evaluation_runner_may_use_the_corpus_door(tmp_path: Path) -> None:
+    project = _project(tmp_path, {})
+    _with_corpus_door(project)
+    (project / "pharos" / "evaluation" / "runner.py").write_text(
+        "from pharos.llm import corpus_door\n"
+    )
+    result = _lint(project)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.parametrize(
+    "where", [("orgs", "service.py"), ("insights", "service.py"), ("evaluation", "__main__.py")]
+)
+def test_nothing_but_the_evaluation_runner_may_use_the_corpus_door(
+    tmp_path: Path, where: tuple[str, str]
+) -> None:
+    project = _project(tmp_path, {})
+    _with_corpus_door(project)
+    package = project / "pharos" / where[0]
+    package.mkdir(exist_ok=True)
+    (package / "__init__.py").write_text("")
+    (package / where[1]).write_text("from pharos.llm import corpus_door\n")
+    result = _lint(project)
+    assert result.returncode != 0
+    assert f"{CORPUS_DOOR_RULE} BROKEN" in result.stdout
+
+
+@pytest.mark.parametrize("statement", ["import httpx", "import socket", "import requests"])
+def test_the_evaluation_may_not_open_a_connection(tmp_path: Path, statement: str) -> None:
+    project = _project(tmp_path, {})
+    (project / "pharos" / "evaluation" / "runner.py").write_text(statement + "\n")
+    result = _lint(project)
+    assert result.returncode != 0
+    assert f"{EVALUATION_RULE} BROKEN" in result.stdout

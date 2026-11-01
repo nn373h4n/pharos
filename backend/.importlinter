@@ -138,6 +138,32 @@ forbidden_modules =
 allow_indirect_imports = True
 unmatched_ignore_imports_alerting = none
 
+[importlinter:contract:corpus-door-has-one-user]
+name = Only the evaluation runner uses the corpus door (M4-09)
+type = forbidden
+source_modules =
+    pharos.*
+forbidden_modules =
+    pharos.llm.corpus_door
+ignore_imports =
+    pharos.evaluation.runner -> pharos.llm.corpus_door
+unmatched_ignore_imports_alerting = none
+
+[importlinter:contract:evaluation-has-no-network]
+name = The evaluation opens no connection of its own (M4-09)
+type = forbidden
+source_modules =
+    pharos.evaluation
+forbidden_modules =
+    pharos.net
+    httpx
+    httpcore
+    requests
+    socket
+    aiohttp
+allow_indirect_imports = True
+unmatched_ignore_imports_alerting = none
+
 # Still to add when the modules exist:
 # - a module never imports another module's repository (one contract per module pair or a layers
 #   contract over the module list, once there is more than one module with a repository);

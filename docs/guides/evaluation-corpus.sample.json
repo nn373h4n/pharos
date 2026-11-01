@@ -1,0 +1,74 @@
+[
+  {
+    "id": "acc-1",
+    "title": "Using an AI assistant to spot unusual ledger entries before the month-end close",
+    "excerpt": "A short walk-through for finance teams: export the ledger lines, ask an assistant to list entries that look unusual, then check each by hand. It does not replace the review.",
+    "url": "https://news.example.org/sample/ledger-entries",
+    "lang": "en",
+    "profession": "accountant",
+    "relevant": true
+  },
+  {
+    "id": "acc-2",
+    "title": "Writing clearer variance explanations with an AI tool",
+    "excerpt": "How a team turned terse variance notes into plain explanations for managers, keeping the numbers under human control.",
+    "url": "https://news.example.org/sample/variance-notes",
+    "lang": "en",
+    "profession": "accountant",
+    "relevant": true
+  },
+  {
+    "id": "pay-1",
+    "title": "Drafting answers to common payroll questions with an assistant",
+    "excerpt": "A pattern for preparing reusable answers about leave, overtime and deductions, reviewed by a payroll specialist before anyone sees them.",
+    "url": "https://news.example.org/sample/payroll-answers",
+    "lang": "en",
+    "profession": "payroll_specialist",
+    "relevant": true
+  },
+  {
+    "id": "hr-1",
+    "title": "Summarising interview notes without losing what matters",
+    "excerpt": "An HR generalist describes a simple routine for turning interview notes into a structured summary, using placeholders instead of candidate details.",
+    "url": "https://news.example.org/sample/interview-notes",
+    "lang": "en",
+    "profession": "hr_specialist",
+    "relevant": true
+  },
+  {
+    "id": "sap-1",
+    "title": "Explaining an SAP release note to a non-technical audience",
+    "excerpt": "A consultant shows how an assistant can turn a dense release note into a plain checklist of what changes for the finance team.",
+    "url": "https://news.example.org/sample/sap-release-note",
+    "lang": "en",
+    "profession": "sap_consultant",
+    "relevant": true
+  },
+  {
+    "id": "sap-2",
+    "title": "A Basis administrator's checklist for reading system logs faster",
+    "excerpt": "Ideas for using an assistant to group repeated log messages and suggest what to look at first, without pasting production data into it.",
+    "url": "https://news.example.org/sample/basis-logs",
+    "lang": "en",
+    "profession": "sap_basis_administrator",
+    "relevant": true
+  },
+  {
+    "id": "neg-1",
+    "title": "Local football club announces its new stadium plans",
+    "excerpt": "The club said the new ground would seat twenty thousand and open in three years.",
+    "url": "https://news.example.org/sample/football",
+    "lang": "en",
+    "profession": "accountant",
+    "relevant": false
+  },
+  {
+    "id": "neg-2",
+    "title": "Weather outlook for the coming weekend",
+    "excerpt": "Clouds and light rain are expected in the north, with sunshine in the south.",
+    "url": "https://news.example.org/sample/weather",
+    "lang": "en",
+    "profession": "hr_specialist",
+    "relevant": false
+  }
+]
