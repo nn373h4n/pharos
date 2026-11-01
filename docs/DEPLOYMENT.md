@@ -180,6 +180,13 @@ data worth keeping, so remove the volumes (`docker compose -f deploy/docker-comp
 the `--volumes` option) and start again. If you do have data to keep, create the role by hand with
 the statements in [DATA_MODEL.md](DATA_MODEL.md#database-roles) before starting the new version.
 
+## Choosing the models (evaluation)
+
+The default model of each stage should be chosen from a human-rated evaluation in the languages of
+your people. The tool and the steps are in [docs/guides/evaluation.md](guides/evaluation.md); run
+it in the worker's container (`docker compose exec worker python -m pharos.evaluation ...`). A real
+run costs money, capped by `--max-cost-usd` (five dollars by default).
+
 ## Checking a running installation
 
 `/api/readyz` is deliberately not served through the proxy. Ask the API container:

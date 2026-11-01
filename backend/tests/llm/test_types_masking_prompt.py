@@ -32,15 +32,16 @@ class TestOnlyPublicTextHasTheType:
             mint_public_text("T", "E", url, "en")
 
     def test_the_product_mints_in_one_place_only(self) -> None:
-        """The loader (which reads the database and checks owner and status in SQL) is the only
-        product code that makes public text. If this test fails, a new door has been opened."""
+        """The loader (which reads the database and checks owner and status in SQL) and the corpus
+        door of the evaluation (which checks its own input) are the only product code that makes
+        public text. If this test fails, a new door has been opened."""
         root = Path(__file__).resolve().parents[2] / "src" / "pharos"
         users = sorted(
             str(path.relative_to(root))
             for path in root.rglob("*.py")
             if "mint_public_text" in path.read_text()
         )
-        assert users == ["llm/repository.py", "llm/types.py"]
+        assert users == ["llm/corpus_door.py", "llm/repository.py", "llm/types.py"]
 
     def test_it_cannot_be_built_by_hand(self) -> None:
         by_hand = PublicArticleText("t", "e", "host.example", "en")
