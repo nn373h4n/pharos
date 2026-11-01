@@ -883,8 +883,10 @@ EXPECTED_TABLE_PRIVILEGES = {
         "item_professions",
         # Migration 0007: how an article applies to a profession, in a language.
         "item_insights",
+        # Migration 0008: what people do with the cards (private to each person).
+        "interactions",
     )
-} | {("sources", "r", "DELETE")}
+} | {("sources", "r", "DELETE"), ("interactions", "r", "INSERT"), ("interactions", "r", "DELETE")}
 EXPECTED_COLUMN_PRIVILEGES = (
     {("organizations", c, "UPDATE") for c in ("name", "settings", "updated_at")}
     | {("departments", c, "INSERT") for c in ("org_id", "name")}
@@ -961,6 +963,7 @@ EXPECTED_COLUMN_PRIVILEGES = (
         for c in ("name", "config", "dedupe_key", "enabled", "interval_seconds")
     }
     | {("items", c, "UPDATE") for c in ("status", "hold_reason", "reviewed_at")}
+    | {("interactions", c, "UPDATE") for c in ("value",)}
     | {
         ("audit_logs", c, "INSERT")
         for c in (
@@ -984,7 +987,7 @@ async def test_the_application_role_has_exactly_the_intended_privileges(
     snapshot = await privilege_snapshot(owner_engine)
     assert snapshot["tables"] == EXPECTED_TABLE_PRIVILEGES  # no privilege on any sequence either
     assert snapshot["columns"] == EXPECTED_COLUMN_PRIVILEGES
-    assert snapshot["functions"] == {("pharos_org_id_for_slug",)}
+    assert snapshot["functions"] == {("pharos_org_id_for_slug",), ("pharos_interaction_counts",)}
 
 
 @pytest.mark.anyio
@@ -1012,6 +1015,7 @@ async def test_the_helper_functions_live_in_public_and_belong_to_the_table_owner
         "pharos_set_updated_at",
         "pharos_check_profession_scope",
         "pharos_freeze_profession_scope",
+        "pharos_interaction_counts",
     }
     for row in rows:
         assert (row.nspname, row.rolname, row.rolsuper) == ("public", table_owner, False)
@@ -1032,7 +1036,7 @@ async def test_downgrade_refuses_to_delete_data_unless_told_to(
         revision = (
             await connection.execute(text("SELECT version_num FROM alembic_version"))
         ).scalar_one()
-    assert remaining == 2 and revision == "0007"
+    assert remaining == 2 and revision == "0008"
 
     monkeypatch.setenv("PHAROS_ALLOW_DATA_LOSS", "yes")
     try:

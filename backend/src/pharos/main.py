@@ -15,6 +15,8 @@ from fastapi import FastAPI
 from redis.asyncio import Redis
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from pharos.cards.router import router as cards_router
+from pharos.cards.service import CardService
 from pharos.core.audit import AuditLog
 from pharos.core.clock import SystemClock
 from pharos.core.config import Settings, get_settings
@@ -170,6 +172,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             queue=queue,
         )
         app.state.items = ItemService(audit=app.state.audit)
+        app.state.cards = CardService(
+            profile=app.state.profile, clock=SystemClock(), limiter=limiter
+        )
         app.state.insights = InsightService(
             profile=app.state.profile,
             provider=settings.llm_provider,
@@ -240,6 +245,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(sources_router, prefix=API_PREFIX)
     app.include_router(items_router, prefix=API_PREFIX)
     app.include_router(insights_router, prefix=API_PREFIX)
+    app.include_router(cards_router, prefix=API_PREFIX)
     app.include_router(feeds_router, prefix=API_PREFIX)
     app.include_router(llm_admin_router, prefix=API_PREFIX)
     app.include_router(oidc_router, prefix=API_PREFIX)

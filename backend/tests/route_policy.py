@@ -70,6 +70,13 @@ _FEEDS_TEST = (
     "test_a_person_never_reaches_another_persons_feeds_or_another_organizations"
 )
 
+_CARDS_TEST = (
+    "integration/test_cards_api.py::test_an_administrator_never_sees_another_organizations_cards"
+)
+_CARDS_SUMMARY_TEST = (
+    "integration/test_cards_api.py::"
+    "test_the_summary_is_for_administrators_only_and_an_administrator_sees_no_rows"
+)
 _INSIGHTS_TEST = (
     "integration/test_insights_api.py::"
     "test_an_administrator_never_gets_another_organizations_insight"
@@ -93,6 +100,10 @@ ROLE_MATRIX: dict[Route, Rule] = {
     ("GET", "/api/items"): Rule(_ALL_ROLES, _ITEMS_TEST),
     ("GET", "/api/items/{item_id}"): Rule(_ALL_ROLES, _ITEMS_TEST),
     ("GET", "/api/items/{item_id}/insight"): Rule(_ALL_ROLES, _INSIGHTS_TEST),
+    ("GET", "/api/cards"): Rule(_ALL_ROLES, _CARDS_TEST),
+    ("PUT", "/api/items/{item_id}/interactions/{kind}"): Rule(_ALL_ROLES, _CARDS_TEST),
+    ("DELETE", "/api/items/{item_id}/interactions/{kind}"): Rule(_ALL_ROLES, _CARDS_TEST),
+    ("GET", "/api/interactions/summary"): Rule(_ADMIN_ONLY, _CARDS_SUMMARY_TEST),
     ("POST", "/api/items/{item_id}/hold"): Rule(_ADMIN_OR_EDITOR, _ITEMS_TEST),
     ("POST", "/api/items/{item_id}/approve"): Rule(_ADMIN_OR_EDITOR, _ITEMS_TEST),
     ("POST", "/api/items/{item_id}/hide"): Rule(_ADMIN_OR_EDITOR, _ITEMS_TEST),
