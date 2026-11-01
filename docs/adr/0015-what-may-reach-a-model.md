@@ -49,6 +49,7 @@ Option 2.
 
 - Positive: the rule "only public text goes out" is a type and a test, not a habit; one place to read what leaves the installation; the cost scales with (profession, language) pairs.
 - Negative: no cards about the organization's own content in M4; the one module that imports LiteLLM must stay small and reviewed; masking can alter a legitimate public text (an author's address) and is accepted.
+- Follow-up (done in M4-06): the `try_prompt` validator is `pharos.insights.validator`, applied when the worker stores an insight and when the API serves it; the insight prompt is version `v2`, which asks for placeholders and no personal data.
 - Follow-up: import-linter contracts (only `pharos.llm.litellm_provider` imports `litellm`; the API never imports a provider); tests for class A/B/C, masking, schema rejection, link filtering, the validator, the hostile corpus, key handling (never in a response, a log or the audit log); `docs/DATA_MODEL.md` and `docs/THREAT_MODEL.md` updated with the first migration.
 
 ## References

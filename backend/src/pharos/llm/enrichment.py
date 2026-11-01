@@ -22,9 +22,11 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Protocol
 
+from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
+from pharos.core.plaintext import is_plain_text
 from pharos.llm.errors import (
     BudgetExhausted,
     BudgetUnavailable,
@@ -56,14 +58,6 @@ HOLD_QUALITY_AT_MOST = 2
 # This many articles in a row that cannot be read end the sweep: the fault is probably not theirs.
 MAX_FAILURES_IN_A_ROW = 3
 
-# A link, an address, markup or a markdown link in a field that is shown to people.
-# Also control characters, and the characters that hide or reorder text.
-_NOT_PLAIN_TEXT = re.compile(
-    r"://|www\.|[<>]|\]\(|\b[a-z0-9-]+\.[a-z]{2,}/|javascript:|mailto:"
-    r"|[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]",
-    re.IGNORECASE,
-)
-
 # The reasons a sweep stops early. None of them is the article's fault.
 _STOPS = (
     BudgetExhausted,
@@ -83,7 +77,7 @@ class Generator(Protocol):
         task: Task,
         org_id: uuid.UUID,
         article: PublicArticleText,
-        schema: type[EnrichAnswer] | type[FilterAnswer],
+        schema: type[BaseModel],
         language: str | None = None,
         profession: str | None = None,
         professions: Sequence[str] | None = None,
@@ -105,10 +99,6 @@ class SweepResult:
     skipped: int = 0
     failed: int = 0
     stopped: str | None = None  # the code of the reason the sweep ended early
-
-
-def is_plain_text(value: str) -> bool:
-    return _NOT_PLAIN_TEXT.search(value) is None
 
 
 def check_answer(answer: EnrichAnswer, known: frozenset[str]) -> Enriched | None:

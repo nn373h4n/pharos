@@ -17,6 +17,7 @@ All notable changes are listed here, newest first. The format follows [Keep a Ch
 
 ### Added
 
+- Insights (M4-06): `GET /api/items/{id}/insight` gives, for the asking person's profession and language, how an article applies and one prompt to try, made by the worker when a card is first viewed and cached per (article, profession, language, prompt version). The prompt must pass a strict validator (placeholders, no data, no secret words in four languages, no hidden characters) before it is stored and again before it is served. Migration 0007 adds `item_insights`. The insight prompt is now version v2.
 - The article card shows the model's summary and category as plain text, and reviewers also see its quality score and the hold reason `low_quality` (M4-04b); in all four languages.
 - Enrichment of public articles by the model (M4-04a, ADR-0017): a summary, a category, a quality score and the fit to each profession, read every minute in small batches within the day's limit. Poor, off-topic or suspicious articles are held for an editor as `low_quality`. Migration 0006 adds the columns, `item_professions`, the SAP Basis administrator profession and the narrow right of the worker to hold a new article (nothing else about an article's state).
 - The model page for administrators (M4-03, `/llm`): provider, models, today's spending with a warning at 80% and a notice when the limit is reached, the last key check with a "Test the key" button, and seven days of usage; in all four languages. Wording of az, tr and ru is not yet reviewed by a native speaker (F-01).

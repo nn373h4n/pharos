@@ -12,7 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from pharos.core.clock import SystemClock
 from pharos.core.config import get_settings
 from pharos.ingest import repository
-from pharos.llm import enrichment, keytest
+from pharos.llm import enrichment, insights, keytest
+from pharos.llm.errors import LLMError
 from pharos.llm.factory import build_gateway
 from pharos.llm.usage import DatabaseUsageSink
 from pharos.workers.runtime import runtime
@@ -120,6 +121,50 @@ def enrich_sweep_task() -> None:
                 )
             finally:
                 await redis.eval(_UNLOCK, 1, SWEEP_LOCK, mine)
+        finally:
+            await redis.aclose()
+
+    runtime.run(work)
+
+
+INSIGHT_TASK = "pharos.llm.insight"
+
+
+@shared_task(name=INSIGHT_TASK, ignore_result=True)
+def insight_task(item_id: str, profession: str, language: str) -> None:
+    """Make the insight of one article for a profession and a language (M4-06). Identifiers and
+    two words only come through the broker; everything is checked again here. Safe to run twice."""
+    try:
+        item = uuid.UUID(item_id)
+    except (ValueError, TypeError, AttributeError):
+        logger.warning("insight: the task argument is not an identifier; dropped")
+        return
+    if not isinstance(profession, str) or not isinstance(language, str):
+        return
+    settings = get_settings()
+    if settings.llm_provider == "off":
+        return
+
+    async def work(engine: AsyncEngine) -> None:
+        async with engine.begin() as connection:
+            org = await repository.resolve_org(connection, settings.org_slug)
+        if org is None:
+            return
+        redis = aioredis.from_url(settings.redis_url.get_secret_value())
+        try:
+            try:
+                gateway = build_gateway(settings, redis, DatabaseUsageSink(engine), SystemClock())
+            except Exception:  # a provider named without a key, or without LiteLLM
+                logger.warning("insight: the model layer is not configured")
+                return
+            try:
+                outcome = await insights.make_insight(
+                    engine, gateway, org, item, profession, language
+                )
+            except LLMError as stop:
+                logger.info("insight not made", extra={"reason": stop.code})
+                return
+            logger.info("insight", extra={"outcome": outcome})
         finally:
             await redis.aclose()
 

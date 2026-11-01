@@ -70,6 +70,10 @@ _FEEDS_TEST = (
     "test_a_person_never_reaches_another_persons_feeds_or_another_organizations"
 )
 
+_INSIGHTS_TEST = (
+    "integration/test_insights_api.py::"
+    "test_an_administrator_never_gets_another_organizations_insight"
+)
 _LLM_TEST = (
     "integration/test_llm_admin_api.py::"
     "test_an_administrator_never_sees_another_organizations_model_page"
@@ -88,6 +92,7 @@ ROLE_MATRIX: dict[Route, Rule] = {
     ("GET", "/api/me/feeds/{feed_id}/items"): Rule(_ALL_ROLES, _FEEDS_TEST),
     ("GET", "/api/items"): Rule(_ALL_ROLES, _ITEMS_TEST),
     ("GET", "/api/items/{item_id}"): Rule(_ALL_ROLES, _ITEMS_TEST),
+    ("GET", "/api/items/{item_id}/insight"): Rule(_ALL_ROLES, _INSIGHTS_TEST),
     ("POST", "/api/items/{item_id}/hold"): Rule(_ADMIN_OR_EDITOR, _ITEMS_TEST),
     ("POST", "/api/items/{item_id}/approve"): Rule(_ADMIN_OR_EDITOR, _ITEMS_TEST),
     ("POST", "/api/items/{item_id}/hide"): Rule(_ADMIN_OR_EDITOR, _ITEMS_TEST),
