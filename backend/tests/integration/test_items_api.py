@@ -521,3 +521,25 @@ async def test_a_later_fetch_may_change_the_text_but_never_a_decision(
     )
     assert after.title == "Changed by the feed"  # positive control: the fetch did write
     assert (after.status, after.hold_reason) == (status, reason)
+
+
+@pytest.mark.anyio
+async def test_a_persons_decision_is_remembered_so_the_model_never_overrules_it(
+    make_stack: MakeStack,
+) -> None:
+    stack: Stack = await make_stack("on")
+    editor = await person(stack, "editor")
+    item = await make_item(stack)
+
+    async def reviewed() -> object:
+        async with stack.owner.connect() as connection:
+            return (
+                await connection.execute(
+                    text("SELECT reviewed_at FROM items WHERE id = :i"), {"i": item}
+                )
+            ).scalar_one()
+
+    assert await reviewed() is None
+    for action in ("hold", "approve"):
+        assert (await act(editor, item, action)).status_code == 200
+    assert await reviewed() is not None  # approved: back to new, but a person has decided

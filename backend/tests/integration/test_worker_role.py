@@ -29,11 +29,16 @@ ALLOWED: dict[str, set[str]] = {
     "raw_items": {"SELECT", "DELETE"},
     "items": {"SELECT", "DELETE"},
     "item_sources": {"SELECT"},
+    # What the model said about an article (ADR-0017): read, and add by column.
+    "item_professions": {"SELECT"},
     # Only by column (state of an account, ADR-0014): no table-level privilege at all.
     "users": set(),
     # The record of model calls: the worker may only add rows, by column (ADR-0016).
     "llm_usage": set(),
 }
+# Tables the worker reaches by column only, pinned column by column in test_ingestion_hardening.py:
+# the list of professions the model may choose from (ADR-0017).
+COLUMN_ONLY = {"professions"}
 # The one thing the worker may read about a person: whether the owner of a personal feed is active.
 USER_COLUMNS_FOR_WORKER = {"org_id", "id", "status"}
 PRIVILEGES = ("SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER")
@@ -89,7 +94,7 @@ async def test_the_worker_has_no_privilege_on_any_table_but_the_allowed_ones(
                 text("SELECT has_any_column_privilege(:role, :table, 'SELECT,INSERT,UPDATE')"),
                 {"role": WORKER_ROLE, "table": f"public.{table}"},
             )
-            if columns.scalar_one() and table not in ALLOWED:
+            if columns.scalar_one() and table not in ALLOWED and table not in COLUMN_ONLY:
                 held.setdefault(table, set()).add("COLUMN")
         # Positive control: the same query reports what the application role does hold.
         control = await connection.execute(

@@ -25,7 +25,12 @@ def test_the_heartbeat_task_is_registered_and_scheduled_every_minute() -> None:
         "task": HEARTBEAT_TASK,
         "schedule": float(HEARTBEAT_INTERVAL_SECONDS),
     }
-    assert set(app.conf.beat_schedule) == {"heartbeat", "ingest-dispatch", "ingest-cleanup"}
+    assert set(app.conf.beat_schedule) == {
+        "heartbeat",
+        "ingest-dispatch",
+        "ingest-cleanup",
+        "llm-enrich-sweep",
+    }
     assert HEARTBEAT_INTERVAL_SECONDS == 60
 
 

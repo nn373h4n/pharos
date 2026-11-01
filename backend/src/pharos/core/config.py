@@ -96,6 +96,8 @@ class Settings(BaseSettings):
     llm_calls_per_minute: int = Field(default=30, ge=1, le=10_000)
     llm_timeout_seconds: float = Field(default=60.0, gt=0, le=300)
     llm_max_retries: int = Field(default=2, ge=0, le=5)
+    # How many unread articles one sweep (every minute) reads at most.
+    llm_enrich_batch: int = Field(default=20, ge=1, le=200)
     # What a model costs, in millionths of a dollar per token (the same number as dollars per
     # million tokens), for the budget. Conservative on purpose; raise them for a dearer model,
     # or the day's cap is reached later than it should be.

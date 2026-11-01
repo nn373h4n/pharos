@@ -1,5 +1,6 @@
 """Celery tasks of the model layer. Identifiers only travel through the broker."""
 
+import asyncio
 import logging
 import uuid
 from datetime import UTC, datetime
@@ -11,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from pharos.core.clock import SystemClock
 from pharos.core.config import get_settings
 from pharos.ingest import repository
-from pharos.llm import keytest
+from pharos.llm import enrichment, keytest
 from pharos.llm.factory import build_gateway
 from pharos.llm.usage import DatabaseUsageSink
 from pharos.workers.runtime import runtime
@@ -59,5 +60,67 @@ def test_key_task(test_id: str) -> None:
         finally:
             await redis.aclose()
         logger.info("key test", extra={"outcome": outcome})
+
+    runtime.run(work)
+
+
+SWEEP_TASK = "pharos.llm.enrich_sweep"
+SWEEP_LOCK = "pharos:worker:llm:enrich-sweep-lock"
+# A sweep that dies leaves the lock behind for this long at most; a normal one is much shorter.
+SWEEP_LOCK_SECONDS = 600
+# A sweep is stopped before its lock can run out, so two sweeps never overlap.
+SWEEP_TIME_LIMIT_SECONDS = 540
+# Give the lock back only if it is still ours.
+_UNLOCK = (
+    "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) end return 0"
+)
+
+
+@shared_task(name=SWEEP_TASK, ignore_result=True)
+def enrich_sweep_task() -> None:
+    """Read the public articles nobody has read yet (M4-04). Runs every minute from the scheduler;
+    safe to run twice, and a second sweep that starts while one is running does nothing."""
+    settings = get_settings()
+    if settings.llm_provider == "off":
+        return
+
+    async def work(engine: AsyncEngine) -> None:
+        async with engine.begin() as connection:
+            org = await repository.resolve_org(connection, settings.org_slug)
+        if org is None:
+            return
+        redis = aioredis.from_url(settings.redis_url.get_secret_value())
+        try:
+            mine = uuid.uuid4().hex
+            if not await redis.set(SWEEP_LOCK, mine, ex=SWEEP_LOCK_SECONDS, nx=True):
+                return
+            try:
+                clock = SystemClock()
+                try:
+                    gateway = build_gateway(settings, redis, DatabaseUsageSink(engine), clock)
+                except Exception:  # a provider named without a key, or without LiteLLM
+                    logger.warning("enrichment: the model layer is not configured")
+                    return
+                try:
+                    async with asyncio.timeout(SWEEP_TIME_LIMIT_SECONDS):
+                        done = await enrichment.sweep(
+                            engine, gateway, org, batch=settings.llm_enrich_batch, now=clock.now
+                        )
+                except TimeoutError:
+                    logger.warning("enrichment sweep stopped at its time limit")
+                    return
+                logger.info(
+                    "enrichment sweep",
+                    extra={
+                        "read": done.read,
+                        "held": done.held,
+                        "failed": done.failed,
+                        "stopped": done.stopped,
+                    },
+                )
+            finally:
+                await redis.eval(_UNLOCK, 1, SWEEP_LOCK, mine)
+        finally:
+            await redis.aclose()
 
     runtime.run(work)

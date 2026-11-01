@@ -232,7 +232,9 @@ async def test_ordinary_links_are_accepted(
 async def privileges(
     engine: AsyncEngine, role: str
 ) -> tuple[set[tuple[str, str]], set[tuple[str, str, str]]]:
-    tables = ("sources", "fetch_runs", "raw_items", "items", "item_sources")
+    tables = (
+        "sources", "fetch_runs", "raw_items", "items", "item_sources", "item_professions", "professions",
+    )  # fmt: skip
     async with engine.connect() as connection:
         table_rows = (
             await connection.execute(
@@ -273,7 +275,8 @@ async def test_the_application_has_exactly_these_ingestion_privileges(
     wide, columns = await privileges(owner_engine, "pharos_app")
     assert wide == {
         ("sources", "SELECT"), ("sources", "DELETE"), ("fetch_runs", "SELECT"),
-        ("items", "SELECT"), ("item_sources", "SELECT"),
+        ("items", "SELECT"), ("item_sources", "SELECT"), ("item_professions", "SELECT"),
+        ("professions", "SELECT"),
     }  # fmt: skip
     assert columns == (
         {("sources", c, "INSERT") for c in (
@@ -281,7 +284,7 @@ async def test_the_application_has_exactly_these_ingestion_privileges(
             "interval_seconds", "created_by")}
         | {("sources", c, "UPDATE") for c in (
             "name", "config", "dedupe_key", "enabled", "interval_seconds")}
-        | {("items", c, "UPDATE") for c in ("status", "hold_reason")}
+        | {("items", c, "UPDATE") for c in ("status", "hold_reason", "reviewed_at")}
     )  # fmt: skip
 
 
@@ -292,6 +295,7 @@ async def test_the_worker_has_exactly_these_ingestion_privileges(
     assert wide == {
         ("fetch_runs", "SELECT"), ("fetch_runs", "DELETE"), ("raw_items", "SELECT"),
         ("raw_items", "DELETE"), ("items", "SELECT"), ("items", "DELETE"), ("item_sources", "SELECT"),
+        ("item_professions", "SELECT"),
     }  # fmt: skip
     assert columns == (
         {("sources", c, "SELECT") for c in SOURCE_COLUMNS_FOR_WORKER}
@@ -310,8 +314,14 @@ async def test_the_worker_has_exactly_these_ingestion_privileges(
             "org_id", "owner_user_id", "canonical_url", "url_hash", "title", "excerpt", "lang",
             "published_at", "content_sha256", "status", "hold_reason")}
         | {("items", c, "UPDATE") for c in (
-            "title", "excerpt", "lang", "published_at", "content_sha256")}
+            "title", "excerpt", "lang", "published_at", "content_sha256",
+            # Enrichment (ADR-0017): what the model said, and the one narrow hold.
+            "summary", "category", "quality", "enriched_at", "enrichment_version",
+            "status", "hold_reason")}
         | {("item_sources", c, "INSERT") for c in ("org_id", "item_id", "source_id")}
+        | {("item_professions", c, "INSERT") for c in (
+            "org_id", "item_id", "profession_code", "relevance")}
+        | {("professions", c, "SELECT") for c in ("code", "scope", "owner_org_id")}
     )  # fmt: skip
 
 

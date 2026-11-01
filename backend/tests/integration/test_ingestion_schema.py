@@ -627,7 +627,6 @@ async def test_the_worker_can_run_the_pipeline_and_nothing_beyond_it(
         "UPDATE sources SET type = 'github'",
         "UPDATE sources SET owner_user_id = NULL",
         "DELETE FROM sources",
-        "UPDATE items SET status = 'new', hold_reason = NULL",  # a person's decision stays
         "UPDATE items SET canonical_url = 'https://evil.example/'",
         "UPDATE items SET owner_user_id = NULL",
         "UPDATE fetch_runs SET source_id = gen_random_uuid()",
@@ -642,6 +641,11 @@ async def test_the_worker_can_run_the_pipeline_and_nothing_beyond_it(
         async with session(worker_engine, alpha) as connection:
             with pytest.raises(DBAPIError, match="permission denied"):
                 await connection.execute(text(statement))
+    # A person's decision stays: since migration 0006 the worker may write the state of an article,
+    # but only to hold a new one as low_quality (tests/integration/test_item_enrichment.py).
+    async with session(worker_engine, alpha) as connection:
+        with pytest.raises(DBAPIError, match="may only hold"):
+            await connection.execute(text("UPDATE items SET status = 'new', hold_reason = NULL"))
 
 
 async def test_a_visible_decision_survives_a_later_fetch(
@@ -791,7 +795,7 @@ async def test_downgrade_refuses_to_delete_ingested_data_unless_told_to(
         revision = (
             await connection.execute(text("SELECT version_num FROM alembic_version"))
         ).scalar_one()
-    assert revision == "0005"  # the refused downgrade rolled everything back
+    assert revision == "0006"  # the refused downgrade rolled everything back
     monkeypatch.setenv("PHAROS_ALLOW_DATA_LOSS", "yes")
     try:
         await asyncio.to_thread(command.downgrade, database.alembic, "0002")
