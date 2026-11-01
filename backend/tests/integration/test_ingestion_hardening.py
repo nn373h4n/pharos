@@ -233,7 +233,7 @@ async def privileges(
     engine: AsyncEngine, role: str
 ) -> tuple[set[tuple[str, str]], set[tuple[str, str, str]]]:
     tables = (
-        "sources", "fetch_runs", "raw_items", "items", "item_sources", "item_professions", "professions",
+        "sources", "fetch_runs", "raw_items", "items", "item_sources", "item_professions", "professions", "item_insights",
     )  # fmt: skip
     async with engine.connect() as connection:
         table_rows = (
@@ -276,7 +276,7 @@ async def test_the_application_has_exactly_these_ingestion_privileges(
     assert wide == {
         ("sources", "SELECT"), ("sources", "DELETE"), ("fetch_runs", "SELECT"),
         ("items", "SELECT"), ("item_sources", "SELECT"), ("item_professions", "SELECT"),
-        ("professions", "SELECT"),
+        ("professions", "SELECT"), ("item_insights", "SELECT"),
     }  # fmt: skip
     assert columns == (
         {("sources", c, "INSERT") for c in (
@@ -295,7 +295,7 @@ async def test_the_worker_has_exactly_these_ingestion_privileges(
     assert wide == {
         ("fetch_runs", "SELECT"), ("fetch_runs", "DELETE"), ("raw_items", "SELECT"),
         ("raw_items", "DELETE"), ("items", "SELECT"), ("items", "DELETE"), ("item_sources", "SELECT"),
-        ("item_professions", "SELECT"),
+        ("item_professions", "SELECT"), ("item_insights", "SELECT"), ("item_insights", "DELETE"),
     }  # fmt: skip
     assert columns == (
         {("sources", c, "SELECT") for c in SOURCE_COLUMNS_FOR_WORKER}
@@ -322,6 +322,9 @@ async def test_the_worker_has_exactly_these_ingestion_privileges(
         | {("item_professions", c, "INSERT") for c in (
             "org_id", "item_id", "profession_code", "relevance")}
         | {("professions", c, "SELECT") for c in ("code", "scope", "owner_org_id")}
+        | {("item_insights", c, "INSERT") for c in (
+            "org_id", "item_id", "profession_code", "language", "prompt_version", "status",
+            "summary", "how_to_apply", "try_prompt", "safety_note")}
     )  # fmt: skip
 
 

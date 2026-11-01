@@ -194,6 +194,7 @@ Every signed-in person reads; administrators and editors also review. An article
 | Method | Path | Who | Purpose |
 | --- | --- | --- | --- |
 | GET | `/api/items` | everyone | Articles, newest first (publication time, else the time they were fetched). `status` (`new`, `held`, `hidden`), `source_id`, `limit` (1-100, default 50), `offset`. Answers `{items, total}`. |
+| GET | `/api/items/{id}/insight` | everyone | How the article applies to the asking person's profession, in their language (both taken from their profile, never from the request): `status` `ready` with `insight` (`summary`, `how_to_apply`, `try_prompt`, `safety_note`), `pending` (the worker has been asked; ask again in a few seconds), or `unavailable` with `reason` `off`, `rejected` or `invalid`. `409 onboarding_incomplete` without a profession; `404` for an article that is not current and public; `429` past 120 asks an hour. A stored text is checked again before it is served. |
 | GET | `/api/items/{id}` | everyone | One article. Both answers carry what the model said once it has read the article (`summary`, `category`, both empty before; plain text only) and, for administrators and editors, its `quality` score from 1 to 5. A held article may carry the reason `low_quality`. |
 | POST | `/api/items/{id}/hold` | admin, editor | `new` becomes `held` (reason `editor_hold`). |
 | POST | `/api/items/{id}/approve` | admin, editor | `held` becomes `new`; the flag and its reason are cleared. |

@@ -37,7 +37,7 @@ SYSTEM_RULES = (
 PROMPT_VERSIONS: dict[Task, str] = {
     Task.FILTER_RELEVANCE: "v1",
     Task.ENRICH: "v1",
-    Task.INSIGHT: "v1",
+    Task.INSIGHT: "v2",
 }
 
 
@@ -51,7 +51,7 @@ def _load(task: Task) -> str:
 INSTRUCTIONS: dict[Task, str] = {task: _load(task) for task in Task}
 
 _LANGUAGE = re.compile(r"^(en|az|tr|ru)$")
-_PROFESSION = re.compile(r"^[a-z0-9][a-z0-9_-]{0,39}$")
+PROFESSION_CODE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,39}$")
 MAX_PROFESSIONS = 30
 
 
@@ -74,11 +74,13 @@ def build(
     """The two messages of one call."""
     if language is not None and not _LANGUAGE.fullmatch(language):
         raise ValueError("language must be one of en, az, tr, ru")
-    if profession is not None and not _PROFESSION.fullmatch(profession):
+    if profession is not None and not PROFESSION_CODE.fullmatch(profession):
         raise ValueError("profession must be a catalogue code")
     if professions is not None and (
         len(professions) > MAX_PROFESSIONS
-        or not all(isinstance(code, str) and _PROFESSION.fullmatch(code) for code in professions)
+        or not all(
+            isinstance(code, str) and PROFESSION_CODE.fullmatch(code) for code in professions
+        )
     ):
         raise ValueError("professions must be a short list of catalogue codes")
     word = secrets.token_hex(8)

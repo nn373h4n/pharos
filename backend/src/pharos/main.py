@@ -41,6 +41,8 @@ from pharos.identity.passwords import PasswordHasher
 from pharos.identity.router import router as identity_router
 from pharos.identity.service import LocalAuthService, LocalLoginMode
 from pharos.identity.users_router import router as users_router
+from pharos.insights.router import router as insights_router
+from pharos.insights.service import InsightService
 from pharos.items.router import router as items_router
 from pharos.items.service import ItemService
 from pharos.llmadmin.router import router as llm_admin_router
@@ -168,6 +170,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             queue=queue,
         )
         app.state.items = ItemService(audit=app.state.audit)
+        app.state.insights = InsightService(
+            profile=app.state.profile,
+            provider=settings.llm_provider,
+            redis=redis,
+            queue=queue,
+            limiter=limiter,
+        )
         app.state.feeds = FeedService(
             audit=app.state.audit,
             blocked_hosts=[own_host] if own_host else [],
@@ -230,6 +239,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(users_router, prefix=API_PREFIX)
     app.include_router(sources_router, prefix=API_PREFIX)
     app.include_router(items_router, prefix=API_PREFIX)
+    app.include_router(insights_router, prefix=API_PREFIX)
     app.include_router(feeds_router, prefix=API_PREFIX)
     app.include_router(llm_admin_router, prefix=API_PREFIX)
     app.include_router(oidc_router, prefix=API_PREFIX)

@@ -171,8 +171,8 @@ class TestMessages:
             ),
             Task.ENRICH: ("v1", "185a98b4bc68e3c4a31a5389d13bc2bcae3c2c04c684eff05206785451fd3767"),
             Task.INSIGHT: (
-                "v1",
-                "2b58c3a58b52bc6f7da7c99dacfd02e5554beb9cb7609c52cb024fc0eeba3bf2",
+                "v2",
+                "eca9ab9c241213e6d4d8fceed4a866a0f0e67cc82aa4a1f85bb1638e039e10e6",
             ),
         }
         for task, (version, digest) in pinned.items():
@@ -183,6 +183,13 @@ class TestMessages:
             assert hashlib.sha256(whole.encode()).hexdigest() == digest, (
                 f"{task}: the message changed under version {version}"
             )
+
+    def test_the_insight_prompt_asks_for_what_the_validator_requires(self) -> None:
+        """Without these words nearly every insight would be refused by `pharos.insights`."""
+        text = INSTRUCTIONS[Task.INSIGHT]
+        assert "placeholder in square brackets" in text and "[TEXT OF THE DOCUMENT]" in text
+        assert "never a person or personal data" in text
+        assert "passwords" in text and "links" in text
 
     def test_the_real_schemas_forbid_extra_fields_everywhere(self) -> None:
         for task in Task:

@@ -31,6 +31,8 @@ ALLOWED: dict[str, set[str]] = {
     "item_sources": {"SELECT"},
     # What the model said about an article (ADR-0017): read, and add by column.
     "item_professions": {"SELECT"},
+    # Insights (ADR-0015): read, add by column, delete only rejected answers a day old (policy).
+    "item_insights": {"SELECT", "DELETE"},
     # Only by column (state of an account, ADR-0014): no table-level privilege at all.
     "users": set(),
     # The record of model calls: the worker may only add rows, by column (ADR-0016).
