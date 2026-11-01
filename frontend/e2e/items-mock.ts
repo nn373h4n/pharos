@@ -17,6 +17,9 @@ export type MockItem = {
   hold_reason: string | null;
   updated_at: string;
   sources: { id: string; name: string }[];
+  summary?: string | null;
+  category?: string | null;
+  quality?: number | null;
 };
 
 export type ItemsOptions = {
@@ -53,7 +56,11 @@ export function item(n: number, changes: Partial<MockItem> = {}): MockItem {
 export function defaultItems(): MockItem[] {
   return [
     item(1),
-    item(2),
+    item(2, {
+      summary: "Cuts month-end work from three days to one.",
+      category: "tool",
+      quality: 4,
+    }),
     item(3),
     item(4, { status: "held", hold_reason: "link_ip_host", url: "https://203.0.113.9/x" }),
     item(5, { status: "hidden" }),
@@ -70,7 +77,9 @@ const STEPS: Record<string, { from: string[]; to: MockItem["status"] }> = {
 const PAGE = 20;
 
 function view(found: MockItem, reviewer: boolean) {
-  return reviewer ? found : { ...found, sources: [], updated_at: null, hold_reason: null };
+  return reviewer
+    ? found
+    : { ...found, sources: [], updated_at: null, hold_reason: null, quality: null };
 }
 
 export async function handleItems(

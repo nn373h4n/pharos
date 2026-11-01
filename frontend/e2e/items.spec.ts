@@ -19,6 +19,26 @@ function story(page: Page, n: number) {
   return page.getByRole("heading", { level: 3, name: new RegExp(`^Story ${n}\\b`) });
 }
 
+// --- what the model said ----------------------------------------------------------------------------
+
+test.describe("what the model said", () => {
+  test("a member sees the summary and the category but not the score", async ({ page }) => {
+    await mockApi(page, { signedIn: true, role: "member" });
+    await page.goto("/en/items");
+    const card = page.getByRole("article").filter({ hasText: "Story 2" });
+    await expect(card).toContainText("Cuts month-end work from three days to one.");
+    await expect(card).toContainText(en.Items.categories.tool);
+    await expect(card).not.toContainText("Quality:");
+  });
+
+  test("a reviewer also sees the score", async ({ page }) => {
+    await mockApi(page, { signedIn: true, role: "editor" });
+    await page.goto("/en/items");
+    const card = page.getByRole("article").filter({ hasText: "Story 2" });
+    await expect(card).toContainText("Quality: 4 of 5");
+  });
+});
+
 // --- every language, both themes, both sizes (the projects) ---------------------------------------
 
 for (const locale of locales) {

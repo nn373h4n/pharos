@@ -4,10 +4,16 @@ import { useLocale, useTranslations } from "next-intl";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatDate } from "@/lib/format";
-import { ACTIONS_FOR, type Item, type ItemAction } from "@/lib/items";
+import { ACTIONS_FOR, CATEGORIES, type Item, type ItemAction } from "@/lib/items";
 import { hostOf, safeHref } from "@/lib/links";
 
-const REASONS = ["link_ip_host", "link_odd_port", "instruction_phrase", "editor_hold"] as const;
+const REASONS = [
+  "link_ip_host",
+  "link_odd_port",
+  "instruction_phrase",
+  "editor_hold",
+  "low_quality",
+] as const;
 type Reason = (typeof REASONS)[number];
 
 /** The words the backend uses for why an article is held; anything else is just "flagged". */
@@ -36,6 +42,9 @@ export function ItemCard({ item, reviewer, busy, onAction }: Props) {
   const href = safeHref(item.url);
   const published = formatDate(item.published_at, locale);
   const reasonKey = reasonOf(item.hold_reason);
+  const category = (CATEGORIES as readonly string[]).includes(item.category ?? "")
+    ? (item.category as (typeof CATEGORIES)[number])
+    : null;
 
   return (
     <li className="rounded-lg border border-border p-4 break-words">
@@ -67,6 +76,21 @@ export function ItemCard({ item, reviewer, busy, onAction }: Props) {
           )}
         </p>
         {item.excerpt && <p className="mt-2">{item.excerpt}</p>}
+        {item.summary && (
+          <p className="mt-2">
+            <span className="font-medium">{t("summary")}</span>
+            {": "}
+            {item.summary}
+          </p>
+        )}
+        {(category || (reviewer && typeof item.quality === "number")) && (
+          <p className="mt-2 flex flex-wrap items-center gap-2 text-sm">
+            {category && <Badge tone="plain">{t(`categories.${category}`)}</Badge>}
+            {reviewer && typeof item.quality === "number" && (
+              <span>{t("quality", { score: item.quality })}</span>
+            )}
+          </p>
+        )}
         {reviewer && (
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <Badge tone={item.status === "new" ? "plain" : "strong"}>

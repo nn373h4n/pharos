@@ -51,6 +51,9 @@ def out(
         status=view.status,  # type: ignore[arg-type]
         hold_reason=view.hold_reason,
         updated_at=view.updated_at if reviewer else None,
+        summary=view.summary,
+        category=view.category,
+        quality=view.quality if reviewer else None,
         sources=[SourceRef(id=i, name=n) for i, n in sources],
     )
 
