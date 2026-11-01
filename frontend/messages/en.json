@@ -10,9 +10,54 @@
   "Home": {
     "title": "AI will not take your job. It will strengthen it.",
     "subtitle": "Pharos shows practical AI use cases for your own profession, in your own language.",
-    "statusTitle": "Early development",
-    "statusBody": "This is the project skeleton. Your personal feed arrives in the next milestones.",
     "welcome": "Welcome, {name}."
+  },
+  "Cards": {
+    "results": "Your cards",
+    "loading": "Loading your cards…",
+    "loadFailed": "Your cards could not be loaded. Try again later.",
+    "retry": "Try again",
+    "empty": "There is nothing for you yet. New articles appear here as they are read.",
+    "showMore": "Show more",
+    "loadingMore": "Loading…",
+    "refreshed": "The list was refreshed.",
+    "actionOn": "{action}: {title}",
+    "tryThis": "Try this",
+    "save": "Save",
+    "saved": "Saved",
+    "savedDone": "Saved: {title}",
+    "unsavedDone": "Removed from saved: {title}",
+    "useful": "Useful",
+    "usefulDone": "Marked useful: {title}",
+    "usefulUndone": "No longer marked useful: {title}",
+    "notUseful": "Not useful",
+    "hidden": "Hidden: {title}",
+    "restored": "Back in the list: {title}",
+    "undo": "Undo",
+    "insight": {
+      "loading": "Asking for the suggestion…",
+      "pending": "Preparing this for your profession. It can take a minute.",
+      "gaveUp": "It is not ready yet. Close this and try again later.",
+      "unavailable": {
+        "off": "Suggestions are switched off.",
+        "rejected": "A suggestion could not be made safely for this article.",
+        "invalid": "The suggestion for this article cannot be shown."
+      },
+      "applies": "How this applies to you",
+      "promptLabel": "A prompt to try",
+      "copy": "Copy",
+      "copied": "Copied. Put your own text where the brackets are.",
+      "copyManual": "Copying was not possible. The text is selected: press Ctrl+C.",
+      "noteTitle": "Before you paste anything",
+      "productNote": "Do not paste confidential or personal data into any AI tool. Put a short, harmless text where the brackets are, or remove the details first.",
+      "feedback": "Tell us how it went",
+      "tried": "I tried it",
+      "triedDone": "Noted. Thank you.",
+      "minutesLabel": "Minutes it saved (1 to 480)",
+      "minutesSave": "Record",
+      "minutesInvalid": "Enter a whole number of minutes from 1 to 480.",
+      "minutesDone": "Recorded. Thank you."
+    }
   },
   "Footer": {
     "license": "Open source under the Apache License 2.0"

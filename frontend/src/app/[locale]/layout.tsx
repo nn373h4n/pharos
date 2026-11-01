@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { hasLocale, NextIntlClientProvider } from "next-intl";
 import { getTranslations, setRequestLocale } from "next-intl/server";
 import { notFound } from "next/navigation";
+import { connection } from "next/server";
 import type { ReactNode } from "react";
 import { SessionProvider } from "@/components/auth/session-provider";
 import { UserMenu } from "@/components/auth/user-menu";
@@ -24,6 +25,9 @@ export async function generateMetadata({ params }: Pick<Props, "params">): Promi
 }
 
 export default async function LocaleLayout({ children, params }: Props) {
+  // A nonce for the Content-Security-Policy is made per request (proxy.ts), so a page cannot be
+  // built ahead of time: its scripts must carry the nonce of the request that gets it.
+  await connection();
   const { locale } = await params;
   if (!hasLocale(routing.locales, locale)) notFound();
   setRequestLocale(locale);

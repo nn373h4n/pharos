@@ -1,5 +1,6 @@
 import type { BrowserContext, Page } from "@playwright/test";
 import { defaultItems, handleItems, type ItemsOptions, type ItemsState } from "./items-mock";
+import { defaultCards, handleCards, type CardsOptions, type CardsState } from "./cards-mock";
 import { handleLlm, type LlmOptions, type LlmState } from "./llm-mock";
 import { defaultFeeds, handleFeeds, type FeedsOptions, type FeedsState } from "./feeds-mock";
 import {
@@ -15,6 +16,7 @@ import {
 export type MockOptions = ItemsOptions &
   SourcesOptions &
   LlmOptions &
+  CardsOptions &
   FeedsOptions & {
     /** Starts with a session (the cookie of a signed-in person). */
     signedIn?: boolean;
@@ -58,6 +60,7 @@ export type MockState = {
 } & ItemsState &
   SourcesState &
   LlmState &
+  CardsState &
   FeedsState;
 
 export const PROFESSIONS = [
@@ -117,6 +120,9 @@ export async function mockApi(
     sources: options.sources ?? defaultSources(),
     testReads: {},
     keyReads: 0,
+    cards: options.cards ?? defaultCards(),
+    interactions: [],
+    insightReads: 0,
     feeds: options.feeds ?? defaultFeeds(),
   };
   const user = () => ({
@@ -235,6 +241,12 @@ export async function mockApi(
       return route.fulfill(problem(401, "not_authenticated"));
     }
     if (await handleFeeds(route, request, path, state, options, problem)) {
+      return;
+    }
+    if (!state.signedIn && (path.startsWith("/api/cards") || path.includes("/interactions/"))) {
+      return route.fulfill(problem(401, "not_authenticated"));
+    }
+    if (await handleCards(route, request, path, state, options, problem)) {
       return;
     }
     if (!state.signedIn && path.startsWith("/api/llm")) {

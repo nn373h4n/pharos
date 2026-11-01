@@ -10,9 +10,54 @@
   "Home": {
     "title": "Yapay zekâ işinizi elinizden almayacak, işinizi güçlendirecek.",
     "subtitle": "Pharos, kendi mesleğinize uygun pratik yapay zekâ kullanım örneklerini kendi dilinizde gösterir.",
-    "statusTitle": "Erken geliştirme aşaması",
-    "statusBody": "Bu, projenin iskeletidir. Kişisel akışınız sonraki aşamalarda eklenecek.",
     "welcome": "Hoş geldiniz, {name}."
+  },
+  "Cards": {
+    "results": "Kartlarınız",
+    "loading": "Kartlarınız yükleniyor…",
+    "loadFailed": "Kartlarınız yüklenemedi. Daha sonra tekrar deneyin.",
+    "retry": "Tekrar dene",
+    "empty": "Henüz sizin için bir şey yok. Yeni makaleler okundukça burada görünür.",
+    "showMore": "Daha fazla göster",
+    "loadingMore": "Yükleniyor…",
+    "refreshed": "Liste yenilendi.",
+    "actionOn": "{action}: {title}",
+    "tryThis": "Dene",
+    "save": "Kaydet",
+    "saved": "Kaydedildi",
+    "savedDone": "Kaydedildi: {title}",
+    "unsavedDone": "Kaydedilenlerden çıkarıldı: {title}",
+    "useful": "Faydalı",
+    "usefulDone": "Faydalı olarak işaretlendi: {title}",
+    "usefulUndone": "Faydalı işareti kaldırıldı: {title}",
+    "notUseful": "Faydalı değil",
+    "hidden": "Gizlendi: {title}",
+    "restored": "Listeye döndü: {title}",
+    "undo": "Geri al",
+    "insight": {
+      "loading": "Öneri isteniyor…",
+      "pending": "Bu, mesleğinize göre hazırlanıyor. Bir dakika sürebilir.",
+      "gaveUp": "Henüz hazır değil. Bunu kapatın ve daha sonra tekrar deneyin.",
+      "unavailable": {
+        "off": "Öneriler kapalı.",
+        "rejected": "Bu makale için güvenli bir öneri hazırlanamadı.",
+        "invalid": "Bu makalenin önerisi gösterilemez."
+      },
+      "applies": "Bu size nasıl uygulanır",
+      "promptLabel": "Denemek için bir istem",
+      "copy": "Kopyala",
+      "copied": "Kopyalandı. Parantezlerin yerine kendi metninizi yazın.",
+      "copyManual": "Kopyalama olmadı. Metin seçildi: Ctrl+C'ye basın.",
+      "noteTitle": "Bir şey yapıştırmadan önce",
+      "productNote": "Hiçbir yapay zekâ aracına gizli veya kişisel veri yapıştırmayın. Parantezlerin yerine kısa, zararsız bir metin yazın ya da önce ayrıntıları çıkarın.",
+      "feedback": "Nasıl geçtiğini bildirin",
+      "tried": "Denedim",
+      "triedDone": "Not edildi. Teşekkürler.",
+      "minutesLabel": "Kaç dakika kazandırdı (1 ile 480 arası)",
+      "minutesSave": "Kaydet",
+      "minutesInvalid": "1 ile 480 arasında tam bir dakika sayısı girin.",
+      "minutesDone": "Kaydedildi. Teşekkürler."
+    }
   },
   "Footer": {
     "license": "Apache License 2.0 ile açık kaynak"
