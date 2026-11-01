@@ -212,7 +212,7 @@ volumes and ports, and removes it afterwards.
   scheme in redirects matter from M2 on.
 - `caddy` is the only process that runs as root inside its container, with all capabilities
   dropped except `NET_BIND_SERVICE`. A container escape would therefore give root on the host.
-- No HSTS header and no strict Content-Security-Policy yet.
+- No HSTS header yet. The web application sets a strict Content-Security-Policy with a nonce on every page (ADR-0019); leave it to the application and do not add a second policy in a proxy, since the browser would apply both. `style-src` still allows inline styles.
 - Redis and database passwords are environment variables, so a user who can run `docker inspect`
   on the host can read them. Treat access to the Docker socket as root access.
 - Log retention, log shipping and monitoring are not configured.

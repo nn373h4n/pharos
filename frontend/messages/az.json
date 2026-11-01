@@ -10,9 +10,54 @@
   "Home": {
     "title": "Süni intellekt sizin işinizi almayacaq, onu gücləndirəcək.",
     "subtitle": "Pharos sizin öz peşənizə uyğun praktik süni intellekt nümunələrini öz dilinizdə göstərir.",
-    "statusTitle": "İlkin inkişaf mərhələsi",
-    "statusBody": "Bu, layihənin skeletidir. Fərdi lent növbəti mərhələlərdə əlavə olunacaq.",
     "welcome": "Xoş gəlmisiniz, {name}."
+  },
+  "Cards": {
+    "results": "Sizin kartlarınız",
+    "loading": "Kartlarınız yüklənir…",
+    "loadFailed": "Kartlarınız yüklənmədi. Bir az sonra yenidən cəhd edin.",
+    "retry": "Yenidən cəhd et",
+    "empty": "Hələ sizin üçün heç nə yoxdur. Yeni məqalələr oxunduqca burada görünəcək.",
+    "showMore": "Daha çox göstər",
+    "loadingMore": "Yüklənir…",
+    "refreshed": "Siyahı yeniləndi.",
+    "actionOn": "{action}: {title}",
+    "tryThis": "Sına",
+    "save": "Saxla",
+    "saved": "Saxlanıb",
+    "savedDone": "Saxlandı: {title}",
+    "unsavedDone": "Saxlananlardan çıxarıldı: {title}",
+    "useful": "Faydalı",
+    "usefulDone": "Faydalı kimi qeyd olundu: {title}",
+    "usefulUndone": "Faydalı qeydi götürüldü: {title}",
+    "notUseful": "Faydalı deyil",
+    "hidden": "Gizlədildi: {title}",
+    "restored": "Siyahıya qayıtdı: {title}",
+    "undo": "Geri al",
+    "insight": {
+      "loading": "Təklif istənilir…",
+      "pending": "Bu, peşənizə uyğun hazırlanır. Bir dəqiqə çəkə bilər.",
+      "gaveUp": "Hələ hazır deyil. Bunu bağlayın və bir az sonra yenidən cəhd edin.",
+      "unavailable": {
+        "off": "Təkliflər söndürülüb.",
+        "rejected": "Bu məqalə üçün təhlükəsiz təklif hazırlamaq mümkün olmadı.",
+        "invalid": "Bu məqalə üçün təklif göstərilə bilməz."
+      },
+      "applies": "Bu sizə necə aiddir",
+      "promptLabel": "Sınamaq üçün sorğu",
+      "copy": "Kopyala",
+      "copied": "Kopyalandı. Mötərizələrin yerinə öz mətninizi yazın.",
+      "copyManual": "Kopyalamaq mümkün olmadı. Mətn seçilib: Ctrl+C basın.",
+      "noteTitle": "Nəyisə yapışdırmazdan əvvəl",
+      "productNote": "Heç bir süni intellekt alətinə məxfi və ya şəxsi məlumat yapışdırmayın. Mötərizələrin yerinə qısa, zərərsiz mətn yazın və ya əvvəlcə təfərrüatları silin.",
+      "feedback": "Necə keçdiyini bildirin",
+      "tried": "Sınadım",
+      "triedDone": "Qeyd olundu. Təşəkkür edirik.",
+      "minutesLabel": "Neçə dəqiqə qənaət etdi (1-dən 480-ə)",
+      "minutesSave": "Yaz",
+      "minutesInvalid": "1-dən 480-ə qədər tam dəqiqə sayı daxil edin.",
+      "minutesDone": "Yazıldı. Təşəkkür edirik."
+    }
   },
   "Footer": {
     "license": "Apache License 2.0 ilə açıq mənbəli"
