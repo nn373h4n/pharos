@@ -12,7 +12,7 @@ from celery import Celery, signals
 from pharos.core.config import Settings, get_settings
 from pharos.core.heartbeat import HEARTBEAT_INTERVAL_SECONDS
 from pharos.core.logging import configure_logging
-from pharos.workers import llm_tasks  # noqa: F401  (registers the model-layer tasks)
+from pharos.workers import llm_tasks
 from pharos.workers.ingest_tasks import CLEANUP_TASK, DISPATCH_TASK
 from pharos.workers.runtime import WorkerRoleError, runtime, verify_database_role
 from pharos.workers.tasks import HEARTBEAT_TASK, write_heartbeat
@@ -87,6 +87,9 @@ def create_celery(settings: Settings | None = None) -> Celery:
             "ingest-dispatch": {"task": DISPATCH_TASK, "schedule": 60.0},
             # Retention and abandoned runs; safe to run as often as it is.
             "ingest-cleanup": {"task": CLEANUP_TASK, "schedule": 6 * 3600.0},
+            # Every minute: the model reads a few articles nobody has read yet (a no-op while the
+            # model layer is off).
+            "llm-enrich-sweep": {"task": llm_tasks.SWEEP_TASK, "schedule": 60.0},
         },
     )
     app.set_default()

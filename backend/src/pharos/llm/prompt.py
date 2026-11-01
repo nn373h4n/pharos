@@ -12,6 +12,7 @@ has no tools; nothing in its answer is executed.
 import json
 import re
 import secrets
+from collections.abc import Sequence
 from dataclasses import dataclass
 from importlib import resources
 
@@ -51,6 +52,7 @@ INSTRUCTIONS: dict[Task, str] = {task: _load(task) for task in Task}
 
 _LANGUAGE = re.compile(r"^(en|az|tr|ru)$")
 _PROFESSION = re.compile(r"^[a-z0-9][a-z0-9_-]{0,39}$")
+MAX_PROFESSIONS = 30
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,12 +69,18 @@ def build(
     *,
     language: str | None = None,
     profession: str | None = None,
+    professions: Sequence[str] | None = None,
 ) -> Messages:
     """The two messages of one call."""
     if language is not None and not _LANGUAGE.fullmatch(language):
         raise ValueError("language must be one of en, az, tr, ru")
     if profession is not None and not _PROFESSION.fullmatch(profession):
         raise ValueError("profession must be a catalogue code")
+    if professions is not None and (
+        len(professions) > MAX_PROFESSIONS
+        or not all(isinstance(code, str) and _PROFESSION.fullmatch(code) for code in professions)
+    ):
+        raise ValueError("professions must be a short list of catalogue codes")
     word = secrets.token_hex(8)
     # Mask first and cut afterwards: a cut address would no longer look like one.
     title = mask(article.title)
@@ -82,6 +90,8 @@ def build(
         details.append(f"Profession: {profession}")
     if language is not None:
         details.append(f"Language of the answer: {language}")
+    if professions is not None:
+        details.append("Professions (use only these codes): " + ", ".join(sorted(set(professions))))
     task_text = "\n".join(
         [
             INSTRUCTIONS[task],

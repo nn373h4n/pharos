@@ -102,7 +102,8 @@ async def set_status(
     row = (
         await session.execute(
             text(
-                "UPDATE items i SET status = :status, hold_reason = :reason "  # noqa: S608
+                "UPDATE items i SET status = :status, hold_reason = :reason, "  # noqa: S608
+                "reviewed_at = COALESCE(i.reviewed_at, now()) "
                 "WHERE i.org_id = :org AND i.id = :id AND i.owner_user_id IS NULL "
                 f"RETURNING {_VIEW}"
             ),

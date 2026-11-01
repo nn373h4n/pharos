@@ -23,7 +23,7 @@ import json
 import logging
 import re
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from typing import TypeVar
 from uuid import UUID
@@ -133,6 +133,7 @@ class LLMGateway:
         schema: type[T],
         language: str | None = None,
         profession: str | None = None,
+        professions: Sequence[str] | None = None,
     ) -> T:
         if not isinstance(article, PublicArticleText) or not article.is_genuine():
             raise NotPublicArticle("only PublicArticleText may be sent")
@@ -152,7 +153,14 @@ class LLMGateway:
             raise LLMNotConfigured()
         self._check_pause(stage)
 
-        messages = prompt.build(task, article, schema, language=language, profession=profession)
+        messages = prompt.build(
+            task,
+            article,
+            schema,
+            language=language,
+            profession=profession,
+            professions=professions,
+        )
         max_tokens = MAX_ANSWER_TOKENS[stage]
         estimate = self._estimate(model, messages.system + messages.user, max_tokens)
 
