@@ -53,6 +53,10 @@ PHAROS_OIDC_ISSUER=$ISSUER
 PHAROS_OIDC_CLIENT_ID=pharos
 PHAROS_OIDC_CLIENT_SECRET=dev-only-client-secret
 PHAROS_OIDC_PROVIDER_NAME=Keycloak (development)
+PHAROS_LLM_PROVIDER=anthropic
+PHAROS_LLM_MODEL_FILTER=stack-filter
+PHAROS_LLM_MODEL_ENRICHMENT=stack-enrichment
+PHAROS_LLM_MODEL_INSIGHT=stack-insight
 EOF
 
 compose() {
@@ -99,6 +103,10 @@ export STACK_ADMIN_USER=stack-admin
 export STACK_ADMIN_PASSWORD="$ADMIN_PASSWORD"
 export STACK_ORG_SLUG="$ORG_SLUG"
 export STACK_FEED_URL="http://feed.example.test:8080"
+# Lets a spec look at the containers as an operator would (their environment and their logs).
+export STACK_COMPOSE="docker compose -p $PROJECT -f $PWD/deploy/docker-compose.yml -f $PWD/deploy/docker-compose.sso-dev.yml -f $PWD/deploy/docker-compose.stack-e2e.yml --env-file $ENV_FILE"
+# The model page's spending counter lives in Redis; a spec moves it as an operator would (the API's user).
+export STACK_REDIS="docker compose -p $PROJECT -f $PWD/deploy/docker-compose.yml -f $PWD/deploy/docker-compose.sso-dev.yml -f $PWD/deploy/docker-compose.stack-e2e.yml --env-file $ENV_FILE exec -T redis redis-cli --no-auth-warning --user pharos_api --pass $(sed -n 's/^PHAROS_REDIS_PASSWORD=//p' "$ENV_FILE")"
 export STACK_PSQL="docker compose -p $PROJECT -f $PWD/deploy/docker-compose.yml -f $PWD/deploy/docker-compose.sso-dev.yml -f $PWD/deploy/docker-compose.stack-e2e.yml --env-file $ENV_FILE exec -T postgres psql -q -tA -U postgres -d pharos"
 (cd frontend && pnpm exec playwright test -c playwright.stack.config.ts "$@")
 status=$?

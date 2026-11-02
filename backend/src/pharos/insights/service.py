@@ -34,6 +34,9 @@ TASK_NAME = "pharos.llm.insight"
 MARKER_SECONDS = 300
 TASK_EXPIRES_SECONDS = 300
 ASKS_PER_HOUR = 120
+# One person cannot use the organization's day of model spending alone, whatever they change in
+# their profile (M4-11 review).
+ASKS_PER_DAY = 30
 
 
 class TaskQueue(Protocol):
@@ -155,6 +158,13 @@ class InsightService:
                 )
                 if not decision.allowed:
                     raise rate_limited(decision.retry_after)
+                today = await self._limiter.hit(
+                    f"insights-day:{uow.org_id}:{actor.user_id}",
+                    limit=ASKS_PER_DAY,
+                    window_seconds=86400,
+                )
+                if not today.allowed:
+                    raise rate_limited(today.retry_after)
             await self._queue.send(
                 TASK_NAME, [str(item_id), code, language], expires=TASK_EXPIRES_SECONDS
             )

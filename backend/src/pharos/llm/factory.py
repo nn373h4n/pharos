@@ -13,7 +13,7 @@ from pharos.llm.budget import Budget
 from pharos.llm.errors import LLMNotConfigured
 from pharos.llm.gateway import Event, GatewayConfig, LLMGateway
 from pharos.llm.litellm_provider import LiteLLMProvider
-from pharos.llm.provider import FakeProvider, Provider
+from pharos.llm.provider import DemoProvider, Provider
 from pharos.llm.types import Stage
 from pharos.llm.usage import UsageSink
 
@@ -24,7 +24,7 @@ def build_provider(settings: Settings) -> Provider | None:
     if name == "off":
         return None
     if name == "fake":
-        return FakeProvider()
+        return DemoProvider()
     if settings.llm_api_key is None:
         raise LLMNotConfigured(f"llm_provider {name} needs llm_api_key in the worker")
     return LiteLLMProvider(name, settings.llm_api_key, base_url=settings.llm_base_url)

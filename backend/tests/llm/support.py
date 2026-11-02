@@ -63,10 +63,16 @@ class MemoryBudget:
         self.warned = False
         self.exhausted = False
         self.reserved: list[int] = []
+        self.ceilings: list[int] = []
         self.settled: list[int] = []
         self.released = 0
 
-    async def reserve(self, org: uuid.UUID, estimate: int) -> Reservation | Refusal:
+    async def reserve(
+        self, org: uuid.UUID, estimate: int, *, ceiling: int = 0
+    ) -> Reservation | Refusal:
+        self.ceilings.append(ceiling)
+        if ceiling and self.total + estimate > ceiling:
+            return Refusal(exhausted_first=False)
         if self.total + estimate > self.cap:
             first = not self.exhausted
             self.exhausted = True

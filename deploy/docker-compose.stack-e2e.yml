@@ -36,6 +36,12 @@ services:
   worker:
     environment:
       PHAROS_ENVIRONMENT: test
+      # The test provider answers every task with a schema-valid text (no model, no key, no cost).
+      # Only the worker runs it: the API and beat keep the provider named in the env file.
+      PHAROS_LLM_PROVIDER: fake
+      # A canary shaped like a key, never valid anywhere. The test provider ignores it; the stack
+      # tests search the API's answers, the pages, the database and every log for it.
+      PHAROS_LLM_API_KEY: STACKCANARY-0f3a9c1d7b5e4a2c8d6f
       PHAROS_FETCH_TEST_ALLOWED_NETWORKS: 172.28.77.10/32
       PHAROS_FETCH_TEST_ALLOWED_PORTS: "8080"
     networks: [data, egress, feedtest]

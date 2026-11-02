@@ -82,3 +82,9 @@ If the milestone runs long, in this order: cut M4-10 (local mode), then M4-05 (e
 | Cost surprise | Budget in Redis and the table, a hard stop, lazy generation only for (profession, language) pairs that have people, a cache that survives the stop |
 | Prompt injection through feed text | Delimited data, no tools, schema-checked output, link allow-list, validator, low-quality or odd answers go to the editor queue |
 | The schedule assumes one developer with an assistant | M1 to M3 took about six calendar days each with review rounds; that is no basis for an estimate; the cut line above is the control |
+
+## Result
+
+Finished on 2026-11-02 with two tasks cut on purpose, as the cut line allows: M4-05 (embeddings and clustering: ADR-0007 is still `Proposed` and the quality of embeddings in Azerbaijani can only be judged by native raters) and M4-10 (the local model: it could not pass the evaluation without raters, so no "fully local" claim is made). M4-09 delivers the harness; the real run is F-36.
+
+The acceptance table (10 criteria: 4 PASS, 5 PARTLY, 1 NOT RUN) is in [PROGRESS.md](../../PROGRESS.md#m4-acceptance-criteria). The whole-milestone review found no open P0 or P1; its P2 (one member could use up the day's model spending) was fixed in M4-11 with a daily quota per person and a ceiling for insights.

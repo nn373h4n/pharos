@@ -44,7 +44,9 @@ class InMemoryBudget:
         self.cap = cap_micro_usd
         self.total = 0
 
-    async def reserve(self, org: uuid.UUID, estimate: int) -> Reservation | Refusal:
+    async def reserve(
+        self, org: uuid.UUID, estimate: int, *, ceiling: int = 0
+    ) -> Reservation | Refusal:
         if self.total + estimate > self.cap:
             return Refusal(exhausted_first=True)
         self.total += estimate

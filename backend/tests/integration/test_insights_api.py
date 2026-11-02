@@ -299,6 +299,25 @@ async def test_one_person_cannot_ask_for_ever(
 
 
 @pytest.mark.anyio
+async def test_one_person_has_a_daily_number_of_asks_however_slowly_they_ask(
+    make_stack: MakeStack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(insight_service, "ASKS_PER_DAY", 2)
+    stack, queue = await stack_with_queue(make_stack)
+    who, other = await person(stack, "member"), await person(stack, "member")
+    for found in (who, other):
+        await set_profile(stack, found)
+    items = [await make_item(stack) for _ in range(3)]
+    for item in items[:2]:
+        assert (await ask(who, item)).status_code == 200
+    refused = await ask(who, items[2])
+    assert refused.status_code == 429 and int(refused.headers["Retry-After"]) > 3600
+    assert len(queue.sent) == 2
+    # Another person is not affected (positive control: the limit is per person).
+    assert (await ask(other, items[2])).status_code == 200
+
+
+@pytest.mark.anyio
 async def test_when_the_queue_is_down_the_answer_is_a_clean_503(make_stack: MakeStack) -> None:
     stack, queue = await stack_with_queue(make_stack)
     queue.fail = True
