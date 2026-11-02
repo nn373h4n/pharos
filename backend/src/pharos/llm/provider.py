@@ -1,5 +1,7 @@
 """The provider side of the gateway: a small interface, and a fake for tests, CI and demo mode."""
 
+import json
+import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Protocol
@@ -76,3 +78,47 @@ class FakeProvider:
         return ProviderAnswer(
             self.answer, tokens_in=len(system + user) // 4, tokens_out=len(self.answer) // 4
         )
+
+
+_CODES = re.compile(r"Professions \(use only these codes\): ([^\n]+)")
+
+
+def _demo_answer(_model: str, _system: str, user: str) -> ProviderAnswer:
+    """A schema-valid answer for each task, read from the schema the product put into the prompt.
+
+    Deterministic and free: the first catalogue code (in the prompt's own sorted order) is the fit,
+    an article that says OFFTOPIC is not relevant. It is what a demo or a stack test needs; it is
+    not a model, and it says nothing about quality."""
+    # The task is read from the part the product wrote (before the article); only the OFFTOPIC
+    # switch looks inside the article, and it is a test aid, not a decision.
+    task, _, article = user.partition("[ARTICLE ")
+    if '"try_prompt"' in task:
+        body: dict[str, object] = {
+            "summary": "A short way to use this at work.",
+            "how_to_apply": ["Pick one recurring task.", "Try the prompt on a harmless example."],
+            "try_prompt": "Summarise this in three bullets: [paste a short harmless text]",
+            "safety_note": "Do not paste confidential or personal data.",
+        }
+    elif '"professions"' in task and '"category"' in task:
+        found = _CODES.search(task)
+        codes = [code.strip() for code in found.group(1).split(",")] if found else []
+        body = {
+            "summary": "A demo summary of the article.",
+            "category": "tutorial",
+            "quality": 4,
+            "professions": [
+                {"code": code, "relevance": 90 if position == 0 else 10}
+                for position, code in enumerate(codes[:10])
+            ],
+        }
+    else:
+        body = {"relevant": "OFFTOPIC" not in article, "confidence": 90}
+    text = json.dumps(body)
+    return ProviderAnswer(text, tokens_in=len(user) // 4, tokens_out=len(text) // 4)
+
+
+class DemoProvider(FakeProvider):
+    """The provider of `PHAROS_LLM_PROVIDER=fake`: schema-valid answers without a model."""
+
+    def __init__(self) -> None:
+        super().__init__(script=_demo_answer)

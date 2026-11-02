@@ -31,6 +31,15 @@ Option 2, kept in Redis and written to the database.
 - Negative: a conservative estimate stops generation a little early; the price table must be kept current with the pinned LiteLLM version; one more Redis script.
 - Follow-up: tests for the atomic reserve under parallel calls, settle and release, the 80% and 100% thresholds, fail-closed on Redis loss, no content in `llm_usage`, audit events; mutation checks for each (remove the reserve, the stop, the fail-closed, the content-free record).
 
+## Amendment (2026-11-02, M4-11, found by the whole-milestone review)
+
+The cap is shared by every stage, so one member asking for many suggestions ("Try this") could use up the day for everyone, including the reading of new articles. Two limits were added, both still `Proposed` with this ADR:
+
+- Insights may use at most half of the day's cap. The reserve script takes a ceiling for the stage; a call that would pass it is refused atomically and does **not** mark the day as exhausted (the day is not over, only the insights' share). The share is a constant of the gateway configuration (50%), not a setting.
+- One person may ask for at most 30 suggestions a day, besides the 120 an hour, whatever they change in their profile.
+
+Consequence: the 80% warning is reached by reading articles, not by suggestions alone.
+
 ## References
 
 - ADR-0002, ADR-0013 (the pattern for results through Redis), ADR-0015; `docs/ARCHITECTURE_PROPOSAL.md` section 6 (cost model); `docs/plans/m4-llm-layer-and-personal-feed.md`

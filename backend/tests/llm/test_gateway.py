@@ -116,6 +116,21 @@ class TestBudget:
         assert budget.settled[0] < budget.reserved[0]  # the estimate is pessimistic
         assert budget.total == budget.settled[0]  # and what stays is what was really spent
 
+    async def test_insights_may_use_only_their_share_of_the_day_so_reading_goes_on(self) -> None:
+        """A person asking for many insights must not stop the enrichment for the whole day."""
+        probe = Harness(FakeProvider(GOOD))
+        await probe.run(Stage.INSIGHT)
+        need = probe.budget.reserved[0]
+        budget = MemoryBudget(cap=need * 2)  # the share is one estimate: a second ask is refused
+        harness = Harness(FakeProvider(GOOD), budget=budget)
+        await harness.run(Stage.INSIGHT)
+        with pytest.raises(BudgetExhausted):
+            await harness.run(Stage.INSIGHT)
+        assert budget.ceilings[-1] == budget.cap // 2
+        assert not budget.exhausted  # the day is not over, only the insights' share
+        await harness.run(Stage.ENRICHMENT)  # positive control: reading continues
+        assert budget.ceilings[-1] == 0
+
     async def test_a_cap_that_would_be_passed_stops_the_call_before_anything_is_sent(self) -> None:
         harness = Harness(FakeProvider(GOOD), budget=MemoryBudget(cap=10))
         with pytest.raises(BudgetExhausted):

@@ -21,12 +21,18 @@ KEY_PREFIX = "pharos:worker:llm:"
 DAY_SECONDS = 2 * 24 * 3600  # a day's keys outlive the day a little, so a late settle still lands
 WARN_PERCENT = 80
 
-# KEYS: spent, warned-today marker, exhausted-today marker. ARGV: estimate, cap, ttl seconds.
-# Returns {allowed, total, warned_first, exhausted_first}. Refused calls change nothing.
+# KEYS: spent, warned-today marker, exhausted-today marker. ARGV: estimate, cap, ttl seconds,
+# ceiling (0 = none). A ceiling below the cap keeps the rest of the day for other stages: a call
+# that would pass it is refused without marking the day exhausted. Returns {allowed, total,
+# warned_first, exhausted_first}. Refused calls change nothing.
 _RESERVE = """
 local cur = tonumber(redis.call('GET', KEYS[1]) or '0')
 local est = tonumber(ARGV[1])
 local cap = tonumber(ARGV[2])
+local ceiling = tonumber(ARGV[4])
+if ceiling > 0 and cur + est > ceiling then
+  return {0, cur, 0, 0}
+end
 if cur + est > cap then
   local first = redis.call('SET', KEYS[3], '1', 'NX', 'EX', ARGV[3])
   return {0, cur, 0, first and 1 or 0}
@@ -97,13 +103,14 @@ class Budget:
     def _spent_key(self, org: UUID) -> str:
         return spent_key(org, self._day())
 
-    async def reserve(self, org: UUID, estimate: int) -> Reservation | Refusal:
-        """Book `estimate` micro-dollars, or refuse. Raises BudgetUnavailable if Redis fails."""
+    async def reserve(self, org: UUID, estimate: int, *, ceiling: int = 0) -> Reservation | Refusal:
+        """Book `estimate` micro-dollars, or refuse. With a `ceiling` (below the cap) the call is
+        also refused when the day's total would pass it. Raises BudgetUnavailable if Redis fails."""
         key = self._spent_key(org)
         try:
             allowed, total, flag, first = await self._reserve_script(
                 keys=[key, f"{key}:warned", f"{key}:exhausted"],
-                args=[max(0, estimate), self._cap, DAY_SECONDS],
+                args=[max(0, estimate), self._cap, DAY_SECONDS, max(0, min(ceiling, self._cap))],
             )
         except RedisError as error:
             raise BudgetUnavailable() from error

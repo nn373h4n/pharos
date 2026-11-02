@@ -90,6 +90,9 @@ class GatewayConfig:
     price_in: int = DEFAULT_PRICE[0]
     price_out: int = DEFAULT_PRICE[1]
     prices: dict[str, tuple[int, int]] = field(default_factory=lambda: dict(PRICES))
+    #: The share of the day's cap that insights may use: the rest is kept for reading new articles,
+    #: so people asking for insights cannot stop the enrichment for the day (M4-11 review).
+    insight_share_percent: int = 50
 
 
 def _extract_json(text: str) -> str:
@@ -341,7 +344,10 @@ class LLMGateway:
     async def _book(
         self, org_id: UUID, estimate: int, stage: Stage, provider: str, model: str
     ) -> Reservation:
-        outcome = await self._budget.reserve(org_id, estimate)
+        ceiling = 0
+        if stage is Stage.INSIGHT:
+            ceiling = self._budget.cap * self._config.insight_share_percent // 100
+        outcome = await self._budget.reserve(org_id, estimate, ceiling=ceiling)
         if isinstance(outcome, Refusal):
             if outcome.exhausted_first:
                 await self._event("llm.budget_exhausted", org_id)

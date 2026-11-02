@@ -14,7 +14,7 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from pharos.llm import schemas
-from pharos.llm.budget import KEY_PREFIX, Budget, Refusal, Reservation
+from pharos.llm.budget import KEY_PREFIX, Budget, Refusal, Reservation, spent_key
 from pharos.llm.errors import BudgetExhausted, BudgetUnavailable
 from pharos.llm.gateway import GatewayConfig, LLMGateway
 from pharos.llm.provider import FakeProvider, ProviderAnswer
@@ -68,6 +68,18 @@ class TestReserve:
         refused = await b.reserve(who, 40)
         assert isinstance(refused, Refusal) and await b.spent(who) == 80
         assert isinstance(await b.reserve(who, 20), Reservation) and await b.spent(who) == 100
+
+    async def test_a_ceiling_keeps_the_rest_of_the_day_and_does_not_end_it(
+        self, redis: Redis
+    ) -> None:
+        b, who = budget(redis, 100), org()
+        assert isinstance(await b.reserve(who, 40, ceiling=50), Reservation)
+        refused = await b.reserve(who, 20, ceiling=50)
+        assert isinstance(refused, Refusal) and not refused.exhausted_first
+        assert await b.spent(who) == 40  # nothing changed
+        assert await redis.exists(f"{spent_key(who, b._day())}:exhausted") == 0  # type: ignore[attr-defined]
+        assert isinstance(await b.reserve(who, 60), Reservation)  # no ceiling: up to the cap
+        assert await b.spent(who) == 100
 
     async def test_the_first_refusal_of_the_day_says_so_once(self, redis: Redis) -> None:
         b, who = budget(redis, 10), org()
@@ -228,9 +240,9 @@ class RecordingBudget(Budget):
 
     estimates: list[int]
 
-    async def reserve(self, org: uuid.UUID, estimate: int):  # type: ignore[no-untyped-def]
+    async def reserve(self, org: uuid.UUID, estimate: int, *, ceiling: int = 0):  # type: ignore[no-untyped-def]
         self.estimates = [*getattr(self, "estimates", []), estimate]
-        return await super().reserve(org, estimate)
+        return await super().reserve(org, estimate, ceiling=ceiling)
 
 
 class TestTheWholeThing:

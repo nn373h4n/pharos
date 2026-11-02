@@ -20,6 +20,20 @@ export function sql(statement: string): string {
   return execSync(PSQL, { input: statement, encoding: "utf8" }).trim();
 }
 
+/** Runs one Redis command as an operator would (the API's user, inside the stack's Redis container). */
+export function redis(command: string): string {
+  const base = process.env.STACK_REDIS ?? "";
+  if (!base) throw new Error("STACK_REDIS is not set; run `make test-stack-e2e`");
+  return execSync(`${base} ${command}`, { encoding: "utf8" }).trim();
+}
+
+/** Runs one `docker compose` command of the stack as an operator would (logs, exec). */
+export function compose(args: string): string {
+  const base = process.env.STACK_COMPOSE ?? "";
+  if (!base) throw new Error("STACK_COMPOSE is not set; run `make test-stack-e2e`");
+  return execSync(`${base} ${args}`, { encoding: "utf8", maxBuffer: 256 * 1024 * 1024 });
+}
+
 export function sqlNumber(statement: string): number {
   return Number(sql(statement));
 }
