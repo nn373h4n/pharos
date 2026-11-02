@@ -47,6 +47,9 @@ test.beforeAll(() => {
   // reads twenty a minute, oldest first. An editor's decision takes an article out of the queue
   // (`reviewed_at`); do that for them so this spec waits for its own articles only.
   sql("UPDATE items SET reviewed_at = now() WHERE enriched_at IS NULL AND reviewed_at IS NULL");
+  // The same for the day's spending: what earlier specs' articles cost must not decide whether this
+  // spec's insights may be made (insights stop at half of the day's limit).
+  redis(`DEL ${counter()} ${counter()}:warned ${counter()}:exhausted`);
   serve("llm.xml", rss(stories));
   finishOnboarding(`subject = '${ADMIN_USER}'`);
   insertSource(NAME, `${FEED_URL}/llm.xml`);
