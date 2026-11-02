@@ -43,6 +43,10 @@ const CANARY = "STACKCANARY-0f3a9c1d7b5e4a2c8d6f";
 const WCAG = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
 
 test.beforeAll(() => {
+  // Earlier specs leave hundreds of unread articles (a 10,000-entry feed gives 200), and the sweep
+  // reads twenty a minute, oldest first. An editor's decision takes an article out of the queue
+  // (`reviewed_at`); do that for them so this spec waits for its own articles only.
+  sql("UPDATE items SET reviewed_at = now() WHERE enriched_at IS NULL AND reviewed_at IS NULL");
   serve("llm.xml", rss(stories));
   finishOnboarding(`subject = '${ADMIN_USER}'`);
   insertSource(NAME, `${FEED_URL}/llm.xml`);
