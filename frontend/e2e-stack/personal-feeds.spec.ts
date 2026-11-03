@@ -40,7 +40,30 @@ async function personPage(browser: Browser, person: typeof ALICE) {
   const page = await context.newPage();
   await signInWithSso(page, person);
   finishOnboarding(`display_name = '${person.name}'`);
+  // Let the page see the finished profile before the test goes on: until then it may be on its way
+  // to the questions (see `open`).
+  await open(page, "/en");
+  await expect(page).toHaveURL(/\/en\/?$/);
+  await expect(page.getByRole("group", { name: en.Shell.account })).toContainText(person.name);
   return page;
+}
+
+/**
+ * Opens a page of the app. A person who has just signed in is sent to the onboarding questions by
+ * the page itself until the test has finished their profile in the database, so a navigation that
+ * starts at that moment can be aborted by the redirect (`net::ERR_ABORTED`). That is the page
+ * doing what it should; the navigation is asked for again, at most twice.
+ */
+async function open(page: Page, path: string) {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      await page.goto(path);
+      return;
+    } catch (error) {
+      if (attempt >= 2 || !String(error).includes("ERR_ABORTED")) throw error;
+      await page.waitForLoadState("load").catch(() => undefined);
+    }
+  }
 }
 
 const aliceFeeds = () =>
@@ -53,7 +76,7 @@ test.beforeAll(() => {
 
 test("a person adds a feed of their own and the worker fetches it", async ({ browser }) => {
   const page = await personPage(browser, ALICE);
-  await page.goto("/en/my-feeds");
+  await open(page, "/en/my-feeds");
   await page.getByRole("button", { name: en.Feeds.actions.add }).click();
   await page.getByLabel(en.Sources.form.name).fill(FEED);
   await page.getByLabel(en.Sources.form.url).fill(`${FEED_URL}/alice.xml`);
@@ -73,20 +96,20 @@ test("nobody else sees the feed or its articles: not another person, not an admi
   page,
 }) => {
   const bob = await personPage(browser, BOB);
-  await bob.goto("/en/my-feeds");
+  await open(bob, "/en/my-feeds");
   await expect(bob.getByText(en.Feeds.empty)).toBeVisible();
-  await bob.goto("/en/items");
+  await open(bob, "/en/items");
   await expect(bob.getByText("Alice private story")).toHaveCount(0);
   const id = sql(`SELECT id FROM sources WHERE ${aliceFeeds()} LIMIT 1`);
   expect((await bob.request.get(`/api/me/feeds/${id}`)).status()).toBe(404);
   expect((await bob.request.get(`/api/me/feeds/${id}/items`)).status()).toBe(404);
 
   await signInAsAdmin(page);
-  await page.goto("/en/items");
+  await open(page, "/en/items");
   await expect(page.getByText("Alice private story")).toHaveCount(0);
   await page.getByRole("button", { name: en.Items.filter.held }).click();
   await expect(page.getByText("Alice private story")).toHaveCount(0);
-  await page.goto("/en/sources");
+  await open(page, "/en/sources");
   await expect(page.getByText(FEED, { exact: true })).toHaveCount(0);
   expect((await page.request.get(`/api/me/feeds/${id}`)).status()).toBe(404);
   const own = await page.request.get("/api/me/feeds");
@@ -98,7 +121,7 @@ test("nobody else sees the feed or its articles: not another person, not an admi
 
 test("addresses that point inwards are refused and the attempt is audited", async ({ browser }) => {
   const page = await personPage(browser, ALICE);
-  await page.goto("/en/my-feeds");
+  await open(page, "/en/my-feeds");
   const before = sqlNumber(
     `SELECT count(*) FROM audit_logs WHERE action = 'source.created' AND outcome = 'failure' AND details->>'reason' = 'url_not_allowed'`,
   );
