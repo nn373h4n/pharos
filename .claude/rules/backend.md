@@ -14,3 +14,4 @@ paths:
 - Background tasks are idempotent and safe to retry.
 - Outbound HTTP only through `SafeHttpClient`.
 - Tests in `backend/tests/` mirror the module tree; use the fake LLM provider and recorded fixtures.
+- Tests must not depend on the order of random UUIDs (for example ties broken by id): build the data so the expected outcome is fixed, and run a suspect test many times before trusting it.
