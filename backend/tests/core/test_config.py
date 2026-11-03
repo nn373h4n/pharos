@@ -493,6 +493,32 @@ class TestModelLayerSettings:
         )  # the worker holds it
         assert worker.llm_api_key is not None
 
+    def test_the_local_model_needs_no_key_and_no_address_in_production(self) -> None:
+        api = production(llm_provider="ollama", llm_model_filter="qwen2.5:7b")
+        worker = Settings(  # type: ignore[arg-type]
+            environment="production",
+            process="worker",
+            database_url=GOOD_DB,
+            redis_url=GOOD_REDIS,
+            public_url="https://pharos.example",
+            llm_provider="ollama",
+            llm_model_filter="qwen2.5:7b",
+        )
+        assert api.llm_provider == worker.llm_provider == "ollama"
+
+    def test_the_fake_provider_is_refused_in_production_for_every_process(self) -> None:
+        with pytest.raises(ValidationError, match="fake"):
+            production(llm_provider="fake")
+        with pytest.raises(ValidationError, match="fake"):
+            Settings(  # type: ignore[arg-type]
+                environment="production",
+                process="worker",
+                database_url=GOOD_DB,
+                redis_url=GOOD_REDIS,
+                public_url="https://pharos.example",
+                llm_provider="fake",
+            )
+
     def test_an_empty_key_from_compose_is_no_key(self) -> None:
         settings = Settings(environment="test", llm_provider="anthropic", llm_api_key=" ")  # type: ignore[arg-type]
         assert settings.llm_api_key is None

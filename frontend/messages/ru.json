@@ -472,7 +472,8 @@
       "fake": "Тестовый провайдер (без настоящей модели)",
       "anthropic": "Anthropic (Claude)",
       "openai": "OpenAI",
-      "azure": "Azure OpenAI"
+      "azure": "Azure OpenAI",
+      "ollama": "Локальная модель (Ollama)"
     },
     "stage": {
       "filter": "Фильтр (малая модель)",

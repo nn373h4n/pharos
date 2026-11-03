@@ -4,7 +4,7 @@
 import { request } from "@/lib/api";
 import { isIdentifier } from "@/lib/ids";
 
-export const PROVIDERS = ["off", "fake", "anthropic", "openai", "azure"] as const;
+export const PROVIDERS = ["off", "fake", "anthropic", "openai", "azure", "ollama"] as const;
 export type Provider = (typeof PROVIDERS)[number];
 export const STAGES = ["filter", "enrichment", "insight", "key_test"] as const;
 export type Stage = (typeof STAGES)[number];

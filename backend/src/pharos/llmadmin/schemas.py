@@ -32,7 +32,7 @@ class KeyCheckOut(BaseModel):
 
 
 class StatusOut(BaseModel):
-    provider: Literal["off", "fake", "anthropic", "openai", "azure"]
+    provider: Literal["off", "fake", "anthropic", "openai", "azure", "ollama"]
     models: ModelsOut
     daily_cap_micro_usd: int
     spent_micro_usd: int

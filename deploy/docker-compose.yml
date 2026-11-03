@@ -37,8 +37,24 @@ networks:
   data:
     internal: true
   egress: {}
+  # The local model (profile "local-llm", ADR-0020): the worker reaches it here and nothing else
+  # does. The network has no gateway to the internet, so the server has no route out of its own.
+  # (A service on the host that listens on all interfaces can still be reached through the
+  # network's gateway address, as for the other internal networks; see docs/DEPLOYMENT.md.)
+  # The server has a fixed address, which the worker uses instead of a name: a name could resolve
+  # elsewhere through a search domain or a proxy. Change the range if it clashes with a network on
+  # the host, and PHAROS_OLLAMA_IP with it.
+  llm:
+    internal: true
+    ipam:
+      config:
+        - subnet: ${PHAROS_OLLAMA_SUBNET:-172.28.30.0/24}
+  # Only for the one-shot model download (profile "local-llm-pull"): its own network, so the job
+  # shares nothing with the API or the worker while it has a route to the internet.
+  pull: {}
 
 volumes:
+  ollama_models: {}
   postgres_data: {}
   redis_data: {}
   caddy_data: {}
@@ -67,6 +83,8 @@ x-worker-env: &worker-env
   # The worker's own Redis user: it sees the Celery queue and pharos:worker:* only (deploy/redis/start.sh).
   PHAROS_REDIS_URL: redis://pharos_worker:${PHAROS_REDIS_WORKER_PASSWORD:?set PHAROS_REDIS_WORKER_PASSWORD}@redis:6379/0
   PHAROS_PUBLIC_URL: ${PHAROS_PUBLIC_URL:?set PHAROS_PUBLIC_URL}
+  # Where the local model server is (provider "ollama"); must match the llm network's range.
+  PHAROS_OLLAMA_IP: ${PHAROS_OLLAMA_IP:-172.28.30.10}
   PHAROS_ORG_SLUG: ${PHAROS_ORG_SLUG:-default}
   PHAROS_PERSONAL_FEEDS: ${PHAROS_PERSONAL_FEEDS:-on}
   PHAROS_LLM_PROVIDER: ${PHAROS_LLM_PROVIDER:-off}
@@ -209,7 +227,8 @@ services:
       # Likewise the model key: only the process that calls a model holds it.
       PHAROS_LLM_API_KEY: ${PHAROS_LLM_API_KEY:-}
     tmpfs: [/tmp]
-    networks: [data, egress]
+    # `llm` is empty unless the "local-llm" profile runs the model server on it.
+    networks: [data, egress, llm]
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
@@ -221,6 +240,84 @@ services:
       retries: 3
       start_period: 30s
     mem_limit: 512m
+
+  # Gives the model volume to the user the model services run as (a new volume belongs to root).
+  # It runs for a moment, has no network at all and keeps the one capability that chown needs.
+  ollama-init:
+    profiles: ["local-llm", "local-llm-pull"]
+    image: ollama/ollama:0.40.6@sha256:265409e1d931028a8f7d5a32bcbafddd7bffbc6cc629d77efe9560adf692a5e7
+    <<: *hardening
+    restart: "no"
+    user: "0:0"
+    cap_add: [CHOWN]
+    network_mode: none
+    # The server mounts the volume read-only, so the folders it expects must exist before it starts.
+    entrypoint: ["/bin/sh", "-c", "mkdir -p /models/blobs /models/manifests /models/manifests-v2 && chown 10001:10001 /models /models/blobs /models/manifests /models/manifests-v2"]
+    volumes: [ollama_models:/models]
+    mem_limit: 64m
+
+  # The local model server (profile "local-llm", ADR-0020). Started only with
+  #   docker compose --profile local-llm up -d
+  # It runs on the internal `llm` network, so it has no route to the internet and publishes no port;
+  # the worker is the only service on that network besides it. Models are not downloaded by this
+  # service: an operator puts them in the volume with scripts/ollama-pull.sh (see `ollama-pull`).
+  ollama:
+    profiles: ["local-llm"]
+    image: ollama/ollama:0.40.6@sha256:265409e1d931028a8f7d5a32bcbafddd7bffbc6cc629d77efe9560adf692a5e7
+    <<: *hardening
+    user: "10001:10001"
+    environment:
+      OLLAMA_HOST: 0.0.0.0:11434
+      OLLAMA_MODELS: /models
+      HOME: /tmp
+      OLLAMA_NOPRUNE: "1"
+      # No attempt to reach Ollama's cloud service: there is no route, and none is wanted.
+      OLLAMA_NO_CLOUD: "1"
+      # One model at a time and one request at a time: memory and processor are bounded.
+      OLLAMA_MAX_LOADED_MODELS: "1"
+      OLLAMA_NUM_PARALLEL: "1"
+    # The server only reads the models; putting them in is the job of `ollama-pull`. A compromised
+    # worker could otherwise write to the unauthenticated API of the server and change the volume.
+    volumes: [ollama_models:/models:ro]
+    tmpfs: [/tmp]
+    networks:
+      llm:
+        ipv4_address: ${PHAROS_OLLAMA_IP:-172.28.30.10}
+    cpus: ${PHAROS_OLLAMA_CPUS:-2}
+    depends_on:
+      ollama-init: { condition: service_completed_successfully }
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    # A model needs memory; raise it for a larger one.
+    mem_limit: ${PHAROS_OLLAMA_MEMORY:-6g}
+
+  # One-shot download of a model into the volume, run by an operator with scripts/ollama-pull.sh.
+  # It is the only part of the local-model setup with a route to the internet, and only while it
+  # runs; the server above never has one.
+  ollama-pull:
+    profiles: ["local-llm-pull"]
+    image: ollama/ollama:0.40.6@sha256:265409e1d931028a8f7d5a32bcbafddd7bffbc6cc629d77efe9560adf692a5e7
+    <<: *hardening
+    user: "10001:10001"
+    restart: "no"
+    environment:
+      OLLAMA_HOST: 127.0.0.1:11434
+      OLLAMA_MODELS: /models
+      HOME: /tmp
+      MODEL: ${PHAROS_OLLAMA_PULL_MODEL:-}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - 'ollama serve >/dev/null 2>&1 & for _ in $$(seq 1 60); do ollama list >/dev/null 2>&1 && break; sleep 1; done; exec ollama pull "$$MODEL"'
+    volumes: [ollama_models:/models]
+    tmpfs: [/tmp]
+    networks: [pull]
+    depends_on:
+      ollama-init: { condition: service_completed_successfully }
+    mem_limit: 2g
 
   beat:
     build: *backend-build

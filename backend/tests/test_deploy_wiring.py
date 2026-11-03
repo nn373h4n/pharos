@@ -248,3 +248,95 @@ def test_the_github_token_is_optional_and_documented_with_no_value() -> None:
     assert "PHAROS_GITHUB_TOKEN: ${PHAROS_GITHUB_TOKEN:-}" in service_block(
         "worker"
     )  # not required
+
+
+# --- the local model profile (M4-10, ADR-0020) -----------------------------------------------
+
+
+def networks_of(block: str) -> list[str]:
+    """The networks of a service, written inline (`[a, b]`) or as a block (`a:` with options)."""
+    inline = re.search(r"^    networks: \[(.*?)\]", block, re.MULTILINE)
+    if inline:
+        return [part.strip() for part in inline.group(1).split(",")]
+    found = re.search(r"^    networks:\n((?:      .*\n?)+)", block, re.MULTILINE)
+    assert found, "no networks"
+    return re.findall(r"^      ([a-z][\w-]*):", found.group(1), re.MULTILINE)
+
+
+def test_the_local_model_server_is_off_by_default_and_has_no_route_out() -> None:
+    block = service_block("ollama")
+    assert 'profiles: ["local-llm"]' in block
+    assert networks_of(block) == ["llm"]  # not data, not egress, not app
+    assert "ports:" not in block and "network_mode" not in block and "aliases" not in block
+    # Hardened like the rest, pinned by digest, and not root.
+    assert "<<: *hardening" in block
+    assert re.search(r"image: ollama/ollama:\d+\.\d+\.\d+@sha256:[0-9a-f]{64}", block)
+    assert 'user: "10001:10001"' in block
+    assert "privileged" not in block and "cap_add" not in block
+    # A fixed address on its own network, so the worker never depends on a name.
+    assert "ipv4_address: ${PHAROS_OLLAMA_IP:-172.28.30.10}" in block
+    # It only reads the models, and its memory, processor and models in use are bounded.
+    assert "ollama_models:/models:ro" in block
+    assert "mem_limit:" in block and "cpus:" in block
+    assert 'OLLAMA_MAX_LOADED_MODELS: "1"' in block and 'OLLAMA_NUM_PARALLEL: "1"' in block
+
+
+def test_the_llm_network_is_internal_and_only_the_worker_and_the_model_share_it() -> None:
+    compose = (DEPLOY / "docker-compose.yml").read_text()
+    assert re.search(r"^  llm:\n    internal: true\n    ipam:", compose, re.MULTILINE)
+    assert "subnet: ${PHAROS_OLLAMA_SUBNET:-172.28.30.0/24}" in compose
+    services = compose.split("\nservices:\n", 1)[1]
+    on_llm = []
+    for name in re.findall(r"^  ([a-z][\w-]*):\n", services, re.MULTILINE):
+        block = service_block(name)
+        if "network_mode: none" in block:
+            continue
+        if "llm" in networks_of(block):
+            on_llm.append(name)
+    assert sorted(on_llm) == ["ollama", "worker"]
+    # The worker is told the fixed address (the API and the scheduler get it too, and never use it).
+    assert "PHAROS_OLLAMA_IP: ${PHAROS_OLLAMA_IP:-172.28.30.10}" in worker_environment_block()
+
+
+def test_the_model_download_is_a_separate_profile_with_a_route_out_and_no_data_access() -> None:
+    block = service_block("ollama-pull")
+    assert 'profiles: ["local-llm-pull"]' in block
+    # Its own network: the only thing that may reach the internet here, and it shares nothing with
+    # the API (api:8000 directly) or the worker while it runs.
+    assert networks_of(block) == ["pull"]
+    compose = (DEPLOY / "docker-compose.yml").read_text()
+    assert re.search(r"^  pull: \{\}", compose, re.MULTILINE)
+    others = [n for n in ("api", "worker", "beat", "web", "caddy", "postgres", "redis", "migrate")]
+    for name in others:
+        assert "pull" not in networks_of(service_block(name)), name
+    assert "ports:" not in block
+    assert "<<: *hardening" in block and 'user: "10001:10001"' in block
+    # The server and the download share the one image, so they cannot drift apart.
+    every = block + service_block("ollama") + service_block("ollama-init")
+    pins = re.findall(r"image: (ollama/ollama:\S+)", every)
+    assert len(pins) == 3 and len(set(pins)) == 1
+
+
+def test_the_volume_helper_has_no_network_and_only_the_capability_chown_needs() -> None:
+    block = service_block("ollama-init")
+    assert "network_mode: none" in block and "networks:" not in block
+    assert "cap_add: [CHOWN]" in block and "<<: *hardening" in block
+    assert "ports:" not in block
+    # Both model services wait for it, so the volume is theirs before either starts.
+    assert "ollama-init" in service_block("ollama") and "ollama-init" in service_block(
+        "ollama-pull"
+    )
+
+
+def test_nothing_waits_for_the_local_model_so_the_default_stack_starts_without_it() -> None:
+    compose = (DEPLOY / "docker-compose.yml").read_text()
+    services = compose.split("\nservices:\n", 1)[1]
+    for name in re.findall(r"^  ([a-z][\w-]*):\n", services, re.MULTILINE):
+        if name in {"ollama", "ollama-pull", "ollama-init"}:
+            continue
+        assert "ollama" not in service_block(name), name
+
+
+def test_the_local_model_is_documented_for_operators() -> None:
+    example = (DEPLOY / ".env.example").read_text()
+    assert "ollama" in example and "PHAROS_OLLAMA_MEMORY" in example

@@ -472,7 +472,8 @@
       "fake": "Test provider (no real model)",
       "anthropic": "Anthropic (Claude)",
       "openai": "OpenAI",
-      "azure": "Azure OpenAI"
+      "azure": "Azure OpenAI",
+      "ollama": "Local model (Ollama)"
     },
     "stage": {
       "filter": "Filter (small model)",
