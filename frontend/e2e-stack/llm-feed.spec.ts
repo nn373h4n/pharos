@@ -52,6 +52,15 @@ test.beforeAll(() => {
   redis(`DEL ${counter()} ${counter()}:warned ${counter()}:exhausted`);
   serve("llm.xml", rss(stories));
   finishOnboarding(`subject = '${ADMIN_USER}'`);
+  // Earlier specs also left cards (a feed of 200 articles was read by the worker), and the Home
+  // feed shows twenty at a time, best first. The administrator marks them "not useful", as a person
+  // would, so this spec's own cards are on the first page. Undone in afterAll.
+  sql(
+    `INSERT INTO interactions (org_id, user_id, item_id, type) ` +
+      `SELECT i.org_id, u.id, i.id, 'not_useful' FROM items i, users u ` +
+      `WHERE u.subject = '${ADMIN_USER}' AND i.org_id = u.org_id AND i.summary IS NOT NULL ` +
+      `AND i.title NOT LIKE 'AI at work%' ON CONFLICT DO NOTHING`,
+  );
   insertSource(NAME, `${FEED_URL}/llm.xml`);
 });
 
@@ -252,6 +261,11 @@ test("the key stays in the worker: not in the API, a response, the database or a
 });
 
 test.afterAll(() => {
-  // Leave the counter as the next spec would expect to find it.
+  // Leave the counter, and the administrator's feed, as the next spec would expect to find them.
   redis(`DEL ${counter()} ${counter()}:warned ${counter()}:exhausted`);
+  sql(
+    `DELETE FROM interactions WHERE type = 'not_useful' AND user_id IN ` +
+      `(SELECT id FROM users WHERE subject = '${ADMIN_USER}') ` +
+      `AND item_id IN (SELECT id FROM items WHERE title NOT LIKE 'AI at work%')`,
+  );
 });
