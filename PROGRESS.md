@@ -4,7 +4,7 @@ Management view, kept short. Task detail is in [TASKS.md](TASKS.md).
 
 ## Where the project is
 
-- **Phase:** 1 (MVP). Milestones **M1** (skeleton and security baseline) and **M2** (sign-in, organization, onboarding) are complete. **M3** (sources and ingestion) is complete (2026-10-31): all 17 tasks are Done, including **M3-14** (real-stack end-to-end tests, CI job, whole-milestone review, documentation; merged as PR #53). **M4** (the LLM layer, enrichment, the ranked feed, "Try this", the local model profile) has all 11 tasks Done (M4-05 was cut on 2026-11-01, un-cut by the maintainer on 2026-11-03 and built; it is Done with the limits in its TASKS.md row, and `make test` had one unrelated flaky front-end failure, F-41). M4-10 (local model) is Done, on a pull request not yet merged. M4-09 delivers the evaluation harness only: the first real evaluation run needs native-speaking raters and a provider key (F-36), so the Azerbaijani quality is unmeasured. Next: **M5** (pilot readiness: backup and restore, release, the pilot itself).
+- **Phase:** 1 (MVP). Milestones **M1** (skeleton and security baseline) and **M2** (sign-in, organization, onboarding) are complete. **M3** (sources and ingestion) is complete (2026-10-31): all 17 tasks are Done, including **M3-14** (real-stack end-to-end tests, CI job, whole-milestone review, documentation; merged as PR #53). **M4** (the LLM layer, enrichment, the ranked feed, "Try this", the local model profile) has all 11 tasks Done (M4-05 was cut on 2026-11-01, un-cut by the maintainer on 2026-11-03 and built; it is Done with the limits in its TASKS.md row, and `make test` had one unrelated flaky front-end failure, F-41). M4-10 (local model) is Done. M4 is complete and merged: M4-10 as PR #76 and M4-05 as PR #77 (both merged 2026-11-03). M4-09 delivers the evaluation harness only: the first real evaluation run needs native-speaking raters and a provider key (F-36), so the Azerbaijani quality is unmeasured. Next: the maintainer reviews the Proposed ADRs and starts the evaluation run (F-36), then M5 is planned (pilot readiness: backup and restore, release, the pilot itself).
 - **What exists:** a platform people can sign in to (single sign-on with any OpenID Connect provider, local break-glass administrators, roles, onboarding in four languages, audit log, Docker Compose stack). On top of it, M3 adds:
   - **Sources:** administrators and editors manage RSS and Atom feeds, GitHub release feeds and Hacker News searches; a starter catalogue of 25 sources approved by the maintainer is imported switched off; a trial fetch shows what a source would bring before it is switched on.
   - **Ingestion:** a dispatcher runs every minute and leases due sources; the worker fetches only through `SafeHttpClient` (addresses checked at connect time, redirects checked by hand, size and time limits, no internal or own-host addresses); hostile feed input is refused or cut; the pipeline removes duplicates and holds suspicious items for review.
@@ -13,17 +13,17 @@ Management view, kept short. Task detail is in [TASKS.md](TASKS.md).
   - **Worker isolation:** the worker has its own database role and its own Redis user, so it cannot read or write sessions (F-14 closed).
   - **Model layer (M4):** every call goes through one gateway on the LiteLLM SDK; only public article text is sent, masked, between random delimiters, with no tools and a schema-checked answer; the key lives in the worker only; the day's spending is capped (80% warning, 100% stop, insights limited to half of the day so reading goes on). Near-duplicate articles are shown as one card per story when an embedding provider is configured (off by default); the duplicate rate is measured only on a synthetic corpus with a demo embedder. The worker reads new articles (summary, category, quality, fit to each profession), people see a ranked Home feed with Save, Useful and Not useful, and **Try this** shows how an article applies to their profession with a prompt to copy and a data note. An evaluation harness (`python -m pharos.evaluation`) is ready for the native-speaker run.
 - **What does not exist yet:** a duplicate rate measured on a real model or a real corpus (M4-05 has only the synthetic check), any measurement of the Azerbaijani output quality or of the local model's answers (F-36), the approved AI tool list and the "Open in" link (F-35), and Reddit or commercial news sources (the legal question is open).
-- **Completion (counted from TASKS.md):** M1 10 of 10 tasks, M2 15 of 15, M3 17 of 17, M4 11 of 11 (M4-10 and M4-05 are on pull requests not yet merged). Overall 4 of 5 milestones complete. These are counts, not effort estimates; the milestones differ a lot in size.
+- **Completion (counted from TASKS.md):** M1 10 of 10 tasks, M2 15 of 15, M3 17 of 17, M4 11 of 11 (M4-10 and M4-05 are merged, PR #76 and PR #77). Overall 4 of 5 milestones complete. These are counts, not effort estimates; the milestones differ a lot in size.
 - **Schedule (estimate):** M3 was built in about three calendar days (2026-10-28 to 2026-10-31), including review rounds and a parallel session. M4 took about two calendar days (2026-10-31 to 2026-11-02) with review rounds. These are observations, not a basis for estimating M5.
 
-## Checks (state of the M4-11 branch, 2026-11-02; the pull request is pending)
+## Checks (state of `main` after M4-05, 2026-11-03; a run before M4-05 gave the M4-11 specs below)
 
 | Check | Result |
 | --- | --- |
 | `make lint` (ruff, mypy strict, import contracts, eslint, tsc) | PASS |
-| Backend: 2182 unit tests | PASS |
-| Backend: 993 integration tests (real PostgreSQL and Redis, worker role, Redis ACL users) | PASS |
-| Frontend: 703 vitest tests | PASS |
+| Backend: 2351 unit tests | PASS |
+| Backend: 1051 integration tests (real PostgreSQL and Redis, worker role, Redis ACL users) | PASS |
+| Frontend: 704 vitest tests | PASS (one earlier run failed once on the unrelated flaky test F-41) |
 | Real stack, `llm-feed.spec.ts` (7 tests: the worker reads articles with the test provider, cards, Try this, a stored save, spending page, 80% warning, 100% stop with cached cards still shown, the key canary absent from responses, tables and logs) | PASS |
 | Whole real-stack suite (`make test-stack-e2e`), `make test-compose`, the Playwright suite against a mocked API | NOT RUN in this task; run by the pull-request pipeline |
 | Mutation checks (deliberately breaking each new control) | every control of M4-09 was caught by a named test (one equivalent check removed); in M4-11 two were broken in the real stack and caught: removing the 100% stop, and logging the key |
@@ -84,7 +84,7 @@ The ten criteria of [the M4 plan](docs/plans/m4-llm-layer-and-personal-feed.md#a
 
 ## Next steps
 
-1. Merge PR #76 (M4-10), then the M4-05 pull request (stacked on it) (F-41, a flaky front-end test, is tracked apart). Then M4 is merged. Run the NOT RUN checks of M4-05 (stack end-to-end, `make test-compose`, a real embedding provider) before calling its quality shown.
+1. Run the NOT RUN checks of M4-05 (stack end-to-end, `make test-compose`, a real embedding provider) before calling its quality shown. F-41 (a flaky front-end test) and F-42 (M4-05 leftovers) stay open.
 2. Maintainer: accept or change the ADRs marked `Proposed` (see [TASKS.md](TASKS.md#decisions-waiting-for-the-maintainer)); they now include ADR-0015 to ADR-0018 (what may reach a model, budget, enrichment, the feed and interactions) besides the older ones. Decide F-31 (first fetch of a new personal feed).
 3. The Azerbaijani quality run (F-36): find native-speaking raters (decision D6), give the worker a provider key and the candidate models, and follow [docs/guides/evaluation.md](docs/guides/evaluation.md). Until then the default models are only the settings' values and the quality is unmeasured. Also: the approved AI tool list (F-35, decision D5).
 4. Have the az, tr and ru text reviewed (F-01) and decide the egress approach (F-04) before real data is stored.
