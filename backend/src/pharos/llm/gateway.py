@@ -33,6 +33,12 @@ from pydantic import BaseModel, ValidationError
 from pharos.core.clock import Clock
 from pharos.llm import prompt
 from pharos.llm.budget import Budget, Refusal, Reservation
+from pharos.llm.embedding import (
+    Embedded,
+    EmbeddingProvider,
+    check_vector,
+    embedding_text,
+)
 from pharos.llm.errors import (
     BudgetExhausted,
     BudgetUnavailable,
@@ -93,6 +99,10 @@ class GatewayConfig:
     #: The share of the day's cap that insights may use: the rest is kept for reading new articles,
     #: so people asking for insights cannot stop the enrichment for the day (M4-11 review).
     insight_share_percent: int = 50
+    #: What an embedding costs, in millionths of a dollar per token (zero for a local model).
+    embedding_price: int = 1
+    #: Embeddings have a count of their own, so a backlog cannot use up the text calls' minute.
+    embedding_calls_per_minute: int = 120
 
 
 def _extract_json(text: str) -> str:
@@ -114,8 +124,10 @@ class LLMGateway:
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         monotonic: Callable[[], float] | None = None,
         on_event: Event | None = None,
+        embedder: EmbeddingProvider | None = None,
     ) -> None:
         self._provider = provider
+        self._embedder = embedder
         self._budget = budget
         self._usage = usage
         self._config = config
@@ -257,6 +269,80 @@ class LLMGateway:
             await self._record(org_id, stage, provider.name, model, Usage(0, 0, 0), "failed")
         self._failed(stage)
         raise last or ProviderFailed()
+
+    async def embed(self, *, org_id: UUID, article: PublicArticleText) -> Embedded:
+        """The vector of one public article (M4-05). The same discipline as a text call: class A
+        only, masked, a pause for a failing stage, the pace and the budget first, one try (the
+        sweep comes back next minute), and what was used is recorded as numbers."""
+        if not isinstance(article, PublicArticleText) or not article.is_genuine():
+            raise NotPublicArticle("only PublicArticleText may be sent")
+        embedder = self._embedder
+        if embedder is None:
+            raise LLMDisabled()
+        stage = Stage.EMBEDDING
+        model = self._config.models.get(stage, "")
+        if not model:
+            raise LLMNotConfigured()
+        self._check_pause(stage)
+        text = embedding_text(article)
+        price = self._config.embedding_price
+        estimate = (len(text) // CHARS_PER_TOKEN + 1) * price
+        if not await self._budget.pace(
+            org_id, self._config.embedding_calls_per_minute, lane="embedding"
+        ):
+            await self._record(org_id, stage, embedder.name, model, Usage(0, 0, 0), "refused")
+            raise CallRateExceeded()
+        reservation = await self._book(org_id, estimate, stage, embedder.name, model)
+        try:
+            answer = await embedder.embed(
+                model=model, texts=[text], deadline_seconds=self._config.timeout_seconds
+            )
+        except ProviderRejected:
+            await self._budget.release(reservation)
+            await self._record(org_id, stage, embedder.name, model, Usage(0, 0, 0), "failed")
+            self._failed(stage)
+            raise
+        except ProviderFailed as error:
+            if error.sent:
+                await self._budget.settle(reservation, estimate)  # it may have been billed
+                await self._record(
+                    org_id, stage, embedder.name, model, Usage(0, 0, estimate), "failed"
+                )
+            else:
+                await self._budget.release(reservation)
+                await self._record(org_id, stage, embedder.name, model, Usage(0, 0, 0), "failed")
+            self._failed(stage)
+            raise
+        except asyncio.CancelledError:
+            with contextlib.suppress(Exception, asyncio.CancelledError):
+                await asyncio.shield(
+                    self._record(
+                        org_id, stage, embedder.name, model, Usage(0, 0, estimate), "failed"
+                    )
+                )
+            raise
+        except Exception:
+            await self._budget.release(reservation)
+            await self._record(org_id, stage, embedder.name, model, Usage(0, 0, 0), "failed")
+            self._failed(stage)
+            raise
+        # A provider that reports no tokens must not make the call free: count at least what the
+        # text is estimated to be.
+        tokens = max(answer.tokens_in, len(text) // CHARS_PER_TOKEN + 1)
+        usage = Usage(tokens, 0, tokens * price)
+        try:
+            await self._budget.settle(reservation, usage.cost_micro_usd)
+        except BudgetUnavailable:
+            logger.error("llm: the booking could not be settled")
+        try:
+            vector = check_vector(answer)
+        except SchemaRejected:
+            await self._record(org_id, stage, embedder.name, model, usage, "rejected")
+            self._failed(stage)
+            raise
+        await self._record(org_id, stage, embedder.name, model, usage, "ok")
+        self._worked(stage)
+        return Embedded(model, vector)
 
     async def check_key(self, org_id: UUID) -> str:
         """The key check, with a budget store that does not answer reported as a failure."""

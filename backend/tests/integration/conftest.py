@@ -105,6 +105,19 @@ def database() -> Iterator[TestDatabase]:
         )
     )
 
+    # As in a deployment (01-roles.sh): the vector extension is made by the superuser, in this database.
+    async def add_extension() -> None:
+        engine = create_async_engine(
+            make_url(admin_url).set(database=name), isolation_level="AUTOCOMMIT"
+        )
+        try:
+            async with engine.connect() as connection:
+                await connection.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+        finally:
+            await engine.dispose()
+
+    asyncio.run(add_extension())
+
     owner_url, app_url = url_for(OWNER_ROLE, OWNER_PASSWORD), url_for(APP_ROLE, APP_PASSWORD)
     worker_url = url_for(WORKER_ROLE, WORKER_PASSWORD)
     alembic = Config(str(ALEMBIC_INI))

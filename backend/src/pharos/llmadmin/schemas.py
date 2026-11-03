@@ -17,7 +17,7 @@ class ModelsOut(BaseModel):
 
 class UsageDayOut(BaseModel):
     day: date
-    stage: Literal["filter", "enrichment", "insight", "key_test"]
+    stage: Literal["filter", "enrichment", "insight", "key_test", "embedding"]
     calls: int
     refused: int
     failed: int

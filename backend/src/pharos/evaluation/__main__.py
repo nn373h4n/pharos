@@ -6,6 +6,7 @@
     python -m pharos.evaluation sheet --dir out --corpus c.json --language az
     python -m pharos.evaluation import --dir out sheet-az-anna.csv sheet-az-vusal.csv
     python -m pharos.evaluation report --dir out
+    python -m pharos.evaluation dedup --pairs pairs.json
 
 A real run costs money (the cap is `--max-cost-usd`, five dollars unless you say otherwise). Nothing
 here writes to the database.
@@ -29,10 +30,11 @@ from pharos.core.config import get_settings
 from pharos.core.db import create_engine
 from pharos.core.organization import OrganizationNotConfigured, OrganizationResolver
 from pharos.evaluation import corpus as corpora
+from pharos.evaluation import dedup as dedup_pairs
 from pharos.evaluation import ratings as rating_files
 from pharos.evaluation import report as reports
 from pharos.evaluation import runner, sheet
-from pharos.llm.factory import build_provider
+from pharos.llm.factory import build_embedder, build_provider, gateway_config
 
 
 class CliError(Exception):
@@ -187,6 +189,15 @@ def build_parser() -> argparse.ArgumentParser:
     load.add_argument("--dir", type=Path, required=True)
     load.add_argument("sheets", nargs="+", type=Path)
 
+    tune = commands.add_parser(
+        "dedup", help="tune the near-duplicate threshold on pairs of articles a person labelled"
+    )
+    tune.add_argument("--pairs", type=Path, required=True)
+    tune.add_argument(
+        "--thresholds", default=",".join(str(t) for t in dedup_pairs.DEFAULT_THRESHOLDS)
+    )
+    tune.add_argument("--max-cost-usd", type=float, default=1.0)
+
     show = commands.add_parser("report", help="count the ratings and recommend models")
     show.add_argument("--dir", type=Path, required=True)
     show.add_argument("--out", type=Path)
@@ -280,6 +291,28 @@ async def execute(args: argparse.Namespace) -> str:
         rating_files.save(found, args.dir)
         raters = len({r.rater.casefold() for r in found})
         return f"{len(found)} rating(s) from {raters} rater(s) imported"
+    if args.command == "dedup":
+        settings = get_settings()
+        embedder = build_embedder(settings)
+        if embedder is None or not settings.embedding_model:
+            raise CliError("embeddings are off (PHAROS_EMBEDDING_PROVIDER, PHAROS_EMBEDDING_MODEL)")
+        try:
+            thresholds = [float(part) for part in args.thresholds.split(",") if part.strip()]
+        except ValueError:
+            raise CliError("--thresholds must be numbers separated by commas") from None
+        if not thresholds or any(not 0.5 <= value < 1.0 for value in thresholds):
+            raise CliError("--thresholds must be between 0.5 and 1 (not 1)")
+        if not math.isfinite(args.max_cost_usd) or args.max_cost_usd < 0:
+            raise CliError("--max-cost-usd must be a number of dollars, not below zero")
+        pairs = dedup_pairs.load_pairs(args.pairs)
+        closeness = await dedup_pairs.similarities(
+            pairs,
+            embedder,
+            settings.embedding_model,
+            max_cost_micro_usd=int(args.max_cost_usd * 1_000_000),
+            embedding_price=gateway_config(settings).embedding_price,
+        )
+        return dedup_pairs.render(dedup_pairs.table(closeness, pairs, thresholds), pairs)
     if args.command == "report":
         result = runner.read(args.dir)
         bar = reports.Bar(

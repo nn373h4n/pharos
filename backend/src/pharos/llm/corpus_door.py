@@ -4,7 +4,8 @@ ADR-0015 point 2 allows one query to decide what is class A. The evaluation has 
 needs a door of its own, and a door that trusted its caller would let any code turn any string into
 "public article text". So this one checks everything itself: the same limits and plain-text rule
 as feed text, a plain http(s) address that is not inside a network, no credentials. Only
-`pharos.evaluation.runner` may import it (import contract `corpus-door-has-one-user`).
+`pharos.evaluation.runner` and `pharos.evaluation.dedup` may import it (import contract
+`corpus-door-has-one-user`).
 """
 
 from pharos.ingest.links import safe_link

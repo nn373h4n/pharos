@@ -1,0 +1,72 @@
+[
+  {
+    "id": "p01",
+    "same": true,
+    "a": {
+      "title": "Acme ships Widget 2 with faster sync for finance teams",
+      "excerpt": "The new release speeds up ledger sync.",
+      "url": "https://news.example.org/acme-widget-2"
+    },
+    "b": {
+      "title": "Finance teams get faster sync as Acme ships Widget 2",
+      "excerpt": "Widget 2 brings a quicker ledger sync.",
+      "url": "https://blog.example.com/widget-2-release"
+    }
+  },
+  {
+    "id": "p02",
+    "same": true,
+    "a": {
+      "title": "How accountants use an AI assistant to prepare month-end close",
+      "excerpt": "A walk-through of three prompts for reconciliations.",
+      "url": "https://news.example.org/month-end-close-ai"
+    },
+    "b": {
+      "title": "Month-end close with an AI assistant: three prompts for accountants",
+      "excerpt": "Reconciliation prompts, step by step.",
+      "url": "https://tips.example.net/close-prompts"
+    }
+  },
+  {
+    "id": "p03",
+    "same": false,
+    "a": {
+      "title": "Acme ships Widget 2 with faster sync for finance teams",
+      "excerpt": "The new release speeds up ledger sync.",
+      "url": "https://news.example.org/acme-widget-2"
+    },
+    "b": {
+      "title": "Acme opens a new office and hires thirty engineers",
+      "excerpt": "The company grows its team in Lisbon.",
+      "url": "https://news.example.org/acme-office"
+    }
+  },
+  {
+    "id": "p04",
+    "same": false,
+    "a": {
+      "title": "How accountants use an AI assistant to prepare month-end close",
+      "excerpt": "A walk-through of three prompts for reconciliations.",
+      "url": "https://news.example.org/month-end-close-ai"
+    },
+    "b": {
+      "title": "How HR teams use an AI assistant to write job adverts",
+      "excerpt": "Three prompts for clearer postings.",
+      "url": "https://news.example.org/hr-job-adverts-ai"
+    }
+  },
+  {
+    "id": "p05",
+    "same": false,
+    "a": {
+      "title": "Cloud cost dashboard walkthrough for controllers",
+      "excerpt": "Reading the monthly spend by team.",
+      "url": "https://news.example.org/cloud-cost-dashboard"
+    },
+    "b": {
+      "title": "Cloud security checklist for small teams",
+      "excerpt": "Ten settings to review this week.",
+      "url": "https://news.example.org/cloud-security-checklist"
+    }
+  }
+]

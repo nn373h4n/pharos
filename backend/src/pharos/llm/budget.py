@@ -140,12 +140,14 @@ class Budget:
             raise BudgetUnavailable() from error
         return int(value or 0)
 
-    async def pace(self, org: UUID, calls_per_minute: int) -> bool:
-        """Count one call in this minute; False when the minute's limit is passed."""
+    async def pace(self, org: UUID, calls_per_minute: int, *, lane: str = "") -> bool:
+        """Count one call in this minute; False when the minute's limit is passed. A `lane` has a
+        count of its own, so a backlog of one kind of call cannot use up the minute of another."""
         minute = self._clock.now().strftime("%Y%m%d%H%M")
+        suffix = f":{lane}" if lane else ""
         try:
             allowed, _ = await self._pace_script(
-                keys=[f"{KEY_PREFIX}pace:{org}:{minute}"], args=[calls_per_minute]
+                keys=[f"{KEY_PREFIX}pace:{org}:{minute}{suffix}"], args=[calls_per_minute]
             )
         except RedisError as error:
             raise BudgetUnavailable() from error

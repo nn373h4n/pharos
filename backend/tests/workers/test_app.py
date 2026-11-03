@@ -30,6 +30,7 @@ def test_the_heartbeat_task_is_registered_and_scheduled_every_minute() -> None:
         "ingest-dispatch",
         "ingest-cleanup",
         "llm-enrich-sweep",
+        "llm-embed-sweep",
     }
     assert HEARTBEAT_INTERVAL_SECONDS == 60
 

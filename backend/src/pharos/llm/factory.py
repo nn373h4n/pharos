@@ -11,6 +11,7 @@ from redis.asyncio import Redis
 from pharos.core.clock import Clock
 from pharos.core.config import Settings
 from pharos.llm.budget import Budget
+from pharos.llm.embedding import DemoEmbedder, EmbeddingProvider
 from pharos.llm.errors import LLMNotConfigured
 from pharos.llm.gateway import Event, GatewayConfig, LLMGateway
 from pharos.llm.litellm_provider import LiteLLMProvider, local_model_url
@@ -36,6 +37,22 @@ def build_provider(settings: Settings) -> Provider | None:
     return LiteLLMProvider(name, settings.llm_api_key, base_url=settings.llm_base_url)
 
 
+def build_embedder(settings: Settings) -> EmbeddingProvider | None:
+    """The embedder named in the settings; None when embeddings are off."""
+    name = settings.embedding_provider
+    if name == "off":
+        return None
+    if name == "fake":
+        return DemoEmbedder()
+    if name == "ollama":
+        return LiteLLMProvider(
+            "ollama", SecretStr("ollama"), base_url=local_model_url(settings.ollama_ip)
+        )
+    if settings.llm_api_key is None:
+        raise LLMNotConfigured(f"embedding_provider {name} needs llm_api_key in the worker")
+    return LiteLLMProvider(name, settings.llm_api_key, base_url=settings.llm_base_url)
+
+
 def gateway_config(settings: Settings) -> GatewayConfig:
     local = settings.llm_provider == "ollama"  # a local model costs nothing per token
     return GatewayConfig(
@@ -44,12 +61,19 @@ def gateway_config(settings: Settings) -> GatewayConfig:
             Stage.ENRICHMENT: settings.llm_model_enrichment,
             Stage.INSIGHT: settings.llm_model_insight,
             Stage.KEY_TEST: settings.llm_model_filter,
+            Stage.EMBEDDING: settings.embedding_model,
         },
         calls_per_minute=settings.llm_calls_per_minute,
         timeout_seconds=settings.llm_timeout_seconds,
         max_retries=settings.llm_max_retries,
         price_in=0 if local else settings.llm_price_in_micro_usd,
         price_out=0 if local else settings.llm_price_out_micro_usd,
+        embedding_calls_per_minute=settings.embedding_calls_per_minute,
+        embedding_price=(
+            0
+            if settings.embedding_provider in ("fake", "ollama")
+            else settings.embedding_price_micro_usd
+        ),
     )
 
 
@@ -63,5 +87,11 @@ def build_gateway(
 ) -> LLMGateway:
     budget = Budget(redis, clock, daily_cap_micro_usd=settings.llm_daily_budget_micro_usd)
     return LLMGateway(
-        build_provider(settings), budget, usage, gateway_config(settings), clock, on_event=on_event
+        build_provider(settings),
+        budget,
+        usage,
+        gateway_config(settings),
+        clock,
+        on_event=on_event,
+        embedder=build_embedder(settings),
     )

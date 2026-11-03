@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from pharos.core.clock import SystemClock
 from pharos.core.config import get_settings
 from pharos.ingest import repository
-from pharos.llm import enrichment, insights, keytest
+from pharos.llm import clustering, enrichment, insights, keytest
 from pharos.llm.errors import LLMError
 from pharos.llm.factory import build_gateway
 from pharos.llm.usage import DatabaseUsageSink
@@ -121,6 +121,68 @@ def enrich_sweep_task() -> None:
                 )
             finally:
                 await redis.eval(_UNLOCK, 1, SWEEP_LOCK, mine)
+        finally:
+            await redis.aclose()
+
+    runtime.run(work)
+
+
+EMBED_TASK = "pharos.llm.embed_sweep"
+EMBED_LOCK = "pharos:worker:llm:embed-sweep-lock"
+
+
+@shared_task(name=EMBED_TASK, ignore_result=True)
+def embed_sweep_task() -> None:
+    """Embed the public articles the model has read and join near-duplicates to one cluster
+    (M4-05). Runs every minute from the scheduler; safe to run twice, and a second sweep that
+    starts while one is running does nothing."""
+    settings = get_settings()
+    if settings.embedding_provider == "off":
+        return
+
+    async def work(engine: AsyncEngine) -> None:
+        async with engine.begin() as connection:
+            org = await repository.resolve_org(connection, settings.org_slug)
+        if org is None:
+            return
+        redis = aioredis.from_url(settings.redis_url.get_secret_value())
+        try:
+            mine = uuid.uuid4().hex
+            if not await redis.set(EMBED_LOCK, mine, ex=SWEEP_LOCK_SECONDS, nx=True):
+                return
+            try:
+                try:
+                    gateway = build_gateway(
+                        settings, redis, DatabaseUsageSink(engine), SystemClock()
+                    )
+                except Exception:  # a provider named without a key, or without LiteLLM
+                    logger.warning("embedding: the model layer is not configured")
+                    return
+                try:
+                    async with asyncio.timeout(SWEEP_TIME_LIMIT_SECONDS):
+                        done = await clustering.sweep(
+                            engine,
+                            gateway,
+                            org,
+                            model=settings.embedding_model,
+                            batch=settings.embedding_batch,
+                            threshold=settings.embedding_similarity,
+                            window_days=settings.embedding_window_days,
+                        )
+                except TimeoutError:
+                    logger.warning("embedding sweep stopped at its time limit")
+                    return
+                logger.info(
+                    "embedding sweep",
+                    extra={
+                        "embedded": done.embedded,
+                        "clustered": done.clustered,
+                        "failed": done.failed,
+                        "stopped": done.stopped,
+                    },
+                )
+            finally:
+                await redis.eval(_UNLOCK, 1, EMBED_LOCK, mine)
         finally:
             await redis.aclose()
 

@@ -479,7 +479,8 @@
       "filter": "Filtre (küçük model)",
       "enrichment": "Zenginleştirme",
       "insight": "İçgörü",
-      "key_test": "Anahtar denetimi"
+      "key_test": "Anahtar denetimi",
+      "embedding": "Tekrar kontrolü (vektörler)"
     },
     "budget": {
       "title": "Bugünkü harcama",

@@ -479,7 +479,8 @@
       "filter": "Süzgəc (kiçik model)",
       "enrichment": "Zənginləşdirmə",
       "insight": "Təhlil",
-      "key_test": "Açar yoxlaması"
+      "key_test": "Açar yoxlaması",
+      "embedding": "Təkrarların yoxlanması (vektorlar)"
     },
     "budget": {
       "title": "Bugünkü xərc",

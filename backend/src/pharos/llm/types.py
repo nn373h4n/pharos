@@ -18,6 +18,7 @@ class Stage(StrEnum):
     ENRICHMENT = "enrichment"
     INSIGHT = "insight"
     KEY_TEST = "key_test"  # the administrator's "test the key"; carries no article
+    EMBEDDING = "embedding"  # a vector of public text for finding near-duplicates (ADR-0007)
 
 
 # How many tokens an answer may have at most, per stage. The budget reserves this much.
@@ -26,6 +27,7 @@ MAX_ANSWER_TOKENS: dict[Stage, int] = {
     Stage.ENRICHMENT: 600,
     Stage.INSIGHT: 900,
     Stage.KEY_TEST: 20,
+    Stage.EMBEDDING: 0,  # a vector, not text
 }
 
 

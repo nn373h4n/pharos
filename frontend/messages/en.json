@@ -479,7 +479,8 @@
       "filter": "Filter (small model)",
       "enrichment": "Enrichment",
       "insight": "Insight",
-      "key_test": "Key check"
+      "key_test": "Key check",
+      "embedding": "Near-duplicate check (vectors)"
     },
     "budget": {
       "title": "Today's spending",

@@ -29,6 +29,7 @@ class Local:
         self.headers: list[str] = []
         self.redirect_hits = 0
         self.mode = "ok"
+        self.vectors: list[list[float]] = [[0.25] * 16]
         outer = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -48,6 +49,25 @@ class Local:
                     return
                 if self.path.startswith("/elsewhere"):
                     outer.redirect_hits += 1
+                if self.path.endswith("/embeddings"):
+                    vectors = outer.vectors
+                    payload = json.dumps(
+                        {
+                            "object": "list",
+                            "model": body.get("model", ""),
+                            "data": [
+                                {"object": "embedding", "index": i, "embedding": v}
+                                for i, v in enumerate(vectors)
+                            ],
+                            "usage": {"prompt_tokens": 7, "total_tokens": 7},
+                        }
+                    ).encode()
+                    self.send_response(200)
+                    self.send_header("content-type", "application/json")
+                    self.send_header("content-length", str(len(payload)))
+                    self.end_headers()
+                    self.wfile.write(payload)
+                    return
                 answer = {
                     "id": "x",
                     "object": "chat.completion",
@@ -230,3 +250,45 @@ class TestTheGateway:
         remote = gateway_config(Settings(environment="test", llm_provider="anthropic"))  # type: ignore[arg-type]
         assert (local.price_in, local.price_out) == (0, 0)
         assert remote.price_in > 0 and remote.price_out > 0
+
+
+class TestEmbeddings:
+    async def test_a_round_trip_with_the_real_library_returns_the_vector_and_the_tokens(
+        self, local: Local
+    ) -> None:
+        got = await provider(local.url).embed(
+            model="bge-m3", texts=["Acme ships Widget 2"], deadline_seconds=10.0
+        )
+        assert got.vectors == [[0.25] * 16] and got.tokens_in == 7
+        assert local.paths == ["/v1/embeddings"]
+        [body] = local.requests
+        assert body["model"] == "bge-m3" and body["input"] == ["Acme ships Widget 2"]
+        for forbidden in ("tools", "messages", "functions"):
+            assert forbidden not in body
+        assert local.headers == ["Bearer ollama"]
+
+    async def test_a_redirect_is_not_followed(self, local: Local) -> None:
+        local.mode = "redirect"
+        with pytest.raises((ProviderFailed, ProviderRejected)):
+            await provider(local.url).embed(model="m", texts=["t"], deadline_seconds=10.0)
+        assert local.redirect_hits == 0
+
+    async def test_an_answer_without_vectors_is_a_failure_not_a_crash(self, local: Local) -> None:
+        local.vectors = []
+        got = await provider(local.url).embed(model="m", texts=["t"], deadline_seconds=10.0)
+        assert got.vectors == []  # the gateway's check refuses it (SchemaRejected), tested there
+
+    async def test_the_environments_proxy_does_not_take_the_texts_of_the_local_model(
+        self, monkeypatch: pytest.MonkeyPatch, local: Local
+    ) -> None:
+        proxy = Local()
+        try:
+            for name in ("HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy"):
+                monkeypatch.setenv(name, f"http://127.0.0.1:{proxy.port}")
+            for name in ("NO_PROXY", "no_proxy"):
+                monkeypatch.setenv(name, "")
+            await provider(local.url).embed(model="m", texts=["t"], deadline_seconds=10.0)
+            assert len(local.requests) == 1 and proxy.requests == []
+        finally:
+            proxy.server.shutdown()
+            proxy.server.server_close()

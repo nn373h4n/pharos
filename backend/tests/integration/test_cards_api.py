@@ -571,11 +571,16 @@ async def test_the_feed_stays_fast_with_a_realistic_pile_of_articles(make_stack:
         await connection.execute(
             text(
                 "INSERT INTO items (org_id, canonical_url, url_hash, title, content_sha256, "
-                "published_at, summary, category, quality, enriched_at, enrichment_version) "
+                "published_at, summary, category, quality, enriched_at, enrichment_version, "
+                "cluster_id) "
                 "SELECT :org, 'https://news.example.org/p' || g, md5(g::text) || md5('x' || g), "
                 "'Pile ' || g, md5(g::text) || md5('y' || g), now() - (g || ' minutes')::interval, "
                 "'Summary ' || g, (ARRAY['tool','technique','tutorial','news'])[1 + g % 4], "
-                "1 + g % 5, now(), 'v1' FROM generate_series(1, 3000) g"
+                "1 + g % 5, now(), 'v1', "
+                # Six in ten are copies: clusters of about three (ADR-0021), so the collapse is
+                # part of what the timing measures.
+                "CASE WHEN g % 10 < 6 THEN CAST(md5('c' || (g / 3)) AS uuid) END "
+                "FROM generate_series(1, 3000) g"
             ),
             {"org": stack.org_a},
         )

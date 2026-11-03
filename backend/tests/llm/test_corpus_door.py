@@ -33,11 +33,11 @@ def test_anything_else_is_refused(bad: tuple[str, str, str, str | None]) -> None
         public_text_from_corpus(*bad)
 
 
-def test_only_the_evaluation_runner_uses_the_door() -> None:
+def test_only_the_two_evaluation_tools_use_the_door() -> None:
     root = Path(__file__).resolve().parents[2] / "src" / "pharos"
     users = sorted(
         str(path.relative_to(root))
         for path in root.rglob("*.py")
         if "public_text_from_corpus" in path.read_text()
     )
-    assert users == ["evaluation/runner.py", "llm/corpus_door.py"]
+    assert users == ["evaluation/dedup.py", "evaluation/runner.py", "llm/corpus_door.py"]

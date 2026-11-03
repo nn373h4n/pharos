@@ -48,6 +48,20 @@ Rules that hold regardless of the model:
   tests that queries never compare vectors of different models and that recompute is idempotent;
   document the recompute runbook in `docs/DATA_MODEL.md`.
 
+## Amendment (2026-11-03, M4-05)
+
+The mechanism was built before the model was chosen, so the first rule of this ADR holds: **no
+model name and no dimension is fixed in code or documents.** To make that possible without
+breaking the rule "one fixed dimension recorded in the schema", the schema records the dimension
+**per row** instead: `item_embeddings(model, dim, embedding vector)` with a check that `dim` is the
+real size of the vector, and every query compares only vectors of the same model and size. The
+model is `PHAROS_EMBEDDING_MODEL`, the provider `PHAROS_EMBEDDING_PROVIDER`, the threshold
+`PHAROS_EMBEDDING_SIMILARITY`. A model change is a recompute: the sweep embeds every recent
+article that has no vector for the new model, after which the old vectors can be deleted. Clusters
+and the feed are in [ADR-0021](0021-near-duplicates-are-clusters-and-the-feed-shows-one.md). The
+decision about the concrete model and threshold still waits for the Azerbaijani evaluation (F-36);
+this amendment does not make it.
+
 ## References
 
 - `docs/ARCHITECTURE_PROPOSAL.md` sections 2, 5 (`item_embeddings`), 6 (stages 3-4, quality and

@@ -81,9 +81,11 @@ At sign-in the application does not know the organization yet, and RLS hides eve
 | `item_professions` | org_id, item_id, profession_code, relevance (0-100) | **Built (0006).** How well an article fits each profession, as the model said it (codes the catalogue has). Primary key (item, code); removed with its item. The worker adds and removes rows; the application reads them |
 | `item_insights` | org_id, item_id, profession_code, language, prompt_version, status (`ok`/`rejected`), summary, how_to_apply (jsonb, 1-3 steps), try_prompt, safety_note, created_at | **Built (0007).** The cache of ADR-0015: one row per (article, profession, language, prompt version); the person's level and interests are not in the key. `rejected` rows carry no text and are remembered for a day. The worker adds rows and may delete only a rejected row a day old (policy); the application reads. Removed with its article |
 | `item_sources` | org_id, item_id, source_id, first_seen_at | **Built (0003).** One item seen in several sources. A trigger requires the item and the source to have the same owner |
-| `item_embeddings` | item_id, model, dim, embedding (vector) | Recomputed when the model changes ([ADR-0007](adr/0007-embedding-model-and-dimension.md)) |
+| `item_embeddings` | org_id, item_id, model, dim, embedding (vector, no fixed size), created_at | **Built (0009).** One vector per article and model, for finding near-duplicates ([ADR-0007](adr/0007-embedding-model-and-dimension.md), [ADR-0021](adr/0021-near-duplicates-are-clusters-and-the-feed-shows-one.md)). `dim` must be the real size (a check); queries compare only the same model and size; deleted with its article. Only the worker reads and writes it (insert by column); the application role has no access. Public articles only |
 | `item_professions` | item_id, profession_id, relevance | Enrichment output |
 | `item_insights` | item_id, profession_id, language, prompt_version, model, summary, how_to_apply, try_prompt, safety_note, status | Unique on (item, profession, language, prompt_version) |
+
+`items.cluster_id` (0009, nullable) joins near-duplicates; the Home feed shows one member of a cluster. `llm_usage.stage` also accepts `embedding`.
 
 ### Phase 2 (not in MVP)
 
@@ -143,6 +145,6 @@ Validated by the connector of the type, stored as small JSON, and checked again 
 
 ## Open items
 
-- Final embedding model and vector dimension (ADR-0007).
+- Final embedding model and similarity threshold (ADR-0007, ADR-0021): the mechanism is built and the model is the operator's choice; the choice itself waits for the Azerbaijani evaluation (F-36).
 - Retention defaults for logs, audit records and activity data.
 - Anonymous idea pool design (phase 2): the "admins cannot see authors" claim is not made until it is proven by design and tests.

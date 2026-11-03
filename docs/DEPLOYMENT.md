@@ -183,6 +183,38 @@ data worth keeping, so remove the volumes (`docker compose -f deploy/docker-comp
 the `--volumes` option) and start again. If you do have data to keep, create the role by hand with
 the statements in [DATA_MODEL.md](DATA_MODEL.md#database-roles) before starting the new version.
 
+## Near-duplicate articles (embeddings)
+
+By default every article is its own card. To show one card for one story, set
+`PHAROS_EMBEDDING_PROVIDER` and `PHAROS_EMBEDDING_MODEL` in `deploy/.env` and restart the worker.
+Every minute the worker then embeds up to `PHAROS_EMBEDDING_BATCH` public articles that the model has
+read, and joins an article to an earlier one when their similarity reaches
+`PHAROS_EMBEDDING_SIMILARITY`. Nothing is merged or deleted: the copies stay as articles, editors
+still see them, and the Home feed shows the best one.
+
+- **Provider.** `ollama` uses the local model server (see "The local model"): pull an embedding
+  model with `scripts/ollama-pull.sh <model>` and write its name as `PHAROS_EMBEDDING_MODEL`.
+  `openai` or `azure` use the chat provider's key, so `PHAROS_LLM_PROVIDER` must be the same; the
+  Anthropic chat provider has no embeddings, so use `ollama` with it. Only public article text is
+  sent, masked, like any other model call.
+- **The model is yours to choose.** It must handle your languages (Azerbaijani, Turkish, Russian,
+  English). The vector size follows the model. Changing the model means embedding every recent
+  article again (the sweep does it by itself); the old vectors are then ignored.
+- **The threshold.** `0.92` is a cautious start, not a measurement: with the one real model that
+  was tried (`bge-m3`, 14 hand-written pairs in four languages) it joined nothing at all, while 0.80
+  joined every copy with no wrong join. Do not leave it untuned. A threshold that is too low
+  hides an article behind another; one that is too high shows a story twice. Tune it on your own
+  articles: write 30 to 100 pairs of articles, each labelled the same story or not, and run
+  `docker compose exec worker python -m pharos.evaluation dedup --pairs pairs.json`
+  (`docs/guides/dedup-pairs.sample.json` shows the format). Choose the lowest threshold whose
+  "wrong" column is still zero.
+- **Cost.** A remote embedding is booked against the day's limit like other calls, at
+  `PHAROS_EMBEDDING_PRICE_MICRO_USD`; a local one costs nothing.
+- **Upgrading.** The database needs the `vector` extension, which a superuser creates when the
+  database is first made. An installation older than that has it already (M1 created it); if the
+  migration stops and says it is missing, run once:
+  `docker compose exec postgres psql -U postgres -d pharos -c 'CREATE EXTENSION IF NOT EXISTS vector'`.
+
 ## The local model (Ollama)
 
 With `PHAROS_LLM_PROVIDER=ollama` the worker asks a model that runs on this host, so article text
