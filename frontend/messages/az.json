@@ -472,7 +472,8 @@
       "fake": "Sınaq provayderi (real model yoxdur)",
       "anthropic": "Anthropic (Claude)",
       "openai": "OpenAI",
-      "azure": "Azure OpenAI"
+      "azure": "Azure OpenAI",
+      "ollama": "Yerli model (Ollama)"
     },
     "stage": {
       "filter": "Süzgəc (kiçik model)",

@@ -40,7 +40,7 @@ Dashed arrows are the only traffic that leaves the compose networks (default-den
 - **Collection** runs on a schedule: beat → worker → connector → pipeline → PostgreSQL.
 - **api and worker share the same Python package** and differ only in entry point: `uvicorn --factory pharos.main:create_app` for the API, `celery --app pharos.workers.entrypoint worker` and `... beat` for background work (`make worker`, `make beat` locally).
 - **Heartbeat:** beat schedules `pharos.heartbeat` every 60 seconds and a worker writes the current time to Redis (`pharos:worker:heartbeat`); a worker also writes one when it starts. `/readyz` treats the worker as alive while that timestamp is at most 210 seconds old. A fresh timestamp proves beat, broker and worker all work. Tasks are JSON-only, acknowledged late and must be idempotent, because a task is redelivered if its worker dies.
-- **Local LLM**: Ollama runs inside compose (profile `local-llm`), and cloud LLM egress is closed when it is selected.
+- **Local LLM** (M4-10, [ADR-0020](adr/0020-local-model-profile.md)): with `PHAROS_LLM_PROVIDER=ollama` the worker calls a model server that runs inside Compose (profile `local-llm`) on an internal network of its own. The server has no route to the internet and no published port; only the worker shares its network, and models are put in by a separate one-shot job (`scripts/ollama-pull.sh`). This keeps article text from going to a provider. It does not make the installation "fully local": the worker keeps its `egress` network to fetch sources, which only a host firewall or proxy can narrow (F-04), and no claim of quality is made before the Azerbaijani evaluation has been run on a local model (F-36).
 
 ## 2. Backend layout
 
@@ -130,7 +130,7 @@ Next.js App Router, TypeScript, Tailwind, shadcn/ui, `next-intl` (ADR-0008). The
 
 ## 7. Deployment
 
-One `deploy/docker-compose.yml`, three networks and reserved profiles `dev` (Keycloak), `local-llm` (Ollama) and `observability` (OpenTelemetry, Prometheus, Grafana), whose services arrive with M2, M4 and M5. The details, the variables and the known limits are in [DEPLOYMENT.md](DEPLOYMENT.md); the reasoning is in [ADR-0010](adr/0010-compose-network-topology-and-container-hardening.md).
+One `deploy/docker-compose.yml`, three networks and reserved profiles `dev` (Keycloak), `local-llm` (Ollama, M4-10) and `observability` (OpenTelemetry, Prometheus, Grafana, M5). The profile `local-llm-pull` downloads a model on request. The details, the variables and the known limits are in [DEPLOYMENT.md](DEPLOYMENT.md); the reasoning is in [ADR-0010](adr/0010-compose-network-topology-and-container-hardening.md).
 
 - `edge` carries the published ports and only `caddy`. `app` (caddy, web, api) and `data` (api, worker, beat, migrate, postgres, redis) are Docker `internal: true` networks with no route to the internet; `caddy` and `web` are not on `data`, so a compromised proxy or web app cannot open a connection to the database or Redis. `egress` is joined only by the services that must call out.
 - Every container drops all capabilities, forbids privilege escalation and has a read-only root file system. All but `caddy` run as non-root users.

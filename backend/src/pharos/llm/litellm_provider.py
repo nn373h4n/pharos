@@ -23,7 +23,22 @@ from pharos.llm.provider import ProviderAnswer
 # decision of 2026-10-31); others are a line here and a configuration value, not new code.
 # The API version of an Azure endpoint; an administrator picks the deployment name as the model.
 AZURE_API_VERSION = "2024-10-21"
-PREFIXES = {"anthropic": "anthropic", "openai": "openai", "azure": "azure"}
+PREFIXES = {
+    "anthropic": "anthropic",
+    "openai": "openai",
+    "azure": "azure",
+    # A model served by Ollama inside the Compose network, through its OpenAI-compatible API, so the
+    # same client (no redirects) is used (ADR-0020).
+    "ollama": "openai",
+}
+LOCAL_MODEL_PORT = 11434
+
+
+def local_model_url(ip: str) -> str:
+    """The address of the local model server: the fixed IP Compose gives it on the internal `llm`
+    network, never a name (a name could resolve through a search domain or a proxy)."""
+    return f"http://{ip}:{LOCAL_MODEL_PORT}/v1"
+
 
 # Every switch of LiteLLM 1.105.1 that keeps it from downloading configuration. A new version may
 # add one: the test that blocks sockets fails then, and the list grows.
@@ -61,6 +76,8 @@ class LiteLLMProvider:
         if provider not in PREFIXES:
             raise ValueError(f"unknown provider {provider!r}")
         self.name = provider
+        if provider == "ollama" and not base_url:
+            raise ValueError("the ollama provider needs the address of the local model server")
         self._prefix = PREFIXES[provider]
         self._api_key = api_key
         self._base_url = base_url
@@ -78,7 +95,11 @@ class LiteLLMProvider:
                 else:
                     import openai
 
-                    plain = openai.DefaultAsyncHttpxClient(follow_redirects=False)
+                    # The local model is reached directly: an HTTP_PROXY of the environment must not
+                    # carry the prompts anywhere else (ADR-0020).
+                    plain = openai.DefaultAsyncHttpxClient(
+                        follow_redirects=False, trust_env=self.name != "ollama"
+                    )
                     if self.name == "azure":
                         self._http = openai.AsyncAzureOpenAI(
                             azure_endpoint=self._base_url or "",
@@ -99,7 +120,9 @@ class LiteLLMProvider:
     async def complete(
         self, *, model: str, system: str, user: str, max_tokens: int, deadline_seconds: float
     ) -> ProviderAnswer:
-        if self._base_url:
+        if self._base_url and self.name != "ollama":
+            # A remote endpoint is looked up first. The local model is inside the network on
+            # purpose, at the one fixed address above, so the public-name rule does not apply.
             await self._endpoint.ensure_public(self._base_url)  # before anything is sent
         if self._litellm is None:
             try:

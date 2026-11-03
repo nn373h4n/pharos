@@ -82,8 +82,12 @@ class Settings(BaseSettings):
 
     # The model layer (M4, ADR-0002, ADR-0015, ADR-0016). Off unless a provider is named, and the
     # product works without it. The key is held by the worker only (it makes the calls).
-    llm_provider: Literal["off", "fake", "anthropic", "openai", "azure"] = "off"
+    llm_provider: Literal["off", "fake", "anthropic", "openai", "azure", "ollama"] = "off"
     llm_api_key: SecretStr | None = None
+    # Where the local model server (provider "ollama", ADR-0020) is, on the internal network the
+    # Compose file gives it. An address, never a name: a name could resolve elsewhere (a search
+    # domain, a proxy). It must be a private address; Compose pins the server to it.
+    ollama_ip: str = "172.28.30.10"
     # Only for a provider that needs a different endpoint (Azure, a gateway). https only.
     llm_base_url: str | None = None
     # The model of each stage; a stage without a model makes no call.
@@ -248,10 +252,31 @@ class Settings(BaseSettings):
         # Compose passes an empty string for a variable that is not set.
         return None if isinstance(value, str) and not value.strip() else value
 
+    @field_validator("ollama_ip")
+    @classmethod
+    def _ollama_ip_is_a_private_address(cls, value: str) -> str:
+        try:
+            address = ipaddress.ip_address(value.strip())
+        except ValueError:
+            raise ValueError("ollama_ip must be an IPv4 address") from None
+        if (
+            address.version != 4
+            or not address.is_private
+            or address.is_loopback
+            or (address.is_link_local or address.is_unspecified or address.is_multicast)
+        ):
+            raise ValueError("ollama_ip must be a private IPv4 address of the llm network")
+        return str(address)
+
     @model_validator(mode="after")
     def _llm_is_consistent(self) -> Self:
         if self.llm_provider == "fake" and self.environment == "production":
             raise ValueError("the fake model provider is refused in production")
+        if self.llm_provider == "ollama" and (self.llm_base_url is not None or self.llm_api_key):
+            # The local model is reached at one fixed address inside the Compose network and needs
+            # no key: an address or a key given here would be a mistake or an attempt to point the
+            # worker somewhere else (ADR-0020).
+            raise ValueError("the ollama provider takes no llm_base_url and no llm_api_key")
         if self.llm_base_url is not None:
             parts = urlsplit(self.llm_base_url)
             host = (parts.hostname or "").lower()

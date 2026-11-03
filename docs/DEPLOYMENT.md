@@ -131,10 +131,13 @@ services:
 | `caddy` | edge, app | 80, 443 | TLS and routing: `/api` to the API, the rest to the web app. |
 | `web` | app | no | Next.js standalone server. |
 | `api` | app, data, egress | no | FastAPI. Calls out to the identity provider (from M2). |
-| `worker` | data, egress | no | Celery. Calls out to content sources and LLM providers (from M3, M4). |
+| `worker` | data, egress, llm | no | Celery. Calls out to content sources and LLM providers (from M3, M4); `llm` holds the local model server when its profile runs, and is empty otherwise. |
 | `beat` | data | no | Celery scheduler. Talks to Redis only, so it has no route to the internet. |
 | `migrate` | data | no | One-shot job, see below. |
 | `postgres`, `redis` | data | no | No route to the internet. |
+| `ollama` (profile `local-llm`) | llm (fixed address) | no | The local model server. Not started by default. See "The local model". |
+| `ollama-init` (profiles `local-llm`, `local-llm-pull`) | none | no | Gives the model volume to the model user, then exits. |
+| `ollama-pull` (profile `local-llm-pull`) | pull | no | One-shot model download; the only part with a route to the internet, on a network of its own. |
 
 `app` and `data` are Docker `internal: true` networks: no route to the internet. `caddy` and `web`
 are not on `data`, so they cannot connect to the database or to Redis.
@@ -149,8 +152,8 @@ host interfaces (SSH, a proxy, a Docker TCP API) can therefore be reached from e
 a host firewall rule that drops input from the Docker subnets to anything the containers do not
 need. This was reasoned about from Docker's documentation, not tested.
 
-The profiles `dev`, `local-llm` and `observability` are reserved; their services arrive with the
-milestones that need them.
+The profiles `dev` and `observability` are reserved; their services arrive with the milestones
+that need them. The profile `local-llm` is described under "The local model" below.
 
 ## Database roles and migrations
 
@@ -179,6 +182,43 @@ created, so an installation that existed before M3 has none and the worker stops
 data worth keeping, so remove the volumes (`docker compose -f deploy/docker-compose.yml down` with
 the `--volumes` option) and start again. If you do have data to keep, create the role by hand with
 the statements in [DATA_MODEL.md](DATA_MODEL.md#database-roles) before starting the new version.
+
+## The local model (Ollama)
+
+With `PHAROS_LLM_PROVIDER=ollama` the worker asks a model that runs on this host, so article text
+does not go to a provider. Nothing else changes: the same prompts, the same schema checks, the
+same stage models (write the Ollama names, for example `qwen2.5:7b`, in `PHAROS_LLM_MODEL_*`).
+
+1. Put a model into the volume. The model server has no route to the internet, so a separate
+   one-shot job downloads it, and only while it runs: `scripts/ollama-pull.sh qwen2.5:7b`
+2. Start the server with the profile `local-llm`:
+   `docker compose -f deploy/docker-compose.yml --env-file deploy/.env --profile local-llm up -d`
+3. Set `PHAROS_LLM_PROVIDER=ollama` and the model names in `deploy/.env`, then restart the worker.
+
+What this does and does not give you:
+
+- The server runs as a non-root user with a read-only file system and no capability, on the
+  internal network `llm`, which only it and the worker share. It publishes no port and it reads its
+  models without being able to change them. The network has no gateway to the internet, so the
+  server has no route out of its own. As for the other internal networks (see "Known limits"), a
+  service on the host that listens on all interfaces, such as a proxy, can be reached through the
+  network's gateway address: name the `llm` range in your host firewall rule too.
+- The worker reaches the server by its fixed address `PHAROS_OLLAMA_IP` (default `172.28.30.10`,
+  inside `PHAROS_OLLAMA_SUBNET`), never by a name, and ignores any proxy setting of the
+  environment for these calls. If the range clashes with a network on the host, change both
+  variables. No key and no URL are accepted for this provider (ADR-0020).
+- `scripts/local-llm-check.sh` repeats the isolation checks on a real server (it pulls the image on
+  its first run, several GB, so it is not part of the pipeline).
+- A local model costs nothing per token, so the daily money cap does not stop it. The calls per
+  minute limit and the timeouts still apply.
+- It needs memory (`PHAROS_OLLAMA_MEMORY`, 6 GB by default) and, for a useful model, a lot more.
+  There is no GPU setup.
+- The model files come from the Ollama registry as it serves them; choose a model on purpose.
+- It is **not** "fully local": the worker still has the `egress` network to fetch sources.
+  Narrowing that is a host firewall or proxy decision (see "Known limits").
+- Its quality in Azerbaijani, Turkish and Russian is unmeasured until you run the evaluation
+  below on it (the tool works with `PHAROS_LLM_PROVIDER=ollama`). Do not call the mode usable
+  before.
 
 ## Choosing the models (evaluation)
 

@@ -100,6 +100,14 @@ describe("the model page", () => {
     expect(screen.getByRole("note").textContent).toBe(en.Llm.offNote);
   });
 
+  it("names the local model by its own label", async () => {
+    getStatus.mockResolvedValue({ ...base, provider: "ollama" });
+    show();
+    await tick(0);
+    expect(screen.getByText(en.Llm.provider.ollama)).toBeDefined();
+    expect(screen.queryByText(en.Llm.provider.anthropic)).toBeNull();
+  });
+
   it("shows the last check and the usage rows", async () => {
     getStatus.mockResolvedValue({
       ...base,

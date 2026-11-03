@@ -28,6 +28,7 @@ describe("the shape of the model page", () => {
   it("accepts what the backend sends", () => {
     expect(isStatus(status)).toBe(true);
     expect(isStatus({ ...status, key_check: null })).toBe(true);
+    expect(isStatus({ ...status, provider: "ollama" })).toBe(true); // the local model
   });
 
   it.each([

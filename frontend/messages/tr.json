@@ -472,7 +472,8 @@
       "fake": "Deneme sağlayıcısı (gerçek model yok)",
       "anthropic": "Anthropic (Claude)",
       "openai": "OpenAI",
-      "azure": "Azure OpenAI"
+      "azure": "Azure OpenAI",
+      "ollama": "Yerel model (Ollama)"
     },
     "stage": {
       "filter": "Filtre (küçük model)",
