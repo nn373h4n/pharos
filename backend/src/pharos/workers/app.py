@@ -90,6 +90,9 @@ def create_celery(settings: Settings | None = None) -> Celery:
             # Every minute: the model reads a few articles nobody has read yet (a no-op while the
             # model layer is off).
             "llm-enrich-sweep": {"task": llm_tasks.SWEEP_TASK, "schedule": 60.0},
+            # Every minute: vectors of the articles the model has read, and clusters of
+            # near-duplicates (a no-op while embeddings are off).
+            "llm-embed-sweep": {"task": llm_tasks.EMBED_TASK, "schedule": 60.0},
         },
     )
     app.set_default()

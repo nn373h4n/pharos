@@ -64,6 +64,8 @@ class MemoryBudget:
         self.exhausted = False
         self.reserved: list[int] = []
         self.ceilings: list[int] = []
+        self.lanes: list[str] = []
+        self.limits: list[int] = []
         self.settled: list[int] = []
         self.released = 0
 
@@ -91,7 +93,9 @@ class MemoryBudget:
         self.total -= reservation.amount
         self.released += 1
 
-    async def pace(self, org: uuid.UUID, calls_per_minute: int) -> bool:
+    async def pace(self, org: uuid.UUID, calls_per_minute: int, *, lane: str = "") -> bool:
+        self.lanes.append(lane)
+        self.limits.append(calls_per_minute)
         self.calls += 1
         return self.calls <= self.calls_per_minute
 
@@ -111,6 +115,7 @@ class Harness:
         *,
         budget: MemoryBudget | None = None,
         models: dict[Stage, str] | None = None,
+        embedder: object | None = None,
         **config: object,
     ) -> None:
         self.provider = provider
@@ -138,6 +143,7 @@ class Harness:
             sleep=sleep,
             monotonic=lambda: self.now,
             on_event=on_event,
+            embedder=embedder,  # type: ignore[arg-type]
         )
 
     async def run(self, stage: Stage = Stage.ENRICHMENT, **changes: object) -> Answer:

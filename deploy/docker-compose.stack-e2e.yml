@@ -39,6 +39,11 @@ services:
       # The test provider answers every task with a schema-valid text (no model, no key, no cost).
       # Only the worker runs it: the API and beat keep the provider named in the env file.
       PHAROS_LLM_PROVIDER: fake
+      # Near-duplicates (ADR-0021): the same test provider embeds words, and only an identical set
+      # of words counts as one story, so the other specs' articles are never joined by accident.
+      PHAROS_EMBEDDING_PROVIDER: fake
+      PHAROS_EMBEDDING_MODEL: stack-embedding
+      PHAROS_EMBEDDING_SIMILARITY: "0.99"
       # A canary shaped like a key, never valid anywhere. The test provider ignores it; the stack
       # tests search the API's answers, the pages, the database and every log for it.
       PHAROS_LLM_API_KEY: STACKCANARY-0f3a9c1d7b5e4a2c8d6f

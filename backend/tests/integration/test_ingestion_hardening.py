@@ -233,7 +233,7 @@ async def privileges(
     engine: AsyncEngine, role: str
 ) -> tuple[set[tuple[str, str]], set[tuple[str, str, str]]]:
     tables = (
-        "sources", "fetch_runs", "raw_items", "items", "item_sources", "item_professions", "professions", "item_insights",
+        "sources", "fetch_runs", "raw_items", "items", "item_sources", "item_professions", "professions", "item_insights", "item_embeddings",
     )  # fmt: skip
     async with engine.connect() as connection:
         table_rows = (
@@ -296,6 +296,7 @@ async def test_the_worker_has_exactly_these_ingestion_privileges(
         ("fetch_runs", "SELECT"), ("fetch_runs", "DELETE"), ("raw_items", "SELECT"),
         ("raw_items", "DELETE"), ("items", "SELECT"), ("items", "DELETE"), ("item_sources", "SELECT"),
         ("item_professions", "SELECT"), ("item_insights", "SELECT"), ("item_insights", "DELETE"),
+        ("item_embeddings", "SELECT"), ("item_embeddings", "DELETE"),
     }  # fmt: skip
     assert columns == (
         {("sources", c, "SELECT") for c in SOURCE_COLUMNS_FOR_WORKER}
@@ -317,7 +318,11 @@ async def test_the_worker_has_exactly_these_ingestion_privileges(
             "title", "excerpt", "lang", "published_at", "content_sha256",
             # Enrichment (ADR-0017): what the model said, and the one narrow hold.
             "summary", "category", "quality", "enriched_at", "enrichment_version",
-            "status", "hold_reason")}
+            "status", "hold_reason",
+            # Clusters of near-duplicates (ADR-0021).
+            "cluster_id")}
+        | {("item_embeddings", c, "INSERT") for c in (
+            "org_id", "item_id", "model", "dim", "embedding")}
         | {("item_sources", c, "INSERT") for c in ("org_id", "item_id", "source_id")}
         | {("item_professions", c, "INSERT") for c in (
             "org_id", "item_id", "profession_code", "relevance")}

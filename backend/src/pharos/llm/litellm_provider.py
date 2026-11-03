@@ -15,6 +15,7 @@ from typing import Any
 
 from pydantic import SecretStr
 
+from pharos.llm.embedding import EmbedAnswer
 from pharos.llm.endpoint import EndpointCheck
 from pharos.llm.errors import LLMNotConfigured, ProviderFailed, ProviderRejected
 from pharos.llm.provider import ProviderAnswer
@@ -117,19 +118,72 @@ class LiteLLMProvider:
                 raise LLMNotConfigured("LiteLLM is not installed") from None
         return self._http
 
-    async def complete(
-        self, *, model: str, system: str, user: str, max_tokens: int, deadline_seconds: float
-    ) -> ProviderAnswer:
+    async def _ready(self) -> None:
+        """Before anything is sent: a remote endpoint is looked up (the local model is inside the
+        network on purpose, at its one fixed address, so the public-name rule does not apply), and
+        LiteLLM is loaded quietly."""
         if self._base_url and self.name != "ollama":
-            # A remote endpoint is looked up first. The local model is inside the network on
-            # purpose, at the one fixed address above, so the public-name rule does not apply.
-            await self._endpoint.ensure_public(self._base_url)  # before anything is sent
+            await self._endpoint.ensure_public(self._base_url)
         if self._litellm is None:
             try:
                 self._litellm = _quiet_litellm()
             except ImportError:
                 raise LLMNotConfigured("LiteLLM is not installed") from None
+
+    async def _send(self, call: str, arguments: dict[str, Any], deadline_seconds: float) -> Any:
+        """One LiteLLM call with its errors sorted into the two kinds the gateway understands."""
         litellm = self._litellm
+        # What went wrong is decided inside the handlers and raised after them, so the error that
+        # reaches the caller carries no `__context__`: the original may hold a key fragment.
+        failure: Exception | None = None
+        response: Any = None
+        try:
+            response = await asyncio.wait_for(
+                getattr(litellm, call)(**arguments), deadline_seconds + 5
+            )
+        except TimeoutError:
+            failure = ProviderFailed(sent=True)  # the request may have been billed
+        except Exception as error:
+            status = getattr(error, "status_code", None)
+            # LiteLLM gives its own timeout the status 408 and a broken connection 500, though no
+            # provider answered: the request may have been billed, so these come first.
+            if isinstance(error, (litellm.Timeout, litellm.APIConnectionError)):
+                failure = ProviderFailed(sent=True)
+            elif status in (400, 401, 403, 404):
+                failure = ProviderRejected()  # a wrong key or a refused request
+            elif isinstance(status, int):
+                failure = ProviderFailed(sent=False)  # the provider answered with an error status
+            else:
+                failure = ProviderFailed(sent=True)  # a broken connection: it may have been billed
+        if failure is not None:
+            raise failure
+        return response
+
+    async def embed(self, *, model: str, texts: list[str], deadline_seconds: float) -> EmbedAnswer:
+        """Vectors of texts (M4-05): the same endpoint, key and client as a text call."""
+        await self._ready()
+        arguments: dict[str, Any] = {
+            "model": f"{self._prefix}/{model}",
+            "input": texts,
+            "timeout": deadline_seconds,
+            "num_retries": 0,
+            "api_key": self._api_key.get_secret_value(),
+        }
+        if self._base_url:
+            arguments["api_base"] = self._base_url
+            arguments["client"] = self._client()
+        response = await self._send("aembedding", arguments, deadline_seconds)
+        try:
+            vectors = [list(item["embedding"]) for item in response.data]
+            tokens = int(response.usage.prompt_tokens)
+        except (AttributeError, KeyError, TypeError, ValueError):
+            raise ProviderFailed(sent=True) from None
+        return EmbedAnswer(vectors, tokens)
+
+    async def complete(
+        self, *, model: str, system: str, user: str, max_tokens: int, deadline_seconds: float
+    ) -> ProviderAnswer:
+        await self._ready()
         arguments: dict[str, Any] = {
             "model": f"{self._prefix}/{model}",
             "messages": [
@@ -148,30 +202,7 @@ class LiteLLMProvider:
             # The address was looked up above, but an answer that says "go there" would send the
             # request, with the key in a header, to a host nobody looked up. Redirects are refused.
             arguments["client"] = self._client()
-        # What went wrong is decided inside the handlers and raised after them, so the error that
-        # reaches the caller carries no `__context__`: the original may hold a key fragment.
-        failure: Exception | None = None
-        response: Any = None
-        try:
-            response = await asyncio.wait_for(
-                litellm.acompletion(**arguments), deadline_seconds + 5
-            )
-        except TimeoutError:
-            failure = ProviderFailed(sent=True)  # the request may have been billed
-        except Exception as error:
-            status = getattr(error, "status_code", None)
-            # LiteLLM gives its own timeout the status 408 and a broken connection 500, though no
-            # provider answered: the request may have been billed, so these come first.
-            if isinstance(error, (litellm.Timeout, litellm.APIConnectionError)):
-                failure = ProviderFailed(sent=True)
-            elif status in (400, 401, 403, 404):
-                failure = ProviderRejected()  # a wrong key or a refused request
-            elif isinstance(status, int):
-                failure = ProviderFailed(sent=False)  # the provider answered with an error status
-            else:
-                failure = ProviderFailed(sent=True)  # a broken connection: it may have been billed
-        if failure is not None:
-            raise failure
+        response = await self._send("acompletion", arguments, deadline_seconds)
         try:
             text = response.choices[0].message.content or ""
             usage = response.usage

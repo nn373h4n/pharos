@@ -104,6 +104,23 @@ docker compose exec worker python -m pharos.evaluation <command> ...
 Two raters whose marks differ by 2 or more on average are flagged: their sheets measure different
 things, so agree on the meaning of the marks and rate again before you trust the result.
 
+## Tuning the near-duplicate threshold
+
+Embeddings (one card for one story) have a threshold that depends on the model and the languages.
+The same tool tunes it, on pairs of articles that a person has labelled "same story" or "different
+stories" (30 to 100 pairs of your own articles; `dedup-pairs.sample.json` shows the format):
+
+```text
+python -m pharos.evaluation dedup --pairs pairs.json --thresholds 0.85,0.90,0.92,0.95
+```
+
+It embeds both articles of each pair with the configured provider and model
+(`PHAROS_EMBEDDING_*`), through the product's own gateway, and prints for each threshold how many
+pairs would be joined, how many of those joins are wrong (an article hidden behind another) and how
+many same-story pairs are missed (a story shown twice). Choose the lowest threshold whose wrong
+column is still zero. The report holds numbers only. See `docs/DEPLOYMENT.md`, "Near-duplicate
+articles".
+
 ## After the report
 
 1. Put the recommended lines in the worker's `.env` and restart the worker.

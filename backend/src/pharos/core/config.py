@@ -13,6 +13,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # backend/alembic, resolved from src/pharos/core/config.py
 DEFAULT_ALEMBIC_DIR = Path(__file__).resolve().parents[3] / "alembic"
 
+_EMBEDDING_MODEL_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/@-]{0,99}")
 _PLACEHOLDER_PASSWORDS = {"changeme", "password", "secret", "pharos", "postgres", "example", "test"}
 
 
@@ -102,6 +103,24 @@ class Settings(BaseSettings):
     llm_max_retries: int = Field(default=2, ge=0, le=5)
     # How many unread articles one sweep (every minute) reads at most.
     llm_enrich_batch: int = Field(default=20, ge=1, le=200)
+    # Embeddings and clusters of near-duplicates (M4-05, ADR-0007, ADR-0021). Off unless a provider
+    # is named. The model is the operator's choice and is not named here (it decides the vector
+    # size); changing it is a recompute. "openai" and "azure" use the chat provider's key, so they
+    # must be the chat provider too; "ollama" is the local model server (no key).
+    embedding_provider: Literal["off", "fake", "ollama", "openai", "azure"] = "off"
+    embedding_model: str = ""
+    # Cosine similarity at or above which two articles are one story. Conservative on purpose: a
+    # missed duplicate shows twice, a wrong match hides an article behind another. Tune it on your
+    # own articles (python -m pharos.evaluation dedup).
+    embedding_similarity: float = Field(default=0.92, ge=0.5, le=0.999)
+    # Only articles this recent are compared.
+    embedding_window_days: int = Field(default=14, ge=1, le=90)
+    # How many articles one sweep (every minute) embeds at most.
+    embedding_batch: int = Field(default=50, ge=1, le=500)
+    # Embeddings are counted apart from the text calls, so a backlog cannot stop the insights.
+    embedding_calls_per_minute: int = Field(default=120, ge=1, le=10_000)
+    # What a remote embedding costs, in millionths of a dollar per token (zero for a local model).
+    embedding_price_micro_usd: int = Field(default=1, ge=0, le=100_000)
     # What a model costs, in millionths of a dollar per token (the same number as dollars per
     # million tokens), for the budget. Conservative on purpose; raise them for a dearer model,
     # or the day's cap is reached later than it should be.
@@ -246,6 +265,18 @@ class Settings(BaseSettings):
     def fetch_test_allowed_ports_list(self) -> list[int]:
         return [int(part) for part in self.fetch_test_allowed_ports.split(",") if part.strip()]
 
+    @field_validator("embedding_model")
+    @classmethod
+    def _embedding_model_is_a_name_the_table_accepts(cls, value: str) -> str:
+        # The same pattern as the check on item_embeddings.model. A name the table refuses would be
+        # billed on every call and then fail to be stored, again and again, until the daily cap.
+        if value and not _EMBEDDING_MODEL_NAME.fullmatch(value):
+            raise ValueError(
+                "embedding_model must start with a letter or digit and use only letters, digits "
+                "and . _ : / @ -, at most 100 characters"
+            )
+        return value
+
     @field_validator("llm_api_key", "llm_base_url", mode="before")
     @classmethod
     def _llm_blank_is_unset(cls, value: object) -> object:
@@ -272,6 +303,15 @@ class Settings(BaseSettings):
     def _llm_is_consistent(self) -> Self:
         if self.llm_provider == "fake" and self.environment == "production":
             raise ValueError("the fake model provider is refused in production")
+        if self.embedding_provider == "fake" and self.environment == "production":
+            raise ValueError("the fake embedding provider is refused in production")
+        if self.embedding_provider in ("openai", "azure") and (
+            self.embedding_provider != self.llm_provider
+        ):
+            raise ValueError(
+                "embedding_provider openai or azure uses the chat provider's key: "
+                "set llm_provider to the same"
+            )
         if self.llm_provider == "ollama" and (self.llm_base_url is not None or self.llm_api_key):
             # The local model is reached at one fixed address inside the Compose network and needs
             # no key: an address or a key given here would be a mistake or an attempt to point the

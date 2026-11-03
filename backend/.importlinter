@@ -139,7 +139,7 @@ allow_indirect_imports = True
 unmatched_ignore_imports_alerting = none
 
 [importlinter:contract:corpus-door-has-one-user]
-name = Only the evaluation runner uses the corpus door (M4-09)
+name = Only two evaluation tools use the corpus door (M4-09)
 type = forbidden
 source_modules =
     pharos.*
@@ -147,6 +147,7 @@ forbidden_modules =
     pharos.llm.corpus_door
 ignore_imports =
     pharos.evaluation.runner -> pharos.llm.corpus_door
+    pharos.evaluation.dedup -> pharos.llm.corpus_door
 unmatched_ignore_imports_alerting = none
 
 [importlinter:contract:evaluation-has-no-network]

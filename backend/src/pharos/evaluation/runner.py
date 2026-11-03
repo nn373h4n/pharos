@@ -58,7 +58,7 @@ class InMemoryBudget:
     async def release(self, reservation: Reservation) -> None:
         self.total -= reservation.amount
 
-    async def pace(self, org: uuid.UUID, calls_per_minute: int) -> bool:
+    async def pace(self, org: uuid.UUID, calls_per_minute: int, *, lane: str = "") -> bool:
         return True
 
 

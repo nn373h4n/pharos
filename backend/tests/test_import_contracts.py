@@ -405,7 +405,7 @@ def test_the_application_entry_may_not_import_the_gateway(tmp_path: Path) -> Non
     assert "The API never imports the model layer's providers (ADR-0004) BROKEN" in result.stdout
 
 
-CORPUS_DOOR_RULE = "Only the evaluation runner uses the corpus door (M4-09)"
+CORPUS_DOOR_RULE = "Only two evaluation tools use the corpus door (M4-09)"
 EVALUATION_RULE = "The evaluation opens no connection of its own (M4-09)"
 
 
@@ -413,12 +413,11 @@ def _with_corpus_door(project: Path) -> None:
     (project / "pharos" / "llm" / "corpus_door.py").write_text("VALUE = 1\n")
 
 
-def test_the_evaluation_runner_may_use_the_corpus_door(tmp_path: Path) -> None:
+@pytest.mark.parametrize("tool", ["runner.py", "dedup.py"])
+def test_the_two_evaluation_tools_may_use_the_corpus_door(tmp_path: Path, tool: str) -> None:
     project = _project(tmp_path, {})
     _with_corpus_door(project)
-    (project / "pharos" / "evaluation" / "runner.py").write_text(
-        "from pharos.llm import corpus_door\n"
-    )
+    (project / "pharos" / "evaluation" / tool).write_text("from pharos.llm import corpus_door\n")
     result = _lint(project)
     assert result.returncode == 0, result.stdout + result.stderr
 
@@ -426,7 +425,7 @@ def test_the_evaluation_runner_may_use_the_corpus_door(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     "where", [("orgs", "service.py"), ("insights", "service.py"), ("evaluation", "__main__.py")]
 )
-def test_nothing_but_the_evaluation_runner_may_use_the_corpus_door(
+def test_nothing_but_the_two_evaluation_tools_may_use_the_corpus_door(
     tmp_path: Path, where: tuple[str, str]
 ) -> None:
     project = _project(tmp_path, {})

@@ -71,6 +71,24 @@ WHERE i.org_id = :org AND i.owner_user_id IS NULL AND i.status = 'new'
       > CAST(:as_of AS timestamptz) - interval '{WINDOW_DAYS} days'
   AND NOT EXISTS (SELECT 1 FROM interactions n WHERE n.org_id = i.org_id AND n.user_id = :user
                   AND n.item_id = i.id AND n.type = 'not_useful')
+  -- One card for one story (ADR-0021): of the articles that share a cluster and could be shown,
+  -- only the one seen first is (then higher quality, then the lower id). Quality is model output
+  -- over text a source wrote, so it must not decide which link stands for a story: a later copy
+  -- cannot push the original out by scoring higher. The others stay in the database; a story a
+  -- person marks not useful is hidden with its copies.
+  AND (i.cluster_id IS NULL OR NOT EXISTS (
+        SELECT 1 FROM items o
+        WHERE o.org_id = i.org_id AND o.cluster_id = i.cluster_id AND o.id <> i.id
+          AND o.owner_user_id IS NULL AND o.status = 'new'
+          AND o.enriched_at IS NOT NULL
+          -- (quality is only ever set together with a summary, so a copy without one cannot win)
+          AND coalesce(o.published_at, o.fetched_at) <= CAST(:as_of AS timestamptz)
+          AND coalesce(o.published_at, o.fetched_at)
+              > CAST(:as_of AS timestamptz) - interval '{WINDOW_DAYS} days'
+          AND (o.created_at < i.created_at
+               OR (o.created_at = i.created_at
+                   AND (o.quality > i.quality
+                        OR (o.quality = i.quality AND o.id < i.id))))))
 """  # noqa: S608, E501 (the numbers are module constants; a SQL text)
 
 
