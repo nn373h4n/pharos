@@ -12,6 +12,12 @@ secrets/
 *.pem
 *.key
 
+# Database dumps and copies of the environment file (scripts/backup.sh refuses to write inside the
+# repository; this is the second line)
+*.dump
+*.dump.sha256
+pharos-env-*
+
 # Python
 __pycache__/
 *.py[cod]
