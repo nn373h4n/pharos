@@ -230,7 +230,9 @@ describe("switching on and off", () => {
     fireEvent.click(act(en.Sources.actions.disable, "Source 1"));
     await waitFor(() => expect(status().textContent).toContain("Switched off: Source 1"));
     expect(updateSource).toHaveBeenCalledWith(id(1), { enabled: false }, "token-1");
-    expect(listSources).toHaveBeenCalledTimes(2);
+    // The notice and the reload counter change together; the effect that asks for the list again
+    // runs after the page is drawn, so the second call is waited for, not assumed (F-41).
+    await waitFor(() => expect(listSources).toHaveBeenCalledTimes(2));
   });
 
   it("tells a refusal as an alert", async () => {
