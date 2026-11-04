@@ -1,6 +1,6 @@
 # M5 plan: hardening and pilot readiness
 
-Status: **draft for the maintainer's approval**, written 2026-11-04 after M4. Nothing in this plan is built, and no decision below is taken. Sources: `docs/ARCHITECTURE_PROPOSAL.md` (milestone M5, sections 7, 9, 11, 12 and 14, question 10), `PROGRESS.md`, `TASKS.md` (M0 rows and the F-items), `docs/DEPLOYMENT.md`, `docs/THREAT_MODEL.md` (residual risks), `docs/guides/evaluation.md` and the M4 result.
+Status: **draft for the maintainer's approval**, written 2026-11-04 after M4. Nothing in this plan is built. The plan itself is not yet approved; the maintainer answered the decisions below on 2026-11-04 (see "Answers"). Sources: `docs/ARCHITECTURE_PROPOSAL.md` (milestone M5, sections 7, 9, 11, 12 and 14, question 10), `PROGRESS.md`, `TASKS.md` (M0 rows and the F-items), `docs/DEPLOYMENT.md`, `docs/THREAT_MODEL.md` (residual risks), `docs/guides/evaluation.md` and the M4 result.
 
 ## Goal
 
@@ -29,6 +29,12 @@ Three kinds of work, kept apart in every section below:
 7. Stale lines to correct when the docs are touched: the `DEPLOYMENT.md` status line and "the API does not yet trust `X-Forwarded-*`" (done in M2, F-13); the ADR table in the proposal's section 15.
 
 ## Decisions needed from the maintainer (they block the tasks marked)
+
+Answers of the maintainer, 2026-11-04 (the table below keeps the question and the recommendation):
+
+- **D2** firewall rules and a check script, no new service. **D3** a script run by the host's scheduler, as recommended. **D4** images on GHCR with an SBOM and keyless signing; the signing tool is new in CI, so it is asked for again at M5-10. **D5** k6 as a pinned container run by a script. **D6** the proposal's defaults, plus a command that deletes one person's data. **D7** later; M5-14 is cut. **D8** the cap comes from the environment only; ADR-0016 is amended and the budget events go to the audit log. **D10** the cautious defaults: personal feeds off until gate G7, embeddings and the local model off, local login `break-glass`.
+- **D1** the maintainer reads the Proposed ADRs and accepts them together. Not done yet; until then gate G1 is NOT RUN, and M5-03, M5-05 and M5-06 (which amend accepted text) wait for it. The assistant does not change an ADR status itself.
+- **D9** the pilot professions are **SAP Basis and HR** (two, not three as in the M4 bar). The approved AI tools and the raters are still open. Note: the seeded profession list (migration 0002) has `hr_specialist` but no SAP Basis profession (it has `sap_consultant`); whether an administrator can add one was not checked. M5-01 settles this before the corpus is exported.
 
 | # | Decision | Blocks | Recommendation |
 | --- | --- | --- | --- |
