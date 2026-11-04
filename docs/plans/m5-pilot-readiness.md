@@ -1,6 +1,6 @@
 # M5 plan: hardening and pilot readiness
 
-Status: **draft for the maintainer's approval**, written 2026-11-04 after M4. Nothing in this plan is built. The plan itself is not yet approved; the maintainer answered the decisions below on 2026-11-04 (see "Answers"). Sources: `docs/ARCHITECTURE_PROPOSAL.md` (milestone M5, sections 7, 9, 11, 12 and 14, question 10), `PROGRESS.md`, `TASKS.md` (M0 rows and the F-items), `docs/DEPLOYMENT.md`, `docs/THREAT_MODEL.md` (residual risks), `docs/guides/evaluation.md` and the M4 result.
+Status: **approved by the maintainer on 2026-11-04**, written the same day after M4. Nothing in this plan is built yet. The maintainer answered the decisions below on 2026-11-04 (see "Answers"); D1 (acceptance of the Proposed ADRs) and the open part of D9 (approved AI tools, raters) are still theirs, and the gates stay NOT RUN until people pass them. Sources: `docs/ARCHITECTURE_PROPOSAL.md` (milestone M5, sections 7, 9, 11, 12 and 14, question 10), `PROGRESS.md`, `TASKS.md` (M0 rows and the F-items), `docs/DEPLOYMENT.md`, `docs/THREAT_MODEL.md` (residual risks), `docs/guides/evaluation.md` and the M4 result.
 
 ## Goal
 
