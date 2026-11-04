@@ -54,10 +54,11 @@ docker compose exec worker python -m pharos.evaluation <command> ...
 3. **Make the sheets.** One per language, blind (a random code instead of the model, shuffled):
 
    ```text
-   sheet --dir /work/eval --corpus /work/corpus.json --language az
+   sheet --dir /work/eval --corpus /work/corpus.json --language az --out /work/sheet-az.csv
    ```
 
-   Give the CSV to the raters. They need nothing else: **never give them `answers.jsonl`**, which
+   `--out` is required, and the tool refuses a path inside `--dir`, because the files there name the
+   models. Give the CSV to the raters. They need nothing else: **never give them `answers.jsonl`**, which
    shows the model of every code.
 
 4. **Rate.** In a spreadsheet each rater fills their own copy: `rater` (any name they choose, up to
