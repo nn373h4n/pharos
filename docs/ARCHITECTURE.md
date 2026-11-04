@@ -163,4 +163,4 @@ Health: `/healthz` (process) and `/readyz` (database, application role, Redis, w
 
 ## 9. Not covered yet
 
-Backup and restore procedure, log retention defaults, embedding model choice (ADR-0007) and the load-test profile are open; see `docs/ARCHITECTURE_PROPOSAL.md` §16.
+Log retention defaults (ADR-0025, `Proposed`), embedding model choice (ADR-0007) and the load-test profile are open; see `docs/ARCHITECTURE_PROPOSAL.md` §16. Backup and restore are scripts (`scripts/backup.sh`, `scripts/restore.sh`, ADR-0022, `Proposed`) with a rehearsal on a throwaway installation; see `docs/DEPLOYMENT.md`.

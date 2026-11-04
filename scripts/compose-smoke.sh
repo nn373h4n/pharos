@@ -327,6 +327,161 @@ for service in caddy web api worker beat migrate postgres redis; do
   esac
 done
 
+echo "== backup and restore (ADR-0022)"
+# The rehearsal of M5-02: the stack above is backed up, its volumes are destroyed, a new database is
+# started and the dump is restored into it before anything else runs, as docs/DEPLOYMENT.md says.
+SU() { compose exec -T postgres psql -q -U postgres -d pharos -tA "$@"; }
+# What the restore must give back, as text: the schema version, the rows of every table, row-level
+# security, the policies, and the exact grants of the two login roles (column by column).
+snapshot() (
+  # A subshell with -e: a query that fails stops the snapshot with a failure, so that a broken query
+  # cannot hide behind "both sides are equal" (it did once: two queries failed on both sides).
+  set -e
+  SU -c "SELECT 'version ' || version_num FROM alembic_version"
+  SU -c "SELECT 'rows ' || table_name || ' ' || (xpath('/row/c/text()', query_to_xml(format('select count(*) as c from %I.%I', table_schema, table_name), false, true, '')))[1]::text FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE' ORDER BY 1"
+  SU -c "SELECT 'rls ' || relname || ' ' || relrowsecurity || ' ' || relforcerowsecurity FROM pg_class WHERE relnamespace = 'public'::regnamespace AND relkind = 'r' ORDER BY 1"
+  SU -c "SELECT 'policy ' || tablename || ' ' || policyname || ' ' || permissive || ' ' || cmd || ' ' || roles::text || ' ' || coalesce(qual, '') || ' ' || coalesce(with_check, '') FROM pg_policies ORDER BY 1"
+  SU -c "SELECT 'grant ' || grantee || ' ' || table_name || ' ' || privilege_type FROM information_schema.role_table_grants WHERE grantee IN ('pharos_app', 'pharos_worker') AND table_schema = 'public' ORDER BY 1"
+  SU -c "SELECT 'column ' || grantee || ' ' || table_name || ' ' || column_name || ' ' || privilege_type FROM information_schema.column_privileges WHERE grantee IN ('pharos_app', 'pharos_worker') AND table_schema = 'public' ORDER BY 1"
+  # The parts of the tenant boundary that are not tables: functions (who owns them, whether they run
+  # with the owner's rights, their settings and grants), triggers, owners and grants of every
+  # relation, schemas, default privileges, settings on the database, and the roles themselves.
+  SU -c "SELECT 'function ' || p.proname || '(' || pg_get_function_arguments(p.oid) || ') ' || md5(p.prosrc) || ' ' || pg_get_userbyid(p.proowner) || ' ' || p.prosecdef || ' ' || coalesce(p.proconfig::text, '') || ' ' || coalesce(p.proacl::text, '') FROM pg_proc p WHERE p.pronamespace = 'public'::regnamespace ORDER BY 1"
+  SU -c "SELECT 'trigger ' || c.relname || ' ' || t.tgname || ' ' || pg_get_triggerdef(t.oid) FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid WHERE NOT t.tgisinternal AND c.relnamespace = 'public'::regnamespace ORDER BY 1"
+  SU -c "SELECT 'relation ' || relname || ' ' || relkind::text || ' ' || pg_get_userbyid(relowner) || ' ' || coalesce(relacl::text, '') FROM pg_class WHERE relnamespace = 'public'::regnamespace AND relkind IN ('r', 'S', 'v', 'm') ORDER BY 1"
+  SU -c "SELECT 'schema ' || nspname || ' ' || pg_get_userbyid(nspowner) || ' ' || coalesce(nspacl::text, '') FROM pg_namespace WHERE nspname NOT LIKE 'pg\_%' AND nspname <> 'information_schema' ORDER BY 1"
+  SU -c "SELECT 'defacl ' || pg_get_userbyid(defaclrole) || ' ' || defaclobjtype::text || ' ' || defaclacl::text FROM pg_default_acl ORDER BY 1"
+  SU -c "SELECT 'dbsettings ' || count(*) FROM pg_db_role_setting"
+  SU -c "SELECT 'member ' || pg_get_userbyid(m.roleid) || ' ' || pg_get_userbyid(m.member) FROM pg_auth_members m JOIN pg_roles r ON r.oid = m.member WHERE r.rolname LIKE 'pharos\_%' ORDER BY 1"
+  SU -c "SELECT 'role ' || rolname || ' ' || rolsuper || ' ' || rolbypassrls || ' ' || rolcreaterole || ' ' || rolcreatedb || ' ' || rolcanlogin FROM pg_roles WHERE rolname LIKE 'pharos\_%' ORDER BY 1"
+)
+wait_healthy() { # service...  (up to 5 minutes)
+  local service pending
+  for _ in $(seq 1 150); do
+    pending=""
+    for service in "$@"; do
+      [ "$(health "$service")" = "healthy" ] || pending="$pending $service"
+    done
+    [ -z "$pending" ] && return 0
+    sleep 2
+  done
+  echo "      not healthy:$pending"
+  return 1
+}
+
+SU -c "INSERT INTO departments (org_id, name) SELECT id, 'Backup marker' FROM organizations WHERE slug = 'smoke'" >/dev/null
+# An article the model has read, so that the Home feed has a card to show before and after.
+SU -c "INSERT INTO items (org_id, canonical_url, url_hash, title, content_sha256, summary, category, quality, enriched_at, enrichment_version) SELECT id, 'https://news.example.org/backup-marker', encode(sha256('backup-marker-url'::bytea), 'hex'), 'Backup marker article', encode(sha256('backup-marker-content'::bytea), 'hex'), 'A summary of the marker article', 'news', 4, now(), 'v1' FROM organizations WHERE slug = 'smoke'" >/dev/null
+jar_before="$WORK/cookies-before-backup"
+signed_in_before=$(post_json "$login_json" -H "Origin: $base" -c "$jar_before" -w '\n%{http_code}')
+check "the administrator signs in again before the backup (200)" test "$(tail -1 <<<"$signed_in_before")" = 200
+csrf_before=$(head -n -1 <<<"$signed_in_before" | python3 -I -c "import json, sys; print(json.load(sys.stdin)['csrf_token'])")
+# The Home feed answers 409 until a person has chosen a profession (onboarding), so one is chosen.
+profession_id=$(python3 -I -c "
+import json, sys
+data = json.load(sys.stdin)
+data = data.get('items', data) if isinstance(data, dict) else data
+print(next(p['id'] for p in data if p['code'] == 'accountant'))" <<<"$professions")
+check "a profession is chosen for the administrator (200)" \
+  test "$(https -b "$jar_before" -X PUT -H 'Content-Type: application/json' -H "Origin: $base" -H "X-CSRF-Token: $csrf_before" -d "{\"profession_id\":\"$profession_id\"}" -o /dev/null -w '%{http_code}' "$base/api/me/profile")" = 200
+cards_before=$(https -b "$jar_before" "$base/api/cards")
+check "the Home feed shows the marker article before the backup (positive control)" \
+  grep -q 'Backup marker article' <<<"$cards_before"
+# The writers are stopped, so that the snapshot before and the snapshot after can be equal.
+compose stop api worker beat web caddy >/dev/null 2>&1
+before=$(snapshot)
+before_status=$?
+check "the snapshot before the backup ran without a SQL error" test "$before_status" = 0
+snapshot_is_meaningful() {
+  grep -q '^rows departments [1-9]' <<<"$before" && grep -q '^rls .* true' <<<"$before" &&
+    grep -q '^column pharos_worker ' <<<"$before" && grep -q '^function .* true ' <<<"$before" &&
+    grep -q '^trigger ' <<<"$before" && grep -q '^role pharos_app false false false false true' <<<"$before" &&
+    grep -q '^relation ' <<<"$before" && grep -q '^schema public ' <<<"$before"
+}
+check "the snapshot has rows, row-level security, the worker's column grants, a SECURITY DEFINER function, triggers and the roles (positive control)" \
+  snapshot_is_meaningful
+
+export PHAROS_COMPOSE="docker compose -p $PROJECT -f deploy/docker-compose.yml --env-file $ENV_FILE"
+backups="$WORK/backups"
+started=$SECONDS
+check "backup.sh writes a dump" scripts/backup.sh run --dir "$backups"
+backup_seconds=$((SECONDS - started))
+dump=$(ls -1 "$backups"/daily/pharos-*.dump 2>/dev/null | head -1)
+check "the dump is private (mode 600) and not empty" test -n "$dump" -a "$(stat -c %a "$dump" 2>/dev/null)" = 600 -a -s "$dump"
+check "backup.sh env copies the environment file apart from the dumps" \
+  env PHAROS_ENV_FILE="$ENV_FILE" scripts/backup.sh env --dir "$WORK/secrets" --dumps "$backups"
+check_blocked "backup.sh env refuses the dump directory" \
+  env PHAROS_ENV_FILE="$ENV_FILE" scripts/backup.sh env --dir "$backups" --dumps "$backups"
+
+compose down --volumes --remove-orphans >/dev/null 2>&1
+compose up -d postgres >/dev/null 2>&1
+check "a new postgres volume is healthy" wait_healthy postgres
+check "on the new volume the database is empty (control: the restore is not a no-op)" \
+  test "$(SU -c "select count(*) from information_schema.tables where table_schema = 'public'" 2>&1)" = 0
+check "on the new volume the init script made both roles" \
+  test "$(SU -c "select count(*) from pg_roles where rolname in ('pharos_app', 'pharos_worker')" 2>&1)" = 2
+check_blocked "restore.sh refuses a dump that has no SHA-256 file" scripts/restore.sh "$ENV_FILE"
+# A file with a matching checksum that is still not a Pharos dump.
+cp "$ENV_FILE" "$WORK/not-a-dump.dump"
+(cd "$WORK" && sha256sum -- not-a-dump.dump >not-a-dump.dump.sha256)
+check_blocked "restore.sh refuses a file that is not a dump, even with a matching checksum" \
+  scripts/restore.sh "$WORK/not-a-dump.dump"
+# A real dump changed after its checksum was made.
+mkdir -p "$WORK/changed"
+cp "$dump" "$dump.sha256" "$WORK/changed/"
+printf 'x' >>"$WORK/changed/$(basename "$dump")"
+check_blocked "restore.sh refuses a dump that was changed after its checksum was made" \
+  scripts/restore.sh "$WORK/changed/$(basename "$dump")"
+check "the checksum file of the real dump matches it (control for the two lines above)" \
+  bash -c 'cd "$(dirname "$1")" && sha256sum --check --status -- "$(basename "$1").sha256"' _ "$dump"
+check "nothing was restored by the refused attempts: the database is still empty" \
+  test "$(SU -c "select count(*) from information_schema.tables where table_schema = 'public'" 2>&1)" = 0
+started=$SECONDS
+check "restore.sh restores the dump" scripts/restore.sh "$dump"
+restore_seconds=$((SECONDS - started))
+check_blocked "a second restore into the restored database is refused" scripts/restore.sh "$dump"
+after=$(snapshot)
+after_status=$?
+check "the snapshot after the restore ran without a SQL error" test "$after_status" = 0
+check "version, rows of every table, row-level security, policies and grants are identical after the restore" \
+  test "$before" = "$after"
+if [ "$before" != "$after" ]; then diff <(echo "$before") <(echo "$after") | head -20 | sed 's/^/      /'; fi
+check "the marker row is back" test "$(SU -c "select count(*) from departments where name = 'Backup marker'" 2>&1)" = 1
+
+compose up -d >/dev/null 2>&1
+check "every service is healthy again on the restored database" wait_healthy postgres redis web api worker caddy
+check "migrate finds the restored schema at head and finishes successfully" \
+  test "$(docker inspect --format '{{.State.ExitCode}}' "$(compose ps -a -q migrate)")" = 0
+ready=""
+for _ in $(seq 1 30); do
+  ready=$(readyz)
+  grep -q '"status":"ok"' <<<"$ready" && break
+  sleep 2
+done
+echo "      $ready"
+check "readyz is ok on the restored installation" grep -q '"status":"ok"' <<<"$ready"
+check "the administrator signs in with the same password (200)" \
+  test "$(post_json "$login_json" -H "Origin: $base" -c "$jar" -o /dev/null -w '%{http_code}')" = 200
+check "the new session works (200)" test "$(https -b "$jar" -o /dev/null -w '%{http_code}' "$base/api/me")" = 200
+# Redis is not part of a backup: the sessions that existed before are gone, and signing in again works.
+check "the session from before the backup is gone: sessions live in Redis, which is not backed up (401)" \
+  test "$(https -b "$jar_before" -o /dev/null -w '%{http_code}' "$base/api/me")" = 401
+cards_after=$(https -b "$jar" "$base/api/cards")
+check "the Home feed shows the marker article on the restored database" \
+  grep -q 'Backup marker article' <<<"$cards_after"
+check "the application role works on the restored database (positive control)" \
+  test "$(sql pharos_app "$APP_PASSWORD" "select count(*) >= 0 from users" 2>&1)" = t
+check "row-level security still filters: the application role sees no user without an organization" \
+  test "$(sql pharos_app "$APP_PASSWORD" "select count(*) from users" 2>&1)" = 0
+check_blocked "the worker role still cannot read local_credentials" \
+  sql pharos_worker "$WORKER_DB_PASSWORD" "select 1 from local_credentials limit 1"
+check "the worker role can still read the state of an account (positive control)" \
+  test "$(sql pharos_worker "$WORKER_DB_PASSWORD" "select count(status) >= 0 from users" 2>&1)" = t
+check_blocked "the worker role still cannot read users.email" \
+  sql pharos_worker "$WORKER_DB_PASSWORD" "select email from users limit 1"
+printf 'NOTE  backup took %ss, restore took %ss (a small database: not a promise for a large one)\n' \
+  "$backup_seconds" "$restore_seconds"
+
 echo
 if [ "$failures" -eq 0 ]; then
   echo "All checks passed."

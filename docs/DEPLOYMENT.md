@@ -4,8 +4,8 @@ Pharos runs as one Docker Compose stack on one Linux host: one installation serv
 ([ADR-0005](adr/0005-tenancy-and-rls.md)). Network and container choices are explained in
 [ADR-0010](adr/0010-compose-network-topology-and-container-hardening.md).
 
-Status: M1. The stack starts and passes `make test-compose`. Identity provider setup, backups and
-the production checklist are not written yet.
+Status: M5 in progress. The stack starts and passes `make test-compose`, which now also rehearses a
+backup and a restore. The production checklist and the pilot runbook are not written yet.
 
 ## Requirements
 
@@ -159,8 +159,9 @@ that need them. The profile `local-llm` is described under "The local model" bel
 
 The first start of an empty `postgres_data` volume runs `deploy/postgres/init/01-roles.sh`, which
 creates `pharos_owner`, `pharos_app` and `pharos_worker` from the passwords in `deploy/.env` and
-enables the `vector` extension. It does not run again on an existing volume. If you restore a database from a
-backup, create the roles first (see [DATA_MODEL.md](DATA_MODEL.md#database-roles)).
+enables the `vector` extension. It does not run again on an existing volume. A dump does not hold
+the roles, so a restore goes into a new volume where this script has just run (see "Backup and
+restore" below and [DATA_MODEL.md](DATA_MODEL.md#database-roles)).
 
 - **First install and demos:** `PHAROS_MIGRATE_ON_START=true` applies migrations before the API
   starts.
@@ -259,6 +260,104 @@ your people. The tool and the steps are in [docs/guides/evaluation.md](guides/ev
 it in the worker's container (`docker compose exec worker python -m pharos.evaluation ...`). A real
 run costs money, capped by `--max-cost-usd` (five dollars by default).
 
+## Backup and restore
+
+The decision is [ADR-0022](adr/0022-backup-is-a-script-and-a-restore-that-is-rehearsed.md) (`Proposed`):
+two scripts run by the host, no resident service. A dump that has never been restored is not a
+backup, so restore it once on a spare machine before you rely on it.
+
+**What is backed up, and what is not.** The dump holds the PostgreSQL database (articles, people,
+settings, the audit log, stored model usage). It does **not** hold the roles (they are made by
+`deploy/postgres/init/01-roles.sh` on a new volume), Redis (sessions and queues; people sign in
+again after a restore) or `deploy/.env`. Keep `deploy/.env` separately: its root secret is needed to
+read the restored audit chain and tokens, and it must not be stored beside the dumps.
+
+**Backing up.** From the repository directory, as a user who may run Docker:
+
+```bash
+scripts/backup.sh run --dir /srv/pharos-backups/dumps       # the database
+scripts/backup.sh env --dir /home/operator/pharos-env \
+  --dumps /srv/pharos-backups/dumps                          # deploy/.env, somewhere else entirely
+```
+
+`run` makes a custom-format `pg_dump` as the database owner through the container's local socket
+(no password on a command line) and reads it back **to its end** with `pg_restore`, not only its
+table of contents. It refuses an empty dump, one it cannot read or one without the schema, writes a
+SHA-256 file beside each dump, and keeps the 7 newest daily dumps, 4 weekly (made on Sundays) and 3
+monthly (made on the 1st), in `daily/`, `weekly/` and `monthly/` under the directory you name. Only
+one run can go at a time. A dump is never pruned in the run that made it, and the script warns if a
+dump is stamped later than the new one (a clock that was wrong once would otherwise push every new
+dump out). `env` refuses a directory that is, holds or sits inside the dump directory.
+
+The directory must be yours and closed to others: an existing directory that someone else owns, that
+has any permission for group or others (so `chmod 700` an existing one first) or that is a link is
+refused, and so is any path inside this repository, whether you name it directly, relatively (a
+relative path is read from where you run the script) or through a link, so that `git add -A` can
+never commit a dump or the root secret; `.gitignore` is a second line. Not checked: links or open
+permissions further up the path, and POSIX ACLs on the directory. The files are private (modes 700 and 600). Keep
+the dump directory and the `.env` copy under **different parents**: one routine sync of a shared
+parent would ship both together. Schedule `run` with the host's scheduler (cron or a systemd timer),
+for example once a night, and check now and then that new files appear: nothing alerts on a missed
+backup.
+
+**The operator's part.** Copy the dumps off the host and encrypt them and the `.env` copy before
+they leave it; Pharos ships no destination and no encryption. A dump holds every person's data.
+
+**A dump is code.** `pg_restore` runs what the dump says as the database owner, and the owner owns
+every table. A dump that someone changed can switch row-level security off, add a permissive policy,
+grant the application role more, change default privileges, add a function that runs with the
+owner's rights or add an administrator. Restore only a dump whose origin you trust.
+
+The SHA-256 file (`<dump>.sha256`, one line, `<hash>  <the dump's own file name>`) catches damage;
+it catches a *changed* dump only if whoever changed the dump could not change the file beside it, so
+keep the checksums, or the dumps encrypted with authenticated encryption (for example `age`), where
+the keepers of the dumps cannot rewrite them. `restore.sh` copies the dump once into a private
+directory, takes the hash from that copy and reads only the copy afterwards; it refuses a checksum
+file that is missing, has more than one line, names another file or does not match. There is no
+option to skip the check: for a dump you made by hand, make its checksum file by hand with
+`sha256sum`.
+
+After the restore, `restore.sh` looks for exactly two things a good dump never makes: settings on
+the database or on a role, and schemas other than `public`. **That is all it looks for.** It does
+not compare policies, grants, default privileges, row-level security or functions with what Pharos
+ships; a hostile dump can pass it. If the origin of a dump is in doubt, do not restore it, or
+compare the restored catalogs with a database made by the migrations before you start the stack.
+
+**Restoring**, on a new installation, before anything else is started:
+
+1. Put `deploy/.env` back (the same root secret).
+2. Start only the database on a new volume: `docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d postgres`. The init script creates the roles and the `vector` extension.
+3. `scripts/restore.sh /srv/pharos-backups/dumps/daily/pharos-YYYYMMDDTHHMMSSZ.dump` (a relative
+   path is read from where you run it). It refuses a dump whose checksum file is missing or does not
+   match, a file that is not a Pharos dump, a database whose two roles do not both exist, are not
+   plain login roles or are members of other roles, and a database that already has tables, views
+   or sequences; it restores in one transaction, so a failure leaves nothing half-restored. The
+   script first copies the dump once into a private directory (`PHAROS_RESTORE_TMP`, else `TMPDIR`,
+   else `/tmp`, which is memory on many hosts): for a large dump name a directory on a real disk with
+   room for it. The free space is checked before the copy, and the copy is removed on every way out.
+4. Start the rest: `docker compose ... up -d`. The migration step finds the schema at its latest
+   version. People sign in again.
+
+**What was rehearsed.** `make test-compose` backs up its throwaway installation, destroys the
+volumes, starts a new database, restores, and checks that the schema version, the **number of rows**
+of every table, row-level security, the policies (with whether they are permissive or restrictive),
+the exact column grants of the two login roles, the functions (arguments, a hash of the body, owner,
+whether they run with the owner's rights, settings, grants), the triggers, the owner and grants of
+every relation, the schemas, the default privileges, the database settings, the roles' attributes
+and their memberships are identical (a failed query stops the snapshot, so a broken query cannot
+hide behind two equal halves); that a damaged, an unsigned and a non-Pharos file are refused;
+that the services become healthy, that `readyz` is ok, that the administrator signs in with the same
+password, that the Home feed shows the same article before the backup and after the restore, that a
+session from before the backup no longer works (Redis is not backed up, so people sign in again),
+and that five access checks of the two roles (two that must work, three that must be refused) still
+give the same answers. On a small database the backup and the restore each took about a second to
+three seconds; that is no promise for a large one. **Not rehearsed:** a restore on the pilot server
+(gate G8, only the maintainer can pass it), a large database, a dump from an older version of
+Pharos restored into a newer one, the content of the rows (only their counts are compared), the audit
+chain read with the root secret, a real dump that is cut short (that `backup.sh` refuses it is shown
+only with a stand-in for Docker; the rehearsal changes a dump with a checksum, which `restore.sh`
+refuses), and the time to copy a dump off the host.
+
 ## Checking a running installation
 
 `/api/readyz` is deliberately not served through the proxy. Ask the API container:
@@ -273,8 +372,9 @@ volumes and ports, and removes it afterwards.
 
 ## Known limits
 
-- Backup and restore are not defined or tested yet. A plain `pg_dump` of the `pharos` database is
-  possible; it has not been rehearsed.
+- Backup and restore are scripts with a rehearsal on a small throwaway database (see "Backup and
+  restore"). Nothing alerts on a missed backup, the off-host copy and its encryption are the
+  operator's, and a restore on a large database or on the pilot server has not been tried.
 - Images are pinned by tag, not by digest. CI scans the two images we build (and, weekly, the
   proxy, database and cache images) with Trivy; Dependabot proposes updates. The build downloads
   `uv` (pinned by version) and `pnpm` (pinned by version in `package.json`) without a hash check;

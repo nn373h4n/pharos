@@ -31,18 +31,35 @@ installation.
 
 Option 1.
 
-- `scripts/backup.sh` writes a custom-format dump as the owner role, checks it with
-  `pg_restore --list`, and rotates: 7 daily, 4 weekly, 3 monthly. `scripts/restore.sh` creates the
-  roles first and then restores the data. Both are plain shell, run on the host by its scheduler.
+- `scripts/backup.sh` writes a custom-format dump as the owner role, reads it back to its end with
+  `pg_restore`, writes a SHA-256 file beside it, and rotates: 7 daily, 4 weekly, 3 monthly.
+  `scripts/restore.sh` restores into a new database whose roles already exist (the init script made
+  them on the new volume; the restore refuses a database without them, and roles that are not plain
+  login roles). Both are plain shell, run on the host by its scheduler.
+- The directories are the operator's and private; a path inside the repository, a link or a
+  directory others can write to is refused.
+- **A dump is code.** `pg_restore` runs it as the database owner, so a changed dump can weaken the
+  tenant boundary (row-level security, a function with the owner's rights, an administrator).
+  `restore.sh` copies the dump once into a private directory, refuses a checksum file that is
+  missing, has more than one line, names another file or does not match, and reads only the copy.
+  After the restore it looks for two things a good dump never makes (settings on the database or a
+  role, and schemas other than `public`) and for nothing else: it does **not** compare policies,
+  grants, default privileges, row-level security or functions with what Pharos ships, so a hostile
+  dump can pass it. The checksum file protects against damage and against a change made by someone
+  who cannot rewrite it too; keeping it, or authenticated encryption, out of the dump keepers' reach
+  is the operator's part, and restoring only a dump whose origin is trusted is the rule. A stronger
+  check (a reference list of what the migrations create) is left as a follow-up (F-44).
 - The off-host copy and its encryption belong to the operator. The runbook says so and gives an
   example, but Pharos does not ship a destination.
 - `deploy/.env` is backed up separately from the dump, because the root secret is needed to read
   the restored data (audit chain, tokens) and must not travel in the same place as the dump.
-- The restore is **rehearsed**, not assumed: a throwaway stack with synthetic data is backed up,
-  destroyed and restored; row counts per table are equal, row-level security is on for every
-  tenant table, the exact-privilege tests pass against the restored database, sign-in and the feed
-  work, and `/readyz` is green. The time is recorded. The rehearsal on the pilot server is a gate
-  (G8) that only the maintainer can pass.
+- The restore is **rehearsed**, not assumed: a throwaway stack is backed up, destroyed and restored;
+  the schema version, the row counts of every table, row-level security, the policies, the exact
+  grants of the two login roles, the functions, the triggers, the owners and grants of every
+  relation, the schemas, the default privileges and the role attributes are equal; the services
+  become healthy, `/readyz` is green and the administrator signs in again. The time is recorded.
+  What the rehearsal does not show is listed in `docs/DEPLOYMENT.md`. The rehearsal on the pilot
+  server is a gate (G8) that only the maintainer can pass.
 
 ## Consequences
 
