@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 
 import pytest
 from alembic import command
+from alembic.script import ScriptDirectory
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine
@@ -795,7 +796,8 @@ async def test_downgrade_refuses_to_delete_ingested_data_unless_told_to(
         revision = (
             await connection.execute(text("SELECT version_num FROM alembic_version"))
         ).scalar_one()
-    assert revision == "0009"  # the refused downgrade rolled everything back
+    head = ScriptDirectory.from_config(database.alembic).get_current_head()
+    assert revision == head  # the refused downgrade rolled everything back
     monkeypatch.setenv("PHAROS_ALLOW_DATA_LOSS", "yes")
     try:
         await asyncio.to_thread(command.downgrade, database.alembic, "0002")

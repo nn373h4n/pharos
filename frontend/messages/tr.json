@@ -56,7 +56,11 @@
       "minutesLabel": "Kaç dakika kazandırdı (1 ile 480 arası)",
       "minutesSave": "Kaydet",
       "minutesInvalid": "1 ile 480 arasında tam bir dakika sayısı girin.",
-      "minutesDone": "Kaydedildi. Teşekkürler."
+      "minutesDone": "Kaydedildi. Teşekkürler.",
+      "openInTitle": "Onaylı bir yapay zekâ aracında aç",
+      "openIn": "{tool} aracında aç",
+      "newTab": "(yeni sekmede açılır)",
+      "openInNote": "Bu yalnızca aracı açar. Önce istemi kopyalayın ve orada yapıştırın: sizin yerinize gönderilmez."
     }
   },
   "Footer": {
@@ -188,7 +192,8 @@
     "items": "Makaleler",
     "myFeeds": "Beslemelerim",
     "sources": "Kaynaklar",
-    "llm": "Model"
+    "llm": "Model",
+    "aiTools": "Yapay zekâ araçları"
   },
   "Items": {
     "metaTitle": "Makaleler",
@@ -272,7 +277,9 @@
     "generic": "Bir şeyler ters gitti. Tekrar deneyin.",
     "sourceConflict": "Bu kaynak zaten var.",
     "sourceLimit": "Kuruluş, izin verilen en çok kaynak sayısına ulaştı.",
-    "validation": "Bazı girişler geçerli değil. Kontrol edip tekrar deneyin."
+    "validation": "Bazı girişler geçerli değil. Kontrol edip tekrar deneyin.",
+    "aiToolConflict": "Bu adda bir araç zaten var.",
+    "aiToolLimit": "Kuruluş, izin verilen en çok araç sayısına ulaştı."
   },
   "Sources": {
     "metaTitle": "Kaynaklar",
@@ -452,6 +459,63 @@
       "opensInNewTab": " (yeni sekmede açılır)"
     },
     "articlesNote": "Bu kaynağın makaleleri"
+  },
+  "AiTools": {
+    "metaTitle": "Yapay zekâ araçları",
+    "title": "Yapay zekâ araçları",
+    "intro": "Kuruluşunuzun onayladığı yapay zekâ araçları. Her kart, “Kopyala” düğmesinin yanında bunlara bir bağlantı sunar. Hiç araç yoksa kart yalnızca “Kopyala” sunar.",
+    "readOnly": "Listeye bakabilirsiniz. Yalnızca yöneticiler değiştirir.",
+    "results": "Araç listesi",
+    "loading": "Araçlar yükleniyor…",
+    "loadFailed": "Araçlar yüklenemedi. Biraz sonra tekrar deneyin.",
+    "retry": "Tekrar dene",
+    "empty": "Henüz onaylanmış bir yapay zekâ aracı yok.",
+    "emptyAdmin": "Henüz onaylanmış bir yapay zekâ aracı yok. İlkini ekleyin.",
+    "count": "{max} araçtan {count} tanesi",
+    "full": "Liste dolu ({max} araç). Başka bir araç eklemek için birini silin.",
+    "addressLabel": "Adres",
+    "addressRefused": "Bu adres kullanılamaz. Değiştirin.",
+    "actions": {
+      "add": "Araç ekle",
+      "edit": "Düzenle",
+      "delete": "Sil",
+      "actionOn": "{action}: {name}"
+    },
+    "form": {
+      "titleNew": "Yapay zekâ aracı ekle",
+      "titleEdit": "Yapay zekâ aracını düzenle",
+      "name": "Ad",
+      "nameHint": "İnsanların ona ne dediği, en çok {limit} karakter.",
+      "url": "Adres",
+      "urlHint": "https:// ile başlar. Kullanıcı adı, parola ve # olmadan; IP adresi değil, ana makine adı yazın.",
+      "save": "Kaydet",
+      "saving": "Kaydediliyor…",
+      "cancel": "Vazgeç"
+    },
+    "fieldErrors": {
+      "nameMissing": "Bir ad girin.",
+      "nameInvalid": "Ad düz metin olmalı; işaretleme ve görünmez karakter içermemeli.",
+      "nameTooLong": "Ad çok uzun.",
+      "urlMissing": "Bir adres girin.",
+      "urlInvalid": "Bu geçerli bir adres değil.",
+      "urlHttpsOnly": "Adres https:// ile başlamalı.",
+      "urlCredentials": "Adres kullanıcı adı veya parola içermemeli.",
+      "urlIp": "IP adresi değil, ana makine adı yazın.",
+      "urlLocal": "localhost dışında bir ad yazın: bu, kendi bilgisayarınızdır.",
+      "urlTooLong": "Adres çok uzun."
+    },
+    "deleteDialog": {
+      "title": "Bu araç silinsin mi?",
+      "body": "“{name}” artık kartlarda sunulmayacak.",
+      "confirm": "Sil",
+      "cancel": "Vazgeç",
+      "deleting": "Siliniyor…"
+    },
+    "done": {
+      "created": "Eklendi: {name}",
+      "updated": "Kaydedildi: {name}",
+      "deleted": "Silindi: {name}"
+    }
   },
   "Llm": {
     "metaTitle": "Model katmanı",

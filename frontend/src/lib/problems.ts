@@ -8,6 +8,8 @@ export type ProblemKey =
   | "rateLimited"
   | "sourceConflict"
   | "sourceLimit"
+  | "aiToolConflict"
+  | "aiToolLimit"
   | "validation"
   | "unavailable"
   | "csrf"
@@ -32,6 +34,10 @@ export function problemKey(error: unknown): ProblemKey {
       return "sourceConflict";
     case "source_limit":
       return "sourceLimit";
+    case "ai_tool_conflict":
+      return "aiToolConflict";
+    case "ai_tool_limit":
+      return "aiToolLimit";
     case "validation_failed":
       return "validation";
     case "csrf_failed":

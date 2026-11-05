@@ -3,12 +3,19 @@ import { NextIntlClientProvider } from "next-intl";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import en from "../../../messages/en.json";
 import { ApiProblem } from "@/lib/api";
+import type { AiTool } from "@/lib/ai-tools";
 import type { InsightAnswer, InteractionKind } from "@/lib/cards";
 
 const getInsight = vi.fn<(id: string) => Promise<InsightAnswer>>();
 const putInteraction =
   vi.fn<(id: string, kind: InteractionKind, csrf: string, minutes?: number) => Promise<void>>();
 
+const approvedTools = vi.fn<() => Promise<AiTool[]>>();
+
+vi.mock("@/lib/ai-tools", async (original) => ({
+  ...(await original<typeof import("@/lib/ai-tools")>()),
+  approvedTools: () => approvedTools(),
+}));
 vi.mock("@/lib/cards", async (original) => ({
   ...(await original<typeof import("@/lib/cards")>()),
   getInsight: (id: string) => getInsight(id),
@@ -51,6 +58,7 @@ beforeEach(() => {
   vi.useFakeTimers();
   getInsight.mockResolvedValue(ready);
   putInteraction.mockResolvedValue(undefined);
+  approvedTools.mockResolvedValue([]);
 });
 afterEach(() => {
   cleanup();
@@ -223,5 +231,108 @@ describe("feedback", () => {
     fireEvent.click(screen.getByRole("button", { name: `${en.Cards.insight.tried}: Story` }));
     await tick(0);
     expect(screen.getByText("Too many requests. Try again in 12 seconds.")).toBeDefined();
+  });
+});
+
+describe("Open in an approved tool", () => {
+  const TOOLS: AiTool[] = [
+    {
+      id: "50000000-0000-4000-8000-000000000001",
+      name: "Alpha Chat",
+      url: "https://alpha.example.org/chat",
+    },
+    {
+      id: "50000000-0000-4000-8000-000000000002",
+      name: "Beta Assistant",
+      url: "https://beta.example.org/",
+    },
+  ];
+
+  it("offers nothing when no tool is approved: the card keeps Copy alone", async () => {
+    show();
+    await tick(0);
+    expect(approvedTools).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText(en.Cards.insight.openInTitle)).toBeNull();
+    expect(screen.queryAllByRole("link")).toHaveLength(0);
+    expect(screen.getByRole("button", { name: /Copy/ })).toBeDefined();
+  });
+
+  it("does not ask for the tools before there is a prompt to open them with", async () => {
+    getInsight.mockResolvedValue(pending);
+    show();
+    await tick(0);
+    expect(approvedTools).not.toHaveBeenCalled();
+  });
+
+  it("shows a link to each approved tool that opens a new tab and sends no referrer", async () => {
+    approvedTools.mockResolvedValue(TOOLS);
+    show();
+    await tick(0);
+    const links = screen.getAllByRole("link");
+    // The name the administrator chose, and where the link really goes, side by side.
+    expect(links.map((a) => a.textContent)).toEqual([
+      "Open in Alpha Chatalpha.example.org (opens in a new tab)",
+      "Open in Beta Assistantbeta.example.org (opens in a new tab)",
+    ]);
+    for (const link of links) {
+      expect(link.getAttribute("target")).toBe("_blank");
+      const rel = (link.getAttribute("rel") ?? "").split(" ");
+      expect(rel).toContain("noopener");
+      expect(rel).toContain("noreferrer");
+    }
+    expect(links.map((a) => a.getAttribute("href"))).toEqual([
+      "https://alpha.example.org/chat",
+      "https://beta.example.org/",
+    ]);
+    expect(screen.getByText(en.Cards.insight.openInNote)).toBeDefined();
+  });
+
+  it("never puts the prompt, the article or the title into the address", async () => {
+    approvedTools.mockResolvedValue(TOOLS);
+    show();
+    await tick(0);
+    for (const link of screen.getAllByRole("link")) {
+      const href = decodeURIComponent(link.getAttribute("href") ?? "");
+      expect(href).not.toContain("LEDGER");
+      expect(href).not.toContain("Story");
+      expect(href).not.toContain("?");
+    }
+  });
+
+  it.each([
+    "http://plain.example.org/",
+    "javascript:alert(1)",
+    "https://user:pw@evil.example.org/",
+    "https://127.0.0.1/",
+    "https://localhost/",
+    "https://app.localhost:8443/",
+  ])("leaves a tool out whose address is not safe (%s), and keeps the others", async (url) => {
+    approvedTools.mockResolvedValue([
+      { id: "50000000-0000-4000-8000-000000000009", name: "Bad", url },
+      TOOLS[0]!,
+    ]);
+    show();
+    await tick(0);
+    const links = screen.getAllByRole("link");
+    expect(links.map((a) => a.textContent)).toEqual([
+      "Open in Alpha Chatalpha.example.org (opens in a new tab)",
+    ]);
+  });
+
+  it("shows the name as text, never as markup", async () => {
+    approvedTools.mockResolvedValue([{ ...TOOLS[0]!, name: "<img src=x onerror=alert(1)>" }]);
+    const { container } = show();
+    await tick(0);
+    expect(container.querySelector("img")).toBeNull();
+    expect(screen.getByRole("link").textContent).toContain("<img src=x onerror=alert(1)>");
+  });
+
+  it("keeps Copy and everything else when the list cannot be read", async () => {
+    approvedTools.mockRejectedValue(new ApiProblem(503, "service_unavailable"));
+    show();
+    await tick(0);
+    expect(screen.queryByText(en.Cards.insight.openInTitle)).toBeNull();
+    expect(screen.getByRole("button", { name: /Copy/ })).toBeDefined();
+    expect(screen.getByText("It shortens the month-end.")).toBeDefined();
   });
 });

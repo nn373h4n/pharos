@@ -133,6 +133,11 @@ const m3Pages = [
     heading: (t: typeof en) => t.Feeds.title,
     ready: (t: typeof en) => t.Feeds.results,
   },
+  {
+    path: "ai-tools",
+    heading: (t: typeof en) => t.AiTools.title,
+    ready: (t: typeof en) => t.AiTools.results,
+  },
 ] as const;
 
 for (const locale of locales) {

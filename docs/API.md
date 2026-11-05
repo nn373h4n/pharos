@@ -171,6 +171,21 @@ Validation: a bad configuration answers `422 validation_failed` with `{loc: ["bo
 
 Rules: the same source twice answers `409 source_conflict`; the 201st answers `409 source_limit`; two administrators changing one source queue up on its row lock and both changes are kept; a change that changes nothing is neither saved nor audited. Changing a source never touches what the worker keeps about it (failures, validators, lease). Audit events: `source.created`, `source.updated` (with the names of the changed fields), `source.enabled`, `source.disabled`, `source.deleted`, `source.test_fetch_requested`; entries never contain the configuration.
 
+## AI tools (everyone reads, administrators change)
+
+The AI tools that an administrator approves for "Open in" on a card ([ADR-0026](adr/0026-approved-ai-tools-are-an-admin-list-and-open-in-is-a-plain-link.md)). The list is empty until an administrator adds a tool, and a card then offers "Copy" only. The server never opens an address: a person's browser does.
+
+| Method | Path | Who | Purpose |
+| --- | --- | --- | --- |
+| GET | `/api/ai-tools` | everyone signed in | The approved tools by name: `{"items": [{"id", "name", "url"}]}`. Nothing about who made a tool. |
+| POST | `/api/ai-tools` | admin | Add. Body `{"name", "url"}`; answers `201` with the tool. |
+| PATCH | `/api/ai-tools/{id}` | admin | Change `name` and/or `url` (at least one, never `null`). |
+| DELETE | `/api/ai-tools/{id}` | admin | Delete (`204`). |
+
+A **name** is plain text of 1 to 40 characters: markup, control, zero-width and bidirectional characters are refused (`422`, `{loc: ["body", "name"], type: "invalid_text"}`), not repaired. An **address** is accepted only if a browser may safely be sent to it, otherwise `422 validation_failed` with `{loc: ["body", "url"], type: CODE}` where CODE is `https_only` (also for `HTTPS://`, `javascript:`, `data:`), `credentials_not_allowed` (an `@` anywhere), `ip_address_not_allowed` (an IPv4 or IPv6 address in any spelling, for example `2130706433` or `0x7f.1`; any bracket; a host whose last label is a number, which a browser reads as an address; a host name that merely starts with digits, such as `123.example.com`, is fine), `local_host_not_allowed` (`localhost` and every `*.localhost`: the person's own machine), or `invalid_url` (longer than 300 characters, a fragment, white space or an invisible character, a host that is not ASCII, a bad port). An internal host name is allowed. A field that is too long or too short answers `string_too_long` or `string_too_short`.
+
+A change shows on the cards of other people after at most a minute (the page keeps the list for a minute), and in a suggestion that is already open until it is opened again; deleting a hostile tool is therefore not instant for them. Rules: the same name twice (any case) answers `409 ai_tool_conflict`; the eleventh tool answers `409 ai_tool_limit`; two requests at once cannot pass the limit (an advisory lock and a trigger); a tool of another organization answers `404`, like an id that does not exist. Every change is audited (`ai_tool.created`, `ai_tool.updated`, `ai_tool.deleted`); a refused duplicate or limit leaves a failure entry (`reason`: `duplicate`, `limit`). An audit entry names the tool by its identifier and never holds the name or the address.
+
 ## Personal feeds (everyone, their own only)
 
 Every signed-in person, whatever their role, can follow up to five RSS or Atom feeds of their own (M3-13). Only they see them and their articles: another person, an administrator, another organization and the shared article list all get `404 not_found`, the same answer as for an id that does not exist. If the operator switched the feature off (`PHAROS_PERSONAL_FEEDS=off`), every endpoint below answers `404`. Requests that change data also need `Origin` and `X-CSRF-Token`.

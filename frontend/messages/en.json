@@ -56,7 +56,11 @@
       "minutesLabel": "Minutes it saved (1 to 480)",
       "minutesSave": "Record",
       "minutesInvalid": "Enter a whole number of minutes from 1 to 480.",
-      "minutesDone": "Recorded. Thank you."
+      "minutesDone": "Recorded. Thank you.",
+      "openInTitle": "Open in an approved AI tool",
+      "openIn": "Open in {tool}",
+      "newTab": "(opens in a new tab)",
+      "openInNote": "This only opens the tool. Copy the prompt first and paste it there: it is not sent for you."
     }
   },
   "Footer": {
@@ -188,7 +192,8 @@
     "items": "Articles",
     "myFeeds": "My feeds",
     "sources": "Sources",
-    "llm": "Model"
+    "llm": "Model",
+    "aiTools": "AI tools"
   },
   "Items": {
     "metaTitle": "Articles",
@@ -272,7 +277,9 @@
     "generic": "Something went wrong. Try again.",
     "sourceConflict": "This source exists already.",
     "sourceLimit": "The organization has the most sources it may have.",
-    "validation": "Some entries are not valid. Check them and try again."
+    "validation": "Some entries are not valid. Check them and try again.",
+    "aiToolConflict": "A tool with this name exists already.",
+    "aiToolLimit": "The organization has the most AI tools it may have."
   },
   "Sources": {
     "metaTitle": "Sources",
@@ -452,6 +459,63 @@
       "opensInNewTab": " (opens in a new tab)"
     },
     "articlesNote": "Articles of this source"
+  },
+  "AiTools": {
+    "metaTitle": "AI tools",
+    "title": "AI tools",
+    "intro": "The AI tools your organization approves. Each card offers a link to them next to “Copy”. Without any tool, a card offers “Copy” only.",
+    "readOnly": "You can look at the list. Only administrators change it.",
+    "results": "List of AI tools",
+    "loading": "Loading the tools…",
+    "loadFailed": "The tools could not be loaded. Try again later.",
+    "retry": "Try again",
+    "empty": "No AI tool has been approved yet.",
+    "emptyAdmin": "No AI tool has been approved yet. Add the first one.",
+    "count": "{count} of {max} tools",
+    "full": "The list is full ({max} tools). Delete one to add another.",
+    "addressLabel": "Address",
+    "addressRefused": "This address cannot be used. Change it.",
+    "actions": {
+      "add": "Add a tool",
+      "edit": "Edit",
+      "delete": "Delete",
+      "actionOn": "{action}: {name}"
+    },
+    "form": {
+      "titleNew": "Add an AI tool",
+      "titleEdit": "Edit the AI tool",
+      "name": "Name",
+      "nameHint": "What people call it, up to {limit} characters.",
+      "url": "Address",
+      "urlHint": "Starts with https://. No user name, no password, no #, and a host name, not an IP address.",
+      "save": "Save",
+      "saving": "Saving…",
+      "cancel": "Cancel"
+    },
+    "fieldErrors": {
+      "nameMissing": "Enter a name.",
+      "nameInvalid": "The name must be plain text, without markup or invisible characters.",
+      "nameTooLong": "The name is too long.",
+      "urlMissing": "Enter an address.",
+      "urlInvalid": "This is not a valid address.",
+      "urlHttpsOnly": "The address must start with https://.",
+      "urlCredentials": "The address must not contain a user name or a password.",
+      "urlIp": "Use a host name, not an IP address.",
+      "urlLocal": "Use a name other than localhost: it is your own computer.",
+      "urlTooLong": "The address is too long."
+    },
+    "deleteDialog": {
+      "title": "Delete this AI tool?",
+      "body": "“{name}” will no longer be offered on the cards.",
+      "confirm": "Delete",
+      "cancel": "Cancel",
+      "deleting": "Deleting…"
+    },
+    "done": {
+      "created": "Added: {name}",
+      "updated": "Saved: {name}",
+      "deleted": "Deleted: {name}"
+    }
   },
   "Llm": {
     "metaTitle": "Model layer",

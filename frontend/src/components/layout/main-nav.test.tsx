@@ -150,4 +150,18 @@ describe("MainNav", () => {
     );
     expect(hrefs.includes("/llm")).toBe(seen);
   });
+
+  it.each([
+    ["admin", true],
+    ["editor", false],
+    ["member", false],
+  ])("shows the AI tools page to %s: %s", (role, seen) => {
+    sessionState = user(true, role);
+    show();
+    const hrefs = [...screen.getByRole("navigation").querySelectorAll("a")].map((link) =>
+      link.getAttribute("href"),
+    );
+    expect(hrefs.includes("/ai-tools")).toBe(seen);
+    if (seen) expect(screen.getByRole("link", { name: en.Nav.aiTools })).toBeDefined();
+  });
 });
