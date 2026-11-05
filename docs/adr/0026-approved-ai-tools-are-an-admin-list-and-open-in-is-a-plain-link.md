@@ -53,7 +53,7 @@ Option 1.
   purpose: an organization may run its own AI portal. The checks are made in the service, repeated
   by the table as a second line, and repeated again in the browser before a link is made. A name is
   plain text; markup or invisible characters are refused, not repaired.
-- A card shows, next to "Copy", a link "Open in <tool>" for each tool. It opens a **new tab**,
+- A card shows, next to "Copy", a link "Open in {tool}" for each tool. It opens a **new tab**,
   sends **no referrer** (`rel="noopener noreferrer"`) and carries **no part of the prompt, the
   article or the title**. The person copies the prompt first and pastes it there; a note on the
   card says so. The data note ("do not paste confidential data") stays on every card. With no tool
