@@ -61,6 +61,10 @@ _SOURCES_TEST = (
     "integration/test_sources_api.py::test_administrators_never_reach_another_organizations_sources"
 )
 
+_AI_TOOLS_TEST = (
+    "integration/test_ai_tools_api.py::test_administrators_never_reach_another_organizations_tools"
+)
+
 _ITEMS_TEST = (
     "integration/test_items_api.py::test_administrators_never_reach_another_organizations_items"
 )
@@ -87,6 +91,10 @@ _LLM_TEST = (
 )
 
 ROLE_MATRIX: dict[Route, Rule] = {
+    ("GET", "/api/ai-tools"): Rule(_ALL_ROLES, _AI_TOOLS_TEST),
+    ("POST", "/api/ai-tools"): Rule(_ADMIN_ONLY, _AI_TOOLS_TEST),
+    ("PATCH", "/api/ai-tools/{tool_id}"): Rule(_ADMIN_ONLY, _AI_TOOLS_TEST),
+    ("DELETE", "/api/ai-tools/{tool_id}"): Rule(_ADMIN_ONLY, _AI_TOOLS_TEST),
     ("GET", "/api/llm/status"): Rule(_ADMIN_ONLY, _LLM_TEST),
     ("POST", "/api/llm/key-test"): Rule(_ADMIN_ONLY, _LLM_TEST),
     ("GET", "/api/llm/key-test/{test_id}"): Rule(_ADMIN_ONLY, _LLM_TEST),

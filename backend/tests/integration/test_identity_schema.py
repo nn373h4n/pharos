@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 import pytest
 from alembic import command
+from alembic.script import ScriptDirectory
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
@@ -885,8 +886,16 @@ EXPECTED_TABLE_PRIVILEGES = {
         "item_insights",
         # Migration 0008: what people do with the cards (private to each person).
         "interactions",
+        # Migration 0010: the AI tools an administrator approves for "Open in" (M5-07).
+        "ai_tools",
     )
-} | {("sources", "r", "DELETE"), ("interactions", "r", "INSERT"), ("interactions", "r", "DELETE")}
+} | {
+    ("sources", "r", "DELETE"),
+    ("interactions", "r", "INSERT"),
+    ("interactions", "r", "DELETE"),
+    ("ai_tools", "r", "INSERT"),
+    ("ai_tools", "r", "DELETE"),
+}
 EXPECTED_COLUMN_PRIVILEGES = (
     {("organizations", c, "UPDATE") for c in ("name", "settings", "updated_at")}
     | {("departments", c, "INSERT") for c in ("org_id", "name")}
@@ -964,6 +973,7 @@ EXPECTED_COLUMN_PRIVILEGES = (
     }
     | {("items", c, "UPDATE") for c in ("status", "hold_reason", "reviewed_at")}
     | {("interactions", c, "UPDATE") for c in ("value",)}
+    | {("ai_tools", c, "UPDATE") for c in ("name", "url", "updated_at")}
     | {
         ("audit_logs", c, "INSERT")
         for c in (
@@ -1036,7 +1046,11 @@ async def test_downgrade_refuses_to_delete_data_unless_told_to(
         revision = (
             await connection.execute(text("SELECT version_num FROM alembic_version"))
         ).scalar_one()
-    assert remaining == 2 and revision == "0009"
+    # The refused downgrade rolled everything back: the database is still at the head it began at.
+    assert (
+        remaining == 2
+        and revision == ScriptDirectory.from_config(database.alembic).get_current_head()
+    )
 
     monkeypatch.setenv("PHAROS_ALLOW_DATA_LOSS", "yes")
     try:

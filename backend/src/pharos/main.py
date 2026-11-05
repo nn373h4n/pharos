@@ -15,6 +15,8 @@ from fastapi import FastAPI
 from redis.asyncio import Redis
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from pharos.aitools.router import router as ai_tools_router
+from pharos.aitools.service import AiToolService
 from pharos.cards.router import router as cards_router
 from pharos.cards.service import CardService
 from pharos.core.audit import AuditLog
@@ -158,6 +160,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             redis=redis,  # the broker's database: the trial fetch keeps its markers there
             queue=queue,
         )
+        app.state.ai_tools = AiToolService(audit=app.state.audit)
         app.state.llm_admin = ModelAdminService(
             audit=app.state.audit,
             clock=SystemClock(),
@@ -248,5 +251,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(cards_router, prefix=API_PREFIX)
     app.include_router(feeds_router, prefix=API_PREFIX)
     app.include_router(llm_admin_router, prefix=API_PREFIX)
+    app.include_router(ai_tools_router, prefix=API_PREFIX)
     app.include_router(oidc_router, prefix=API_PREFIX)
     return app

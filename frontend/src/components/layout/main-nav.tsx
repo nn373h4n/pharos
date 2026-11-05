@@ -7,8 +7,8 @@ import { Link, usePathname } from "@/i18n/navigation";
 import { cn } from "@/lib/utils";
 
 type Entry = {
-  href: "/" | "/items" | "/my-feeds" | "/sources" | "/llm";
-  label: "home" | "items" | "myFeeds" | "sources" | "llm";
+  href: "/" | "/items" | "/my-feeds" | "/sources" | "/llm" | "/ai-tools";
+  label: "home" | "items" | "myFeeds" | "sources" | "llm" | "aiTools";
   /** Only for administrators and editors. */
   reviewers?: boolean;
   /** Only for administrators. */
@@ -21,6 +21,7 @@ const ENTRIES: Entry[] = [
   { href: "/my-feeds", label: "myFeeds" },
   { href: "/sources", label: "sources", reviewers: true },
   { href: "/llm", label: "llm", admins: true },
+  { href: "/ai-tools", label: "aiTools", admins: true },
 ];
 
 /**

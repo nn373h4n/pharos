@@ -56,7 +56,11 @@
       "minutesLabel": "Neçə dəqiqə qənaət etdi (1-dən 480-ə)",
       "minutesSave": "Yaz",
       "minutesInvalid": "1-dən 480-ə qədər tam dəqiqə sayı daxil edin.",
-      "minutesDone": "Yazıldı. Təşəkkür edirik."
+      "minutesDone": "Yazıldı. Təşəkkür edirik.",
+      "openInTitle": "Təsdiqlənmiş süni intellekt alətində aç",
+      "openIn": "{tool} alətində aç",
+      "newTab": "(yeni sekmədə açılır)",
+      "openInNote": "Bu yalnız aləti açır. Əvvəl promptu kopyalayın və orada yapışdırın: o, sizin əvəzinizə göndərilmir."
     }
   },
   "Footer": {
@@ -188,7 +192,8 @@
     "items": "Məqalələr",
     "myFeeds": "Mənim feedlərim",
     "sources": "Mənbələr",
-    "llm": "Model"
+    "llm": "Model",
+    "aiTools": "Süni intellekt alətləri"
   },
   "Items": {
     "metaTitle": "Məqalələr",
@@ -272,7 +277,9 @@
     "generic": "Nəsə səhv getdi. Yenidən cəhd edin.",
     "sourceConflict": "Bu mənbə artıq mövcuddur.",
     "sourceLimit": "Təşkilat icazə verilən maksimum mənbə sayına çatıb.",
-    "validation": "Bəzi daxil edilənlər düzgün deyil. Yoxlayıb yenidən cəhd edin."
+    "validation": "Bəzi daxil edilənlər düzgün deyil. Yoxlayıb yenidən cəhd edin.",
+    "aiToolConflict": "Bu adda alət artıq var.",
+    "aiToolLimit": "Təşkilat icazə verilən maksimum alət sayına çatıb."
   },
   "Sources": {
     "metaTitle": "Mənbələr",
@@ -452,6 +459,63 @@
       "opensInNewTab": " (yeni tabda açılır)"
     },
     "articlesNote": "Bu mənbənin məqalələri"
+  },
+  "AiTools": {
+    "metaTitle": "Süni intellekt alətləri",
+    "title": "Süni intellekt alətləri",
+    "intro": "Təşkilatınızın təsdiqlədiyi süni intellekt alətləri. Hər kart “Kopyala” düyməsinin yanında onlara keçid təklif edir. Heç bir alət olmasa, kart yalnız “Kopyala” təklif edir.",
+    "readOnly": "Siyahıya baxa bilərsiniz. Onu yalnız administratorlar dəyişir.",
+    "results": "Alətlərin siyahısı",
+    "loading": "Alətlər yüklənir…",
+    "loadFailed": "Alətləri yükləmək mümkün olmadı. Bir az sonra yenidən cəhd edin.",
+    "retry": "Yenidən cəhd et",
+    "empty": "Hələ heç bir süni intellekt aləti təsdiqlənməyib.",
+    "emptyAdmin": "Hələ heç bir süni intellekt aləti təsdiqlənməyib. İlkini əlavə edin.",
+    "count": "{max} alətdən {count}-i",
+    "full": "Siyahı doludur ({max} alət). Başqasını əlavə etmək üçün birini silin.",
+    "addressLabel": "Ünvan",
+    "addressRefused": "Bu ünvandan istifadə etmək olmaz. Onu dəyişin.",
+    "actions": {
+      "add": "Alət əlavə et",
+      "edit": "Redaktə et",
+      "delete": "Sil",
+      "actionOn": "{action}: {name}"
+    },
+    "form": {
+      "titleNew": "Süni intellekt aləti əlavə et",
+      "titleEdit": "Süni intellekt alətini redaktə et",
+      "name": "Ad",
+      "nameHint": "İnsanların ona nə dediyi, ən çox {limit} simvol.",
+      "url": "Ünvan",
+      "urlHint": "https:// ilə başlayır. İstifadəçi adı, parol və # olmadan; IP ünvanı yox, host adı yazın.",
+      "save": "Yadda saxla",
+      "saving": "Yadda saxlanılır…",
+      "cancel": "Ləğv et"
+    },
+    "fieldErrors": {
+      "nameMissing": "Ad daxil edin.",
+      "nameInvalid": "Ad sadə mətn olmalıdır, işarələmə və görünməz simvollar olmadan.",
+      "nameTooLong": "Ad çox uzundur.",
+      "urlMissing": "Ünvan daxil edin.",
+      "urlInvalid": "Bu düzgün ünvan deyil.",
+      "urlHttpsOnly": "Ünvan https:// ilə başlamalıdır.",
+      "urlCredentials": "Ünvanda istifadəçi adı və ya parol olmamalıdır.",
+      "urlIp": "IP ünvanı yox, host adı yazın.",
+      "urlLocal": "localhost-dan başqa ad yazın: bu, sizin öz kompüterinizdir.",
+      "urlTooLong": "Ünvan çox uzundur."
+    },
+    "deleteDialog": {
+      "title": "Bu alət silinsin?",
+      "body": "“{name}” artıq kartlarda təklif olunmayacaq.",
+      "confirm": "Sil",
+      "cancel": "Ləğv et",
+      "deleting": "Silinir…"
+    },
+    "done": {
+      "created": "Əlavə olundu: {name}",
+      "updated": "Yadda saxlanıldı: {name}",
+      "deleted": "Silindi: {name}"
+    }
   },
   "Llm": {
     "metaTitle": "Model qatı",

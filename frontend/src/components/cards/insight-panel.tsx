@@ -4,6 +4,8 @@ import { useTranslations } from "next-intl";
 import { useEffect, useId, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ApiProblem } from "@/lib/api";
+import { approvedTools, toolHref, type AiTool } from "@/lib/ai-tools";
+import { hostOf } from "@/lib/links";
 import {
   getInsight,
   INSIGHT_GIVE_UP_MS,
@@ -39,8 +41,26 @@ export function InsightPanel({ itemId, title, csrf }: Props) {
   const [minutes, setMinutes] = useState("");
   const [minutesInvalid, setMinutesInvalid] = useState(false);
   const [minutesDone, setMinutesDone] = useState(false);
+  const [tools, setTools] = useState<AiTool[]>([]);
   const promptField = useRef<HTMLTextAreaElement>(null);
   const ids = { prompt: useId(), minutes: useId(), error: useId(), note: useId() };
+
+  // The approved tools are asked for when there is a prompt to open them with. A failure (or no
+  // tool) leaves "Copy" alone: the links are an addition, never a condition.
+  const ready = state.phase === "ready";
+  useEffect(() => {
+    if (!ready) return;
+    let current = true;
+    approvedTools().then(
+      (found) => {
+        if (current) setTools(found);
+      },
+      () => {},
+    );
+    return () => {
+      current = false;
+    };
+  }, [ready]);
 
   useEffect(() => {
     let current = true;
@@ -162,6 +182,7 @@ export function InsightPanel({ itemId, title, csrf }: Props) {
             >
               {t("insight.copy")}
             </Button>
+            <OpenIn tools={tools} />
           </section>
           <section id={ids.note} aria-label={t("insight.noteTitle")}>
             <h4 className="font-semibold">{t("insight.noteTitle")}</h4>
@@ -223,6 +244,43 @@ export function InsightPanel({ itemId, title, csrf }: Props) {
       <p role="status" className="mt-2 min-h-5">
         {notice}
       </p>
+    </div>
+  );
+}
+
+/**
+ * A link to each approved AI tool, next to "Copy". The prompt is NOT put in the address: a person
+ * copies it first and pastes it there, so it never reaches the tool's server logs or the browser
+ * history from here. The link opens a new tab and sends no referrer. A tool whose address does not
+ * pass `toolHref` is left out.
+ */
+function OpenIn({ tools }: { tools: AiTool[] }) {
+  const t = useTranslations("Cards.insight");
+  const links = tools.flatMap((tool) => {
+    const href = toolHref(tool.url);
+    return href ? [{ tool, href }] : [];
+  });
+  if (links.length === 0) return null;
+  return (
+    <div className="mt-3">
+      <p className="text-sm font-medium">{t("openInTitle")}</p>
+      <ul className="mt-1 flex flex-wrap gap-2">
+        {links.map(({ tool, href }) => (
+          <li key={tool.id}>
+            <a
+              href={href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center rounded-md border border-border px-3 py-1 text-sm underline-offset-4 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+            >
+              {t("openIn", { tool: tool.name })}
+              <span className="ml-2 break-all text-xs text-muted-foreground">{hostOf(href)}</span>
+              <span className="sr-only"> {t("newTab")}</span>
+            </a>
+          </li>
+        ))}
+      </ul>
+      <p className="mt-1 text-sm text-muted-foreground">{t("openInNote")}</p>
     </div>
   );
 }
