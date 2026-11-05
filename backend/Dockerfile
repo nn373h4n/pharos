@@ -16,6 +16,15 @@ RUN uv sync --frozen --no-dev --package pharos
 
 FROM python:3.12-slim
 
+# The base image ships apt 3.0.3, which has a published HIGH vulnerability (CVE-2026-109518: an
+# on-path attacker while apt downloads packages; fixed in 3.0.4). Nothing in this image runs apt
+# after the build and the containers have no route to a package mirror, but the scanner is right to
+# report it until the base image is rebuilt. Take the fixed apt now; remove this layer when
+# python:3.12-slim ships apt 3.0.4 or later. Only the two packages that carry the fix are upgraded.
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends --only-upgrade apt libapt-pkg7.0 \
+    && rm -rf /var/lib/apt/lists/*
+
 RUN useradd --system --uid 10001 --no-create-home --shell /usr/sbin/nologin pharos
 WORKDIR /app
 COPY --from=build /app /app
