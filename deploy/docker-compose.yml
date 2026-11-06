@@ -427,7 +427,7 @@ services:
     mem_limit: 1g
 
   redis:
-    image: redis:8.10.0-alpine
+    image: redis:8.10.2-alpine
     <<: *hardening
     user: redis
     command: ["sh", "/redis/start.sh"]
