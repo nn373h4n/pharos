@@ -132,6 +132,7 @@ services:
 | `web` | app | no | Next.js standalone server. |
 | `api` | app, data, egress | no | FastAPI. Calls out to the identity provider (from M2). |
 | `worker` | data, egress, llm | no | Celery. Calls out to content sources and LLM providers (from M3, M4); `llm` holds the local model server when its profile runs, and is empty otherwise. |
+| `operator` | data | no | Not started by `up` (profile `operator`). Runs one retention or deletion command as the database owner and exits; see [Retention and deleting a person](#retention-and-deleting-a-person). |
 | `beat` | data | no | Celery scheduler. Talks to Redis only, so it has no route to the internet. |
 | `migrate` | data | no | One-shot job, see below. |
 | `postgres`, `redis` | data | no | No route to the internet. |
@@ -358,6 +359,54 @@ chain read with the root secret, a real dump that is cut short (that `backup.sh`
 only with a stand-in for Docker; the rehearsal changes a dump with a checksum, which `restore.sh`
 refuses), and the time to copy a dump off the host.
 
+## Retention and deleting a person
+
+Three commands do this work. They run as the **database owner** in the `operator` service, which is
+never started by `up` and holds only the owner's address, the organization, the API's Redis user
+(to end sessions) and the retention defaults; it has no root key, no identity-provider secret, no
+application database password and no model key. The application and the worker cannot delete any of
+this. Each command only reports unless `--confirm` is given, and the owner role ignores row-level
+security, so each command names the organization (`PHAROS_ORG_SLUG`) and filters by it.
+
+```bash
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml --profile operator run --rm operator python -m pharos.cli delete-person --username ayla
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml --profile operator run --rm operator python -m pharos.cli delete-person --username ayla --confirm
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml --profile operator run --rm operator python -m pharos.cli prune-audit --confirm
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml --profile operator run --rm operator python -m pharos.cli fold-interactions --confirm
+```
+
+Nothing runs them by itself. Put the last two in the host's scheduler (for example monthly in
+cron) or run them by hand; the first dry run shows what would happen.
+
+| Data | Default | Setting | Floor |
+| --- | --- | --- | --- |
+| Audit log | 365 days | `PHAROS_AUDIT_RETENTION_DAYS` (or `--days`) | 30 days |
+| What people did with the cards | 12 months | `PHAROS_INTERACTIONS_RETENTION_MONTHS` (or `--months`) | 3 months |
+| Container logs | 5 files of 10 MB per service | `PHAROS_LOG_MAX_FILE`, `PHAROS_LOG_MAX_SIZE` | none |
+
+- `prune-audit` deletes entries strictly older than the retention and leaves an `audit.pruned`
+  entry with the count.
+- `fold-interactions` first writes monthly counts, then deletes the interactions of the months
+  before the cutoff (the first day of the month `--months` back, in UTC), all in one transaction. A
+  month and kind with fewer than five people is not kept; one person's minutes count at most 120
+  a month and the total is rounded to a multiple of 30 (the daily summary caps each row instead). If a count for a
+  month already exists (after a restore, for example) it stops and deletes nothing. A monthly count
+  next to the daily summary can let someone work out a smaller group by subtraction; the pilot's
+  report should publish one or the other.
+- `delete-person` removes the person's profile, password, interactions, personal feeds and the
+  articles of those feeds; clears their username from the target of earlier audit entries and the
+  address hash from their own entries and from refused sign-ins that named them; clears the `created_by` marks on sources and tools; writes
+  one `user.deleted` entry with counts and no name; and ends their sessions. It refuses the last
+  active administrator. A person who signs in through the identity provider is refused unless
+  `--allow-reprovision`: their account is made again, empty, at the next sign-in, so remove or
+  disable them at the provider first.
+
+What stays after a deletion, and is yours to handle: the person's identifier in audit entries (it
+leads to nobody and goes with the audit retention); backups made before the deletion (they hold the
+person until they expire or are destroyed); container logs until they rotate; session records in
+Redis if Redis was down (they expire by themselves and cannot be used, the account is gone); and
+any counts that never held an identity.
+
 ## Checking a running installation
 
 `/api/readyz` is deliberately not served through the proxy. Ask the API container:
@@ -394,7 +443,7 @@ volumes and ports, and removes it afterwards.
 - No HSTS header yet. The web application sets a strict Content-Security-Policy with a nonce on every page (ADR-0019); leave it to the application and do not add a second policy in a proxy, since the browser would apply both. `style-src` still allows inline styles.
 - Redis and database passwords are environment variables, so a user who can run `docker inspect`
   on the host can read them. Treat access to the Docker socket as root access.
-- Log retention, log shipping and monitoring are not configured.
+- Container logs are rotated by size (see above), not by days; log shipping and monitoring are not configured.
 
 ## Troubleshooting
 
