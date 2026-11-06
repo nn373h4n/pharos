@@ -66,6 +66,14 @@ x-hardening: &hardening
   cap_drop: [ALL]
   security_opt: ["no-new-privileges:true"]
   pids_limit: 256
+  # Container logs rotate by size, so that no service can fill the disk (Docker keeps them for
+  # ever by default). The size is a bound, not a number of days: how long a line is kept
+  # depends on how much a service writes (docs/DEPLOYMENT.md, "Retention").
+  logging:
+    driver: json-file
+    options:
+      max-size: ${PHAROS_LOG_MAX_SIZE:-10m}
+      max-file: "${PHAROS_LOG_MAX_FILE:-5}"
 
 x-backend-build: &backend-build
   context: ..
@@ -129,6 +137,9 @@ x-backend-env: &backend-env
   PHAROS_OIDC_SCOPES: ${PHAROS_OIDC_SCOPES:-openid profile email}
   PHAROS_OIDC_PROVIDER_NAME: ${PHAROS_OIDC_PROVIDER_NAME:-Single sign-on}
   PHAROS_OIDC_DEPARTMENT_CLAIM: ${PHAROS_OIDC_DEPARTMENT_CLAIM:-department}
+  # Retention (ADR-0025): the defaults of the operator commands, not an automatic job.
+  PHAROS_AUDIT_RETENTION_DAYS: ${PHAROS_AUDIT_RETENTION_DAYS:-365}
+  PHAROS_INTERACTIONS_RETENTION_MONTHS: ${PHAROS_INTERACTIONS_RETENTION_MONTHS:-12}
 
 services:
   caddy:
@@ -357,6 +368,35 @@ services:
     environment:
       PHAROS_MIGRATE_ON_START: ${PHAROS_MIGRATE_ON_START:-true}
       PHAROS_MIGRATIONS_DATABASE_URL: postgresql+asyncpg://pharos_owner:${PHAROS_OWNER_PASSWORD:?set PHAROS_OWNER_PASSWORD}@postgres:5432/pharos
+    tmpfs: [/tmp]
+    networks: [data]
+    depends_on:
+      postgres: { condition: service_healthy }
+    mem_limit: 512m
+
+  # Operator tasks that need the table owner (ADR-0025): delete one person, prune the audit log,
+  # fold old interactions into monthly counts. It is never started by `up` (the profile), has no
+  # port and no route out, and holds the owner's password only while one
+  # command runs: `docker compose --profile operator run --rm operator python -m pharos.cli ...`.
+  # Nothing else (not the API, the worker or the scheduler) can delete what it deletes.
+  operator:
+    build: *backend-build
+    image: pharos-backend:${PHAROS_IMAGE_TAG:-local}
+    <<: *hardening
+    restart: "no"
+    profiles: [operator]
+    command: ["python", "-m", "pharos.cli", "--help"]
+    # Its own, narrow environment (OperatorSettings): the owner's address, the organization, the
+    # API's Redis user (to end sessions) and the retention defaults. Not the root key, the identity
+    # provider's secret, the application's database password or a model key.
+    environment:
+      PHAROS_ENVIRONMENT: ${PHAROS_ENVIRONMENT:-production}
+      PHAROS_LOG_LEVEL: ${PHAROS_LOG_LEVEL:-INFO}
+      PHAROS_ORG_SLUG: ${PHAROS_ORG_SLUG:-default}
+      PHAROS_MIGRATIONS_DATABASE_URL: postgresql+asyncpg://pharos_owner:${PHAROS_OWNER_PASSWORD:?set PHAROS_OWNER_PASSWORD}@postgres:5432/pharos
+      PHAROS_REDIS_URL: redis://pharos_api:${PHAROS_REDIS_PASSWORD:?set PHAROS_REDIS_PASSWORD}@redis:6379/0
+      PHAROS_AUDIT_RETENTION_DAYS: ${PHAROS_AUDIT_RETENTION_DAYS:-365}
+      PHAROS_INTERACTIONS_RETENTION_MONTHS: ${PHAROS_INTERACTIONS_RETENTION_MONTHS:-12}
     tmpfs: [/tmp]
     networks: [data]
     depends_on:

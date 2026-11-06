@@ -29,10 +29,12 @@ from redis.asyncio import Redis
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
+from pharos import retention
 from pharos.core.audit import ActorType, AuditAction, AuditLog, Outcome
 from pharos.core.clock import SystemClock
-from pharos.core.config import MigrationSettings, Settings, get_settings
+from pharos.core.config import MigrationSettings, OperatorSettings, Settings, get_settings
 from pharos.core.db import create_engine, create_session_factory
+from pharos.core.errors import DependencyUnavailable
 from pharos.core.organization import OrganizationNotConfigured, OrganizationResolver
 from pharos.core.ratelimit import LoginThrottle, RateLimiter
 from pharos.core.redis import url_for_database
@@ -135,7 +137,7 @@ class _Context:
 
 
 @asynccontextmanager
-async def _redis(settings: Settings) -> AsyncIterator[Redis]:
+async def _redis(settings: Settings | OperatorSettings) -> AsyncIterator[Redis]:
     redis = Redis.from_url(
         url_for_database(settings.redis_url.get_secret_value(), settings.session_redis_db),
         socket_timeout=2,
@@ -272,6 +274,103 @@ async def import_sources(
         await context.close()
 
 
+async def delete_person(
+    settings: OperatorSettings,
+    *,
+    username: str | None,
+    user_id: uuid.UUID | None,
+    confirm: bool,
+    allow_reprovision: bool,
+) -> str:
+    """Remove one person (or say what removing them would do), then end their sessions."""
+    try:
+        result = await retention.delete_person(
+            settings.migrations_database_url.get_secret_value(),
+            org_slug=settings.org_slug,
+            user_id=user_id,
+            username=_username(username) if username is not None else None,
+            confirm=confirm,
+            allow_reprovision=allow_reprovision,
+        )
+    except retention.RetentionError as error:
+        raise CliError(str(error)) from None
+    facts = (
+        f"{result.interactions} interaction(s), {result.personal_feeds} personal feed(s), "
+        f"{result.personal_articles} personal article(s), their profile and password"
+    )
+    cleared = (
+        f"{result.audit_rows_cleared} audit entr(ies) lose the username or the address hash, "
+        f"{result.marks_cleared} created-by mark(s) are cleared"
+    )
+    if not result.deleted:
+        return (
+            f"would delete person {result.user_id}: {facts}; {cleared}. The identifier stays in "
+            "the audit entries until their retention ends. Nothing was changed; run it again "
+            "with --confirm to delete."
+        )
+    try:
+        async with _redis(settings) as redis:
+            ended = await SessionStore(
+                redis,
+                SystemClock(),
+                idle_seconds=settings.session_idle_seconds,
+                absolute_seconds=settings.session_absolute_seconds,
+            ).revoke_user(result.user_id)
+            if result.username:
+                await LoginThrottle(RateLimiter(redis, SystemClock())).unlock(result.username)
+        note = f" Ended {ended} session(s)."
+    except (DependencyUnavailable, OSError) as error:
+        note = (
+            " The sessions could not be ended (the session store is unreachable: "
+            f"{type(error).__name__}); the account no longer exists, so they cannot be used, "
+            "and the records expire by themselves."
+        )
+    return f"deleted person {result.user_id}: {facts}; {cleared}.{note}"
+
+
+async def prune_audit(settings: OperatorSettings, *, days: int | None, confirm: bool) -> str:
+    days = days if days is not None else settings.audit_retention_days
+    try:
+        result = await retention.prune_audit(
+            settings.migrations_database_url.get_secret_value(),
+            org_slug=settings.org_slug,
+            days=days,
+            confirm=confirm,
+        )
+    except retention.RetentionError as error:
+        raise CliError(str(error)) from None
+    if not result.deleted:
+        return (
+            f"would delete {result.rows} audit entr(ies) older than {days} days "
+            f"(before {result.cutoff:%Y-%m-%d %H:%M} UTC). Nothing was changed; "
+            "run it again with --confirm to delete."
+        )
+    return f"deleted {result.rows} audit entr(ies) older than {days} days"
+
+
+async def fold_interactions(
+    settings: OperatorSettings, *, months: int | None, confirm: bool
+) -> str:
+    months = months if months is not None else settings.interactions_retention_months
+    try:
+        result = await retention.fold_interactions(
+            settings.migrations_database_url.get_secret_value(),
+            org_slug=settings.org_slug,
+            months=months,
+            confirm=confirm,
+        )
+    except retention.RetentionError as error:
+        raise CliError(str(error)) from None
+    facts = (
+        f"{result.rows} interaction(s) before {result.cutoff:%Y-%m-%d}: "
+        f"{result.months_kept} monthly count(s) kept, {result.months_dropped} dropped "
+        "(fewer than five people)"
+    )
+    if not result.deleted:
+        return f"would fold {facts}. Nothing was changed; run it again with --confirm."
+    return f"folded {facts}"
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m pharos.cli", description=__doc__.split("\n")[0]
@@ -295,6 +394,35 @@ def build_parser() -> argparse.ArgumentParser:
     unlock_parser = commands.add_parser("unlock", help="clear sign-in delays for an account")
     unlock_parser.add_argument("--username", required=True)
 
+    person = commands.add_parser(
+        "delete-person",
+        help="delete one person: profile, password, their interactions and own feeds; clears "
+        "their username and address hashes from the audit log (needs the operator service)",
+    )
+    who = person.add_mutually_exclusive_group(required=True)
+    who.add_argument("--username", help="a local account")
+    who.add_argument("--user-id", type=uuid.UUID, help="any account, by identifier")
+    person.add_argument("--confirm", action="store_true", help="really delete (default: show)")
+    person.add_argument(
+        "--allow-reprovision",
+        action="store_true",
+        help="allow deleting a person who signs in through the identity provider (their account "
+        "is made again, empty, at the next sign-in: remove them there first)",
+    )
+
+    prune = commands.add_parser(
+        "prune-audit", help="delete audit entries past the retention (needs the operator service)"
+    )
+    prune.add_argument("--days", type=int, help="default: PHAROS_AUDIT_RETENTION_DAYS")
+    prune.add_argument("--confirm", action="store_true", help="really delete (default: count)")
+
+    fold = commands.add_parser(
+        "fold-interactions",
+        help="keep monthly counts and delete older interactions (needs the operator service)",
+    )
+    fold.add_argument("--months", type=int, help="default: PHAROS_INTERACTIONS_RETENTION_MONTHS")
+    fold.add_argument("--confirm", action="store_true", help="really fold (default: count)")
+
     sources = commands.add_parser(
         "import-sources",
         help="add the starter catalogue of sources to the organization, switched off",
@@ -309,6 +437,19 @@ async def run(args: argparse.Namespace) -> str:
         owner_url = MigrationSettings().migrations_database_url.get_secret_value()  # type: ignore[call-arg]
         org_id = await create_organization(owner_url, slug=args.slug, name=args.name)
         return f"organization {args.slug!r} created ({org_id})"
+    if args.command in {"delete-person", "prune-audit", "fold-interactions"}:
+        operator = OperatorSettings()  # type: ignore[call-arg]
+        if args.command == "delete-person":
+            return await delete_person(
+                operator,
+                username=args.username,
+                user_id=args.user_id,
+                confirm=args.confirm,
+                allow_reprovision=args.allow_reprovision,
+            )
+        if args.command == "prune-audit":
+            return await prune_audit(operator, days=args.days, confirm=args.confirm)
+        return await fold_interactions(operator, months=args.months, confirm=args.confirm)
     settings = get_settings()
     if args.command == "create-admin":
         password = read_password(from_stdin=args.password_stdin, username=args.username)

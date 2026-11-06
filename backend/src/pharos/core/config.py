@@ -14,6 +14,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 DEFAULT_ALEMBIC_DIR = Path(__file__).resolve().parents[3] / "alembic"
 
 _EMBEDDING_MODEL_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/@-]{0,99}")
+# The shortest retention the settings AND the operator commands accept (ADR-0025): a typing
+# mistake such as `--days 1` must not be able to wipe the trail.
+MIN_AUDIT_RETENTION_DAYS = 30
+MIN_INTERACTIONS_RETENTION_MONTHS = 3
 _PLACEHOLDER_PASSWORDS = {"changeme", "password", "secret", "pharos", "postgres", "example", "test"}
 
 
@@ -121,6 +125,13 @@ class Settings(BaseSettings):
     embedding_calls_per_minute: int = Field(default=120, ge=1, le=10_000)
     # What a remote embedding costs, in millionths of a dollar per token (zero for a local model).
     embedding_price_micro_usd: int = Field(default=1, ge=0, le=100_000)
+    # Retention (ADR-0025). Enforced by the operator commands `prune-audit` and
+    # `fold-interactions` (docs/DEPLOYMENT.md), not by the application process, which has
+    # no right to delete either. The floors keep a typing mistake from erasing the trail.
+    audit_retention_days: int = Field(default=365, ge=MIN_AUDIT_RETENTION_DAYS, le=3650)
+    interactions_retention_months: int = Field(
+        default=12, ge=MIN_INTERACTIONS_RETENTION_MONTHS, le=120
+    )
     # What a model costs, in millionths of a dollar per token (the same number as dollars per
     # million tokens), for the budget. Conservative on purpose; raise them for a dearer model,
     # or the day's cap is reached later than it should be.
@@ -429,6 +440,38 @@ class MigrationSettings(BaseSettings):
     )
 
     migrations_database_url: SecretStr
+
+
+class OperatorSettings(BaseSettings):
+    """What the operator commands that need the table owner use (M5-09, ADR-0025): the owner's
+    database address, the organization, the session store and the retention defaults.
+
+    Deliberately NOT `Settings`: the `operator` service holds the owner's password, so it must not
+    also hold the root key, the identity provider's secret, the application's database password or
+    a model key. Compose gives it exactly these names and nothing else."""
+
+    model_config = SettingsConfigDict(
+        env_prefix="PHAROS_", extra="ignore", hide_input_in_errors=True
+    )
+
+    migrations_database_url: SecretStr
+    org_slug: str = "default"
+    # The Redis user of the API: sessions live there, and a deleted person's are ended through it.
+    redis_url: SecretStr = SecretStr("redis://localhost:6379/0")
+    session_redis_db: int = Field(default=1, ge=0, le=15)
+    session_idle_seconds: int = Field(default=8 * 3600, ge=60)
+    session_absolute_seconds: int = Field(default=24 * 3600, ge=60)
+    audit_retention_days: int = Field(default=365, ge=MIN_AUDIT_RETENTION_DAYS, le=3650)
+    interactions_retention_months: int = Field(
+        default=12, ge=MIN_INTERACTIONS_RETENTION_MONTHS, le=120
+    )
+
+    @field_validator("org_slug")
+    @classmethod
+    def _slug(cls, value: str) -> str:
+        if not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", value):
+            raise ValueError("org_slug may contain lower-case letters, digits and hyphens only")
+        return value
 
 
 @lru_cache

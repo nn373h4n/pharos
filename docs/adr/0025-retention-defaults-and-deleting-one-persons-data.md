@@ -45,6 +45,24 @@ Option 1.
   one contentless audit entry, other people's data untouched); a migration may be needed and is
   asked for first; the runbook gets a retention and deletion section.
 
+## Implementation (M5-09)
+
+What was built, where it differs from the text above. The status stays `Proposed`.
+
+- The three jobs are operator commands (`delete-person`, `prune-audit`, `fold-interactions`), run by
+  the operator or the host's scheduler, not Celery tasks: nothing the application or the worker can
+  reach holds the owner role. They run in an `operator` Compose service (profile `operator`, never
+  started by `up`) with its own narrow settings.
+- Docker log rotation is by size (`max-size`, `max-file`), not by days; the 30-day application log
+  default is not enforced by Pharos.
+- Interactions are folded into a new table, `interaction_counts_monthly` (migration 0011), kept
+  only for a month and kind with at least five people, with the daily summary's cap and rounding.
+- Floors: audit retention at least 30 days, interactions at least 3 months, so a typing mistake
+  cannot wipe the trail.
+- Deleting a person also clears their username from the target of earlier audit entries and the
+  address hash of their entries; their identifier stays in the log until it is pruned. A person
+  from the identity provider needs `--allow-reprovision`.
+
 ## References
 
 - `docs/ARCHITECTURE_PROPOSAL.md` question 10; ADR-0018 (interactions are private and counted in

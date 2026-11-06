@@ -164,4 +164,4 @@ Health: `/healthz` (process) and `/readyz` (database, application role, Redis, w
 
 ## 9. Not covered yet
 
-Log retention defaults (ADR-0025, `Proposed`), embedding model choice (ADR-0007) and the load-test profile are open; see `docs/ARCHITECTURE_PROPOSAL.md` §16. Backup and restore are scripts (`scripts/backup.sh`, `scripts/restore.sh`, ADR-0022, `Proposed`) with a rehearsal on a throwaway installation; see `docs/DEPLOYMENT.md`.
+Retention and deleting a person are operator commands run as the database owner in the on-demand `operator` service (ADR-0025, `Proposed`; see `docs/DEPLOYMENT.md`). Embedding model choice (ADR-0007) and the load-test profile are open; see `docs/ARCHITECTURE_PROPOSAL.md` §16. Backup and restore are scripts (`scripts/backup.sh`, `scripts/restore.sh`, ADR-0022, `Proposed`) with a rehearsal on a throwaway installation; see `docs/DEPLOYMENT.md`.

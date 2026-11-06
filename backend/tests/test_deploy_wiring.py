@@ -340,3 +340,105 @@ def test_nothing_waits_for_the_local_model_so_the_default_stack_starts_without_i
 def test_the_local_model_is_documented_for_operators() -> None:
     example = (DEPLOY / ".env.example").read_text()
     assert "ollama" in example and "PHAROS_OLLAMA_MEMORY" in example
+
+
+# --- retention and the operator service (M5-09, ADR-0025) ---------------------------------------
+
+
+def test_the_operator_service_is_started_on_demand_and_holds_what_it_needs_only_then() -> None:
+    block = service_block("operator")
+    assert re.search(r"^    profiles: \[operator\]$", block, re.MULTILINE)  # never by `up`
+    assert re.search(r'^    restart: "no"$', block, re.MULTILINE)
+    assert "ports:" not in block
+    assert re.search(r"^    networks: \[data\]$", block, re.MULTILINE)  # no route out
+    assert "<<: *hardening" in block
+    assert "PHAROS_MIGRATIONS_DATABASE_URL" in block  # the owner: that is what it is for
+
+
+def test_the_operator_service_has_its_own_narrow_environment() -> None:
+    """It holds the owner's password, so it must not also hold the root key, the identity
+    provider's secret, the application's database password, a model key or a GitHub token."""
+    block = service_block("operator")
+    assert "<<: *backend-env" not in block
+    assert "<<: *worker-env" not in block
+    names = set(re.findall(r"^      (PHAROS_\w+):", block, re.MULTILINE))
+    assert names == {
+        "PHAROS_ENVIRONMENT",
+        "PHAROS_LOG_LEVEL",
+        "PHAROS_ORG_SLUG",
+        "PHAROS_MIGRATIONS_DATABASE_URL",
+        "PHAROS_REDIS_URL",
+        "PHAROS_AUDIT_RETENTION_DAYS",
+        "PHAROS_INTERACTIONS_RETENTION_MONTHS",
+    }
+    for forbidden in (
+        "SECRET_KEY",
+        "OIDC",
+        "DATABASE_URL: postgresql+asyncpg://pharos_app",
+        "LLM",
+        "GITHUB",
+    ):
+        assert forbidden not in block.replace("PHAROS_MIGRATIONS_DATABASE_URL", ""), forbidden
+    # The Redis user is the API's (it must end sessions), never the worker's.
+    assert "pharos_api:" in block and "pharos_worker" not in block
+
+
+def test_only_the_migration_job_and_the_operator_service_hold_the_owners_credentials() -> None:
+    compose = (DEPLOY / "docker-compose.yml").read_text()
+    holders = {
+        name
+        for name in re.findall(r"^  (\w[\w-]*):\n", compose, re.MULTILINE)
+        if "PHAROS_MIGRATIONS_DATABASE_URL" in service_block(name)
+    }
+    assert holders == {"migrate", "operator"}
+    # And not through a shared environment anchor either.
+    assert "PHAROS_MIGRATIONS_DATABASE_URL" not in environment_block("x-backend-env")
+    assert "PHAROS_MIGRATIONS_DATABASE_URL" not in worker_environment_block()
+
+
+def test_every_service_with_the_hardening_block_rotates_its_logs() -> None:
+    compose = (DEPLOY / "docker-compose.yml").read_text()
+    anchor = re.search(
+        r"^x-hardening: &hardening\n(.*?)(?=\n\S)", compose, re.DOTALL | re.MULTILINE
+    )
+    assert anchor
+    assert "driver: json-file" in anchor.group(1)
+    assert re.search(r"max-size: \$\{PHAROS_LOG_MAX_SIZE:-\d+[kmg]\}", anchor.group(1))
+    assert re.search(r'max-file: "\$\{PHAROS_LOG_MAX_FILE:-\d+\}"', anchor.group(1))
+
+
+def test_the_log_and_retention_settings_are_documented_for_operators() -> None:
+    example = (DEPLOY / ".env.example").read_text()
+    for name in (
+        "PHAROS_AUDIT_RETENTION_DAYS",
+        "PHAROS_INTERACTIONS_RETENTION_MONTHS",
+        "PHAROS_LOG_MAX_SIZE",
+        "PHAROS_LOG_MAX_FILE",
+    ):
+        assert re.search(rf"^{name}=", example, re.MULTILINE), name
+
+
+def test_the_retention_defaults_are_the_documented_ones_and_cannot_be_set_to_nothing() -> None:
+    from pharos.core.config import Settings
+
+    found = Settings(environment="test")  # type: ignore[arg-type]
+    assert found.audit_retention_days == 365 and found.interactions_retention_months == 12
+    for field, value in (
+        ("audit_retention_days", 29),
+        ("audit_retention_days", 0),
+        ("interactions_retention_months", 2),
+        ("interactions_retention_months", 0),
+    ):
+        with pytest.raises(ValueError, match=field):
+            Settings(environment="test", **{field: value})  # type: ignore[arg-type]
+
+
+def test_the_operator_settings_need_only_the_owner_url_and_refuse_a_short_retention() -> None:
+    from pharos.core.config import OperatorSettings
+
+    only = {"migrations_database_url": "postgresql+asyncpg://o:p@h/d"}
+    found = OperatorSettings(**only)  # type: ignore[arg-type]
+    assert found.audit_retention_days == 365 and found.interactions_retention_months == 12
+    for field, value in (("audit_retention_days", 29), ("interactions_retention_months", 2)):
+        with pytest.raises(ValueError, match=field):
+            OperatorSettings(**only, **{field: value})  # type: ignore[arg-type]
