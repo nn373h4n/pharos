@@ -35,9 +35,18 @@ logger = logging.getLogger(__name__)
 MAX_RESPONSE_BYTES = 1_048_576
 DISCOVERY_TTL_SECONDS = 3600
 JWKS_REFETCH_MIN_INTERVAL_SECONDS = 60
+# A signing key the provider has withdrawn must stop being trusted: the set is read again after
+# this long even if no unknown key id has asked for it (F-17).
+JWKS_TTL_SECONDS = 3600
+# After a failed read of the keys, later callers fail at once for this long instead of each trying.
+JWKS_FAILURE_MEMO_SECONDS = 5.0
 TIMEOUT = httpx.Timeout(10.0, connect=5.0)
+# The httpx timeouts apply to each connect, read and write, so a server that drips a byte every few
+# seconds could hold a call open for a long time. One deadline covers the whole call (F-17).
+DEADLINE_SECONDS = 15.0
 # The department is a nicety: do not hold a sign-in (and its database connection) for long.
 GRAPH_TIMEOUT = httpx.Timeout(4.0, connect=2.0)
+GRAPH_DEADLINE_SECONDS = 6.0
 GRAPH_ME_URL = "https://graph.microsoft.com/v1.0/me?$select=department,userType"
 
 
@@ -141,6 +150,7 @@ class IdpClient:
         self._discovery_at = 0.0
         self._keys: KeySet | None = None
         self._keys_at = 0.0
+        self._keys_failed_at: float | None = None
         self._lock = asyncio.Lock()
 
     @property
@@ -182,23 +192,27 @@ class IdpClient:
         auth: Any = None,
         bearer: str | None = None,
         time_limit: httpx.Timeout = TIMEOUT,
+        deadline: float = DEADLINE_SECONDS,
     ) -> dict[str, Any]:
         try:
-            async with self._http.stream(
-                method,
-                url,
-                data=data,
-                auth=auth,
-                # No compression: a small compressed answer could inflate far past the size limit
-                # before it is counted.
-                headers={
-                    "Accept": "application/json",
-                    "Accept-Encoding": "identity",
-                    **({"Authorization": f"Bearer {bearer}"} if bearer else {}),
-                },
-                follow_redirects=False,
-                timeout=time_limit,
-            ) as response:
+            async with (
+                asyncio.timeout(deadline),
+                self._http.stream(
+                    method,
+                    url,
+                    data=data,
+                    auth=auth,
+                    # No compression: a small compressed answer could inflate far past the size
+                    # limit before it is counted.
+                    headers={
+                        "Accept": "application/json",
+                        "Accept-Encoding": "identity",
+                        **({"Authorization": f"Bearer {bearer}"} if bearer else {}),
+                    },
+                    follow_redirects=False,
+                    timeout=time_limit,
+                ) as response,
+            ):
                 if 300 <= response.status_code < 400:
                     raise IdpUnavailable("the provider answered with a redirect")
                 body = bytearray()
@@ -207,7 +221,7 @@ class IdpClient:
                     if len(body) > MAX_RESPONSE_BYTES:
                         raise IdpUnavailable("the provider's answer is too large")
                 status = response.status_code
-        except (httpx.HTTPError, httpx.InvalidURL, httpx.StreamError) as error:
+        except (httpx.HTTPError, httpx.InvalidURL, httpx.StreamError, TimeoutError) as error:
             # Only the class goes into the log: httpx messages can contain URLs with parameters.
             logger.warning(
                 "identity provider request failed", extra={"error": type(error).__name__}
@@ -243,25 +257,37 @@ class IdpClient:
             self._discovery_at = now
             return self._discovery
 
+    def _keys_fresh(self, now: float, refresh: bool) -> bool:
+        """Whether the cached keys may be used as they are: they exist, are younger than the TTL,
+        and nobody asked for a new copy (a request for one is honoured once a minute)."""
+        if self._keys is None or now - self._keys_at >= JWKS_TTL_SECONDS:
+            return False
+        return not (refresh and now - self._keys_at >= JWKS_REFETCH_MIN_INTERVAL_SECONDS)
+
     async def key_set(self, *, refresh: bool = False) -> KeySet:
         """The provider's signing keys. `refresh` asks for a new copy, at most once a minute."""
         now = self._clock.now().timestamp()
-        if self._keys is not None and not (
-            refresh and now - self._keys_at >= JWKS_REFETCH_MIN_INTERVAL_SECONDS
-        ):
-            return self._keys
+        if self._keys_fresh(now, refresh):
+            return self._keys  # type: ignore[return-value]
         discovery = await self.discovery()
         async with self._lock:
-            if self._keys is not None and not (
-                refresh and now - self._keys_at >= JWKS_REFETCH_MIN_INTERVAL_SECONDS
+            if self._keys_fresh(now, refresh):
+                return self._keys  # type: ignore[return-value]  # refreshed while this one waited
+            if (
+                self._keys_failed_at is not None
+                and self._clock.now().timestamp() - self._keys_failed_at < JWKS_FAILURE_MEMO_SECONDS
             ):
-                return self._keys  # another caller refreshed them while this one waited
+                # A fetch has just failed: do not make every waiting sign-in wait out its own
+                # deadline one after the other while the provider is down.
+                raise IdpUnavailable("the provider's keys were not available a moment ago")
             try:
                 document = await self._fetch_json("GET", discovery.jwks_uri)
                 self._keys = KeySet.import_key_set(document)  # type: ignore[arg-type]
             except IdpRejected as error:
+                self._keys_failed_at = self._clock.now().timestamp()
                 raise IdpUnavailable("the provider refused to give its keys") from error
             except Exception as error:  # a malformed key set must not be taken for a success
+                self._keys_failed_at = self._clock.now().timestamp()
                 if isinstance(error, IdpUnavailable):
                     raise
                 raise IdpUnavailable("the provider's key set is not usable") from None
@@ -310,7 +336,11 @@ class IdpClient:
         """
         try:
             profile = await self._fetch_json(
-                "GET", GRAPH_ME_URL, bearer=access_token, time_limit=GRAPH_TIMEOUT
+                "GET",
+                GRAPH_ME_URL,
+                bearer=access_token,
+                time_limit=GRAPH_TIMEOUT,
+                deadline=GRAPH_DEADLINE_SECONDS,
             )
         except (IdpUnavailable, IdpRejected):
             return GraphProfile(None, None)

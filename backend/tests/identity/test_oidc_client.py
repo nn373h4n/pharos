@@ -480,3 +480,124 @@ async def test_the_iss_parameter_requirement_follows_the_provider() -> None:
     assert (await make(idp).discovery()).iss_parameter_required is False
     idp.discovery = {"authorization_response_iss_parameter_supported": True}
     assert (await make(idp).discovery()).iss_parameter_required is True
+
+
+# --- signing keys expire, and a call has one deadline (F-17) -------------------------------------
+
+
+def key_fetches(idp: FakeIdp) -> int:
+    return len([r for r in idp.requests if r[1].endswith("/certs")])
+
+
+@pytest.mark.anyio
+async def test_the_signing_keys_are_read_again_after_an_hour_without_anyone_asking() -> None:
+    """A key the provider has withdrawn must not stay trusted until the next restart."""
+    idp, clock = FakeIdp(), FrozenClock()
+    client = make(idp, clock)
+    await client.key_set()
+    clock.advance(minutes=59)
+    await client.key_set()
+    assert key_fetches(idp) == 1  # the control: inside the hour the copy is used
+    clock.advance(minutes=2)
+    await client.key_set()
+    assert key_fetches(idp) == 2
+
+
+@pytest.mark.anyio
+async def test_a_refresh_is_still_limited_to_once_a_minute_and_the_ttl_restarts_from_it() -> None:
+    idp, clock = FakeIdp(), FrozenClock()
+    client = make(idp, clock)
+    await client.key_set()
+    clock.advance(seconds=30)
+    await client.key_set(refresh=True)
+    assert key_fetches(idp) == 1  # too soon
+    clock.advance(seconds=31)
+    await client.key_set(refresh=True)
+    assert key_fetches(idp) == 2
+    clock.advance(minutes=59)
+    await client.key_set()
+    assert key_fetches(idp) == 2  # an hour counts from the last read, not from the first
+
+
+@pytest.mark.anyio
+async def test_when_the_keys_cannot_be_read_after_the_hour_the_old_ones_are_not_used() -> None:
+    idp, clock = FakeIdp(), FrozenClock()
+    client = make(idp, clock)
+    await client.key_set()
+    clock.advance(minutes=61)
+
+    def broken(*_: object, **__: object) -> object:
+        raise httpx.ConnectError("down")
+
+    client._given_http.stream = broken  # type: ignore[union-attr,method-assign]
+    with pytest.raises(IdpUnavailable):
+        await client.key_set()
+
+
+@pytest.mark.anyio
+async def test_one_deadline_covers_a_server_that_answers_slowly_in_small_pieces() -> None:
+    import asyncio
+
+    idp = FakeIdp()
+
+    class Dripping(httpx.AsyncByteStream):
+        async def __aiter__(self):  # type: ignore[no-untyped-def]
+            for _ in range(40):  # each piece is well inside any per-read timeout
+                await asyncio.sleep(0.02)
+                yield b" "
+            yield b"{}"
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, stream=Dripping(), headers={"content-type": "application/json"})
+
+    client = IdpClient(
+        httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        FrozenClock(),
+        issuer=idp.issuer,
+        client_id=CLIENT_ID,
+        client_secret=CLIENT_SECRET,
+        allow_http=False,
+    )
+    started = asyncio.get_running_loop().time()
+    with pytest.raises(IdpUnavailable):
+        await client._fetch_json("GET", idp.issuer + "/x", deadline=0.1)
+    assert asyncio.get_running_loop().time() - started < 0.6  # stopped by the deadline
+    # The control: the same server, given time, is read to its end.
+    assert await client._fetch_json("GET", idp.issuer + "/x", deadline=5.0) == {}
+
+
+def test_the_deadlines_are_finite_and_longer_than_a_single_timeout() -> None:
+    from pharos.identity.oidc import client as module
+
+    assert module.TIMEOUT.read is not None
+    assert module.TIMEOUT.read < module.DEADLINE_SECONDS <= 30
+    assert module.GRAPH_TIMEOUT.read is not None
+    assert module.GRAPH_TIMEOUT.read < module.GRAPH_DEADLINE_SECONDS < module.DEADLINE_SECONDS
+
+
+@pytest.mark.anyio
+async def test_after_a_failed_read_of_keys_the_next_callers_fail_at_once_for_a_few_seconds() -> (
+    None
+):
+    idp, clock = FakeIdp(), FrozenClock()
+    client = make(idp, clock)
+    await client.discovery()
+    calls: list[int] = []
+    original = client._given_http.stream  # type: ignore[union-attr]
+
+    def broken(*args: object, **kwargs: object) -> object:
+        calls.append(1)
+        raise httpx.ConnectError("down")
+
+    client._given_http.stream = broken  # type: ignore[union-attr,method-assign]
+    with pytest.raises(IdpUnavailable):
+        await client.key_set()
+    assert len(calls) == 1
+    clock.advance(seconds=2)
+    with pytest.raises(IdpUnavailable):
+        await client.key_set()
+    assert len(calls) == 1  # failed at once, without asking the provider again
+    clock.advance(seconds=4)  # six seconds since the failure
+    client._given_http.stream = original  # type: ignore[union-attr,method-assign]
+    assert await client.key_set() is not None  # the provider is back and is asked again
+    assert key_fetches(idp) == 1

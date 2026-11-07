@@ -154,6 +154,7 @@ services:
     environment:
       PHAROS_DOMAIN: ${PHAROS_DOMAIN:-localhost}
       PHAROS_TLS: ${PHAROS_TLS:-internal}
+      PHAROS_HSTS_MAX_AGE: ${PHAROS_HSTS_MAX_AGE:-31536000}
       PHAROS_HTTP_PORT: ${PHAROS_HTTP_PORT:-80}
       PHAROS_HTTPS_PORT: ${PHAROS_HTTPS_PORT:-443}
     volumes:

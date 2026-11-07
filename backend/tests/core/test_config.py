@@ -579,3 +579,34 @@ class TestModelLayerSettings:
             environment="test", llm_provider="anthropic", llm_api_key="KEY-SENTINEL"
         )  # type: ignore[arg-type]
         assert "KEY-SENTINEL" not in repr(settings) and "KEY-SENTINEL" not in str(settings)
+
+
+# --- the settings cannot be changed after start-up (F-20) -------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("fetch_test_allowed_networks", "10.0.0.0/8"),
+        ("fetch_test_allowed_ports", "8080"),
+        ("environment", "test"),
+        ("public_url", "https://elsewhere.example"),
+    ],
+)
+def test_the_settings_are_frozen_once_built(field: str, value: str) -> None:
+    settings = production()
+    with pytest.raises(ValidationError, match="frozen"):
+        setattr(settings, field, value)
+
+
+def test_a_changed_copy_is_a_new_object_and_leaves_the_original_alone() -> None:
+    settings = production()
+    other = settings.model_copy(update={"log_level": "DEBUG"})
+    assert other.log_level == "DEBUG" and settings.log_level == "INFO"
+
+
+def test_the_entra_values_are_still_derived_in_a_frozen_model() -> None:
+    settings = production(**ENTRA)
+    assert settings.oidc_issuer is not None and settings.oidc_issuer.endswith("/v2.0")
+    assert settings.oidc_provider_name == "Microsoft"
+    assert settings.oidc_department_claim is None

@@ -73,6 +73,7 @@ Every error is an [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) document wi
 | `item_state` | 409 | The article is not in a state that allows this step (for example approving a hidden article). |
 | `rate_limited` | 429 | Too many attempts. `Retry-After` gives the seconds to wait; waiting is enough, there is no lockout. |
 | `validation_failed` | 422 | The body, query or path is not valid. `errors` lists `{loc, type}` for each problem, never the value. |
+| `payload_too_large` | 413 | The request body is over 1 MiB (declared or sent). Checked before routing and sessions; the connection is closed. |
 | `organization_not_configured` | 503 | The organization of this installation has not been created yet. |
 | `service_unavailable` | 503 | A required dependency is down (for example Redis for sessions). Sign-in fails closed. |
 | `internal_error` | 500 | Unexpected failure. The cause is in the logs under the `request_id`. |

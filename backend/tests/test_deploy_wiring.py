@@ -442,3 +442,46 @@ def test_the_operator_settings_need_only_the_owner_url_and_refuse_a_short_retent
     for field, value in (("audit_retention_days", 29), ("interactions_retention_months", 2)):
         with pytest.raises(ValueError, match=field):
             OperatorSettings(**only, **{field: value})  # type: ignore[arg-type]
+
+
+# --- HSTS and the body limit at the proxy (M5-04) --------------------------------------------
+
+
+def caddyfile_site() -> str:
+    text = (DEPLOY / "Caddyfile").read_text()
+    match = re.search(
+        r"^\{\$PHAROS_DOMAIN:localhost\} \{\n(.*?)^\}", text, re.DOTALL | re.MULTILINE
+    )
+    assert match, "the main site block was not found"
+    return match.group(1)
+
+
+def test_caddy_sends_hsts_with_a_year_by_default_and_no_domain_wide_promises() -> None:
+    site = caddyfile_site()
+    line = re.search(r'Strict-Transport-Security "([^"]+)"', site)
+    assert line, "no Strict-Transport-Security header"
+    assert line.group(1) == "max-age={$PHAROS_HSTS_MAX_AGE:31536000}"
+    directives = "\n".join(text for text in site.splitlines() if not text.strip().startswith("#"))
+    assert "includeSubDomains" not in directives and "preload" not in directives
+
+
+def test_caddy_refuses_request_bodies_over_one_mebibyte_for_the_whole_site() -> None:
+    site = caddyfile_site()
+    block = re.search(r"^\trequest_body \{\n\t\tmax_size (\S+)\n\t\}", site, re.MULTILINE)
+    assert block and block.group(1) == "1MiB"
+    # It sits at the top level of the site, before the handlers, so it covers /api and the web app.
+    assert site.index("request_body") < site.index("handle /api/*")
+    from pharos.core.bodylimit import MAX_BODY_BYTES
+
+    assert MAX_BODY_BYTES == 1024 * 1024  # the API's own limit is the same size
+
+
+def test_the_hsts_setting_reaches_caddy_and_is_documented() -> None:
+    assert re.search(
+        r"PHAROS_HSTS_MAX_AGE: \$\{PHAROS_HSTS_MAX_AGE:-31536000\}", service_block("caddy")
+    )
+    for other in ("api", "worker", "web"):
+        assert "PHAROS_HSTS_MAX_AGE" not in service_block(other), other
+    assert re.search(r"^PHAROS_HSTS_MAX_AGE=\d+$", (DEPLOY / ".env.example").read_text(), re.M)
+    doc = (DEPLOY.parent / "docs" / "DEPLOYMENT.md").read_text()
+    assert "`PHAROS_HSTS_MAX_AGE`" in doc

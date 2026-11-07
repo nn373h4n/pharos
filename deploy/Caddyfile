@@ -40,9 +40,18 @@ http://:{$PHAROS_HTTP_PORT:80} {
 
 	encode zstd gzip
 
+	# Every request body is small JSON. The API refuses the same size too (BodyLimitMiddleware).
+	request_body {
+		max_size 1MiB
+	}
+
 	header {
 		-Server
 		X-Content-Type-Options "nosniff"
+		# Tell browsers to use HTTPS only. A year by default; PHAROS_HSTS_MAX_AGE=0 clears it again
+		# (for a host that was served over HTTPS by mistake). No includeSubDomains and no preload:
+		# those are decisions for the whole domain, not for this installation.
+		Strict-Transport-Security "max-age={$PHAROS_HSTS_MAX_AGE:31536000}"
 	}
 
 	# /readyz opens database and Redis connections and needs no login, so it is not served to the

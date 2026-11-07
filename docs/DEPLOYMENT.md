@@ -74,6 +74,7 @@ git-ignored and written with mode 600.
 | `PHAROS_REDIS_WORKER_PASSWORD` | Redis user `pharos_worker` (worker and scheduler): it can use only the Celery queue and `pharos:worker:*`, not sessions, rate limits or sign-in state. Must differ from the API password. |
 | `PHAROS_DOMAIN` | Host name users open. |
 | `PHAROS_TLS` | `internal`, an e-mail address (automatic certificate for a public domain), or paths of your own certificate and key. |
+| `PHAROS_HSTS_MAX_AGE` | Seconds a browser keeps using HTTPS for this host (`Strict-Transport-Security`; default one year, `0` clears it). No `includeSubDomains` and no `preload`: those are decisions for the whole domain. Set `0` first on a host that was served over HTTPS by mistake, and on a development machine that uses `localhost` (HSTS applies to every port of a host, so other local servers would be forced to HTTPS). |
 | `PHAROS_HTTP_PORT`, `PHAROS_HTTPS_PORT` | Host ports. |
 | `PHAROS_PUBLIC_URL` | The address users open, as an origin (`https://pharos.example`, with `:PORT` if not 443). Production requires https. Redirects and the CSRF Origin check use it, never the Host header. |
 | `PHAROS_GITHUB_TOKEN` | Optional. A fine-grained GitHub token with no scopes and no repository access; it only raises the API rate limit for GitHub release sources from 60 to 5000 requests an hour. Only the worker receives it (not the API and not the scheduler), it is sent to `api.github.com` over HTTPS and nowhere else, and a production API process refuses to start with it. Without it GitHub sources still work, within the lower limit. |
@@ -440,7 +441,7 @@ volumes and ports, and removes it afterwards.
   scheme in redirects matter from M2 on.
 - `caddy` is the only process that runs as root inside its container, with all capabilities
   dropped except `NET_BIND_SERVICE`. A container escape would therefore give root on the host.
-- No HSTS header yet. The web application sets a strict Content-Security-Policy with a nonce on every page (ADR-0019); leave it to the application and do not add a second policy in a proxy, since the browser would apply both. `style-src` still allows inline styles.
+- Caddy sends `Strict-Transport-Security` (see `PHAROS_HSTS_MAX_AGE`) and refuses request bodies over 1 MiB; the API refuses the same size too. The web application sets a strict Content-Security-Policy with a nonce on every page (ADR-0019); leave it to the application and do not add a second policy in a proxy, since the browser would apply both. `style-src` still allows inline styles.
 - Redis and database passwords are environment variables, so a user who can run `docker inspect`
   on the host can read them. Treat access to the Docker socket as root access.
 - Container logs are rotated by size (see above), not by days; log shipping and monitoring are not configured.
