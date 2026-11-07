@@ -31,8 +31,17 @@ test.setTimeout(300_000);
 const NAME = "LLM news";
 const WHERE = `name = '${NAME}'`;
 const FIRST_TITLE = "AI at work: reconciling ledgers";
+const PROMPT_MARKER = "PROMPTMARKER-5d2b8e0a47c1936f";
+// What the stack's test provider answers (backend/src/pharos/llm/provider.py): fixed sentences, so a
+// search can look for them. Each is proven to exist in the database before the logs are searched.
+const ANSWERS = [
+  "A demo summary of the article.",
+  "A short way to use this at work.",
+  "Summarise this in three bullets: [paste a short harmless text]",
+];
 const stories: Story[] = [
-  { id: "m4-one", title: FIRST_TITLE },
+  // The excerpt carries a marker: it is part of what the model is sent, so it must never reach a log.
+  { id: "m4-one", title: FIRST_TITLE, summary: PROMPT_MARKER },
   { id: "m4-two", title: "AI at work: drafting a job advert" },
   { id: "m4-off", title: "OFFTOPIC football results" },
 ];
@@ -249,7 +258,7 @@ test("the key stays in the worker: not in the API, a response, the database or a
     expect(response.ok(), path).toBe(true);
     expect(await response.text(), path).not.toContain(CANARY);
   }
-  for (const table of ["llm_usage", "audit_log", "items", "item_insights", "interactions"]) {
+  for (const table of ["llm_usage", "audit_logs", "items", "item_insights", "interactions"]) {
     expect(
       sqlNumber(`SELECT count(*) FROM ${table} t WHERE t::text LIKE '%STACKCANARY%'`),
       table,
@@ -258,6 +267,44 @@ test("the key stays in the worker: not in the API, a response, the database or a
   const logs = compose("logs --no-color");
   expect(logs.length).toBeGreaterThan(1000); // the search covers real logs
   expect(logs).not.toContain(CANARY);
+});
+
+test("no prompt and no answer of the model is in any log or in the audit log", async () => {
+  // Positive controls: what is searched for exists. The article text the model was sent is in the
+  // database (with the marker in its excerpt), and the model's answers are stored as the product's
+  // own data; so a log that did hold them would be found.
+  expect(
+    sqlNumber(
+      `SELECT count(*) FROM items WHERE title = '${FIRST_TITLE}' AND excerpt LIKE '%${PROMPT_MARKER}%'`,
+    ),
+  ).toBe(1);
+  expect(
+    sqlNumber(`SELECT count(*) FROM items WHERE summary = '${ANSWERS[0]}'`),
+  ).toBeGreaterThanOrEqual(1);
+  expect(
+    sqlNumber(`SELECT count(*) FROM item_insights WHERE summary = '${ANSWERS[1]}'`),
+  ).toBeGreaterThanOrEqual(1);
+  const logs = compose("logs --no-color");
+  expect(logs.length).toBeGreaterThan(1000);
+  // The search reads real application logs: a line the application writes at start-up is in them.
+  expect(logs).toContain('"message": "started"');
+
+  expect(logs).not.toContain(PROMPT_MARKER);
+  expect(logs).not.toContain(FIRST_TITLE);
+  for (const answer of ANSWERS) {
+    expect(logs, answer).not.toContain(answer);
+  }
+  // The audit log and the usage table hold identifiers and numbers, never the text either way.
+  for (const table of ["audit_logs", "llm_usage"]) {
+    for (const text of [PROMPT_MARKER, FIRST_TITLE, ...ANSWERS]) {
+      expect(
+        sqlNumber(
+          `SELECT count(*) FROM ${table} t WHERE t::text LIKE '%${text.replace(/'/g, "''")}%'`,
+        ),
+        `${table}: ${text}`,
+      ).toBe(0);
+    }
+  }
 });
 
 test.afterAll(() => {
