@@ -16,13 +16,15 @@ RUN uv sync --frozen --no-dev --package pharos
 
 FROM python:3.12-slim
 
-# The base image ships apt 3.0.3, which has a published HIGH vulnerability (CVE-2026-109518: an
-# on-path attacker while apt downloads packages; fixed in 3.0.4). Nothing in this image runs apt
-# after the build and the containers have no route to a package mirror, but the scanner is right to
-# report it until the base image is rebuilt. Take the fixed apt now; remove this layer when
-# python:3.12-slim ships apt 3.0.4 or later. Only the two packages that carry the fix are upgraded.
+# The base image ships two packages with published HIGH vulnerabilities: apt 3.0.3 (CVE-2026-109518:
+# an on-path attacker while apt downloads packages; fixed in 3.0.4) and zlib1g 1:1.3.dfsg+really1.3.1-1+b1
+# (CVE-2026-85091, a heap buffer overflow in gz_vacate(); CVE-2026-76844; fixed in 1:1.3.dfsg+really1.3.1-1+deb13u1). Nothing in this
+# image runs apt after the build and the containers have no route to a package mirror, but the
+# scanner is right to report them until the base image is rebuilt. Take the fixed packages now;
+# remove this layer when python:3.12-slim ships apt 3.0.4 and the fixed zlib1g. Only the packages
+# that carry a fix are upgraded.
 RUN apt-get update \
-    && apt-get install --yes --no-install-recommends --only-upgrade apt libapt-pkg7.0 \
+    && apt-get install --yes --no-install-recommends --only-upgrade apt libapt-pkg7.0 zlib1g \
     && rm -rf /var/lib/apt/lists/*
 
 RUN useradd --system --uid 10001 --no-create-home --shell /usr/sbin/nologin pharos
