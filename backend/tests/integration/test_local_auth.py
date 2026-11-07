@@ -763,5 +763,7 @@ async def test_a_password_session_of_a_member_ends_when_the_mode_is_tightened(
     member = await make_user(stack, role="member")
     await login(stack, member)
     assert (await stack.client.get("/api/me")).status_code == 200
-    stack.app.state.settings.local_login = "break-glass"  # as after changing PHAROS_LOCAL_LOGIN
+    # As after changing PHAROS_LOCAL_LOGIN (the settings are frozen: the app gets a changed copy).
+    settings = stack.app.state.settings
+    stack.app.state.settings = settings.model_copy(update={"local_login": "break-glass"})
     assert (await stack.client.get("/api/me")).status_code == 401

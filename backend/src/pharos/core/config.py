@@ -4,7 +4,7 @@ import ipaddress
 import re
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal, Self
+from typing import Any, Literal, Self
 from urllib.parse import urlsplit
 
 from pydantic import Field, SecretStr, field_validator, model_validator
@@ -55,8 +55,10 @@ class Settings(BaseSettings):
 
     # A wrong value must never be echoed: a validation error is logged at start-up, and the value
     # may be a password or a token that was pasted in the wrong shape.
+    # Frozen after start-up (F-20): the test-only network allowance and every other safeguard are
+    # read once, so nothing can widen them at run time by assigning to a field.
     model_config = SettingsConfigDict(
-        env_prefix="PHAROS_", extra="ignore", hide_input_in_errors=True
+        env_prefix="PHAROS_", extra="ignore", hide_input_in_errors=True, frozen=True
     )
 
     environment: Literal["development", "test", "production"] = "production"
@@ -257,13 +259,19 @@ class Settings(BaseSettings):
             raise ValueError("oidc_issuer does not match entra_tenant_id; leave it unset")
         if self.oidc_client_id is None:
             raise ValueError("oidc_client_id is required with oidc_preset=entra")
-        self.entra_tenant_id = tenant
-        self.oidc_issuer = issuer
+        # The model is frozen, so the values the preset derives are written once, here, while it
+        # is still being built.
+        derived: dict[str, Any] = {
+            "entra_tenant_id": tenant,
+            "oidc_issuer": issuer,
+            "oidc_department_claim": None,  # Entra does not put it in the ID token
+        }
         if self.oidc_scopes == _DEFAULT_SCOPES:
-            self.oidc_scopes = f"{_DEFAULT_SCOPES} User.Read"  # User.Read: department from Graph
+            derived["oidc_scopes"] = f"{_DEFAULT_SCOPES} User.Read"  # department from Graph
         if self.oidc_provider_name == _DEFAULT_PROVIDER_NAME:  # Compose passes the default along
-            self.oidc_provider_name = "Microsoft"
-        self.oidc_department_claim = None  # Entra does not put it in the ID token
+            derived["oidc_provider_name"] = "Microsoft"
+        for name, value in derived.items():
+            object.__setattr__(self, name, value)
         return self
 
     @property

@@ -22,13 +22,17 @@ contract enforces it); code that fetches uses this class.
 """
 
 import asyncio
+import ipaddress
 import logging
 import re
+import socket
 import ssl
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from enum import StrEnum
+from functools import partial
 from typing import Protocol
 from urllib.parse import urljoin, urlsplit
 
@@ -43,6 +47,14 @@ MAX_BYTES = 2 * 1024 * 1024
 DEADLINE_SECONDS = 20.0
 MAX_RETRY_AFTER = 7 * 24 * 3600
 CONNECT_TIMEOUT_SECONDS = 5.0
+# A name server that never answers must not tie up a thread for good (F-20): each lookup waits at
+# most this long, and lookups run on a small pool of their own so they cannot use up the threads
+# the rest of the process (database drivers, file reads) shares.
+RESOLVE_TIMEOUT_SECONDS = 5.0
+DNS_THREADS = 4
+OWN_ADDRESSES_TTL_SECONDS = 60.0
+# After a failed lookup of the own name, try again this soon (not after a whole minute).
+OWN_ADDRESSES_RETRY_SECONDS = 10.0
 MAX_REDIRECTS = 3
 ALLOWED_PORTS = {"http": 80, "https": 443}
 REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
@@ -107,12 +119,30 @@ class Resolver(Protocol):
     async def resolve(self, host: str, port: int) -> list[str]: ...
 
 
+_dns_executor: ThreadPoolExecutor | None = None
+
+
+def _dns_pool() -> ThreadPoolExecutor:
+    global _dns_executor
+    if _dns_executor is None:
+        _dns_executor = ThreadPoolExecutor(max_workers=DNS_THREADS, thread_name_prefix="pharos-dns")
+    return _dns_executor
+
+
 class SystemResolver:
+    def __init__(self, *, timeout: float = RESOLVE_TIMEOUT_SECONDS) -> None:
+        self._timeout = timeout
+
     async def resolve(self, host: str, port: int) -> list[str]:
         loop = asyncio.get_running_loop()
+        lookup = loop.run_in_executor(
+            _dns_pool(), partial(socket.getaddrinfo, host, port, type=socket.SOCK_STREAM)
+        )
         try:
-            infos = await loop.getaddrinfo(host, port, type=1)  # SOCK_STREAM
-        except OSError as error:
+            # The caller stops waiting after the timeout; a lookup that never returns keeps one of
+            # the few DNS threads, not one of the process's general ones.
+            infos = await asyncio.wait_for(lookup, self._timeout)
+        except (OSError, TimeoutError) as error:
             raise httpcore.ConnectError(f"cannot resolve {host}") from error
         addresses: list[str] = []
         for info in infos:
@@ -122,15 +152,90 @@ class SystemResolver:
         return addresses
 
 
+def _canonical(address: str) -> str:
+    """One spelling per address: an IPv4 address written as IPv4-mapped IPv6 is the IPv4 one."""
+    ip = ipaddress.ip_address(address)
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+        return str(ip.ipv4_mapped)
+    return str(ip)
+
+
+class OwnAddresses:
+    """The addresses that this installation's own public name resolves to (F-20).
+
+    Refusing the name is not enough: another name, or a record the attacker controls, can point at
+    the same machine. The lookup is repeated after a minute; if it fails the last answer is kept
+    and the lookup is tried again after ten seconds. With no answer yet the check is empty (the name
+    check and the address policy still apply) rather than stopping every fetch of the installation
+    because its own name is not in DNS. One instance is shared by the whole process (see
+    `_shared_own`), so the last answer survives from one task to the next."""
+
+    def __init__(
+        self,
+        resolver: Resolver,
+        hosts: Iterable[str],
+        *,
+        ttl: float = OWN_ADDRESSES_TTL_SECONDS,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self._resolver = resolver
+        self._hosts = tuple(hosts)
+        self._ttl = ttl
+        self._clock = clock
+        self._known: frozenset[str] = frozenset()
+        self._at: float | None = None
+
+    async def get(self) -> frozenset[str]:
+        now = self._clock()
+        if self._at is not None and now - self._at < self._ttl:
+            return self._known
+        found: set[str] = set()
+        failed = False
+        for host in self._hosts:
+            try:
+                for address in await self._resolver.resolve(host, 443):
+                    found.add(_canonical(address))
+            except (httpcore.ConnectError, ValueError):
+                failed = True
+        if failed and not found:
+            logger.warning("the own public name could not be resolved; keeping the last answer")
+            self._at = now - self._ttl + OWN_ADDRESSES_RETRY_SECONDS  # try again soon
+            return self._known
+        self._known = frozenset(found)
+        self._at = now
+        return self._known
+
+
+_system_resolver: SystemResolver | None = None
+_shared_own: dict[tuple[str, ...], OwnAddresses] = {}
+
+
+def _process_wide_own(hosts: Iterable[str]) -> tuple[SystemResolver, OwnAddresses]:
+    """The real resolver and one `OwnAddresses` per set of names for the whole process: each task
+    builds its own client, but they all ask the same question and may share the answer."""
+    global _system_resolver
+    if _system_resolver is None:
+        _system_resolver = SystemResolver()
+    key = tuple(sorted(hosts))
+    if key not in _shared_own:
+        _shared_own[key] = OwnAddresses(_system_resolver, key)
+    return _system_resolver, _shared_own[key]
+
+
 class _PinnedBackend(httpcore.AsyncNetworkBackend):
     """Resolves, validates every address, and connects to a validated one: one step, no gap."""
 
     def __init__(
-        self, inner: httpcore.AsyncNetworkBackend, resolver: Resolver, policy: AddressPolicy
+        self,
+        inner: httpcore.AsyncNetworkBackend,
+        resolver: Resolver,
+        policy: AddressPolicy,
+        own: OwnAddresses | None = None,
     ) -> None:
         self._inner = inner
         self._resolver = resolver
         self._policy = policy
+        self._own = own
 
     async def connect_tcp(
         self,
@@ -148,6 +253,10 @@ class _PinnedBackend(httpcore.AsyncNetworkBackend):
         reason = self._policy.violations(addresses)
         if reason is not None:
             raise _Blocked(reason)
+        if self._own is not None:
+            own = await self._own.get()
+            if any(_canonical(a) in own for a in addresses):
+                raise _Blocked("own_address")
         last: Exception | None = None
         for address in addresses:
             try:
@@ -236,6 +345,7 @@ class SafeHttpClient:
         resolver: Resolver | None = None,
         backend: httpcore.AsyncNetworkBackend | None = None,
         blocked_hosts: frozenset[str] = frozenset(),
+        own_hosts: frozenset[str] = frozenset(),
         extra_ports: frozenset[int] = frozenset(),
         max_bytes: int = MAX_BYTES,
         deadline_seconds: float = DEADLINE_SECONDS,
@@ -249,9 +359,15 @@ class SafeHttpClient:
         self._max_bytes = max_bytes
         self._deadline = deadline_seconds
         self._max_redirects = max_redirects
-        pinned = _PinnedBackend(
-            backend or httpcore.AnyIOBackend(), resolver or SystemResolver(), policy
-        )
+        own: OwnAddresses | None = None
+        if resolver is None:
+            the_resolver: Resolver = SystemResolver()
+            if own_hosts:
+                the_resolver, own = _process_wide_own(own_hosts)
+        else:  # tests give their own resolver; nothing is shared with other clients then
+            the_resolver = resolver
+            own = OwnAddresses(resolver, sorted(own_hosts)) if own_hosts else None
+        pinned = _PinnedBackend(backend or httpcore.AnyIOBackend(), the_resolver, policy, own)
         self._client = httpx.AsyncClient(
             transport=_Transport(pinned, httpx.create_ssl_context(verify=True)),
             follow_redirects=False,
@@ -267,6 +383,7 @@ class SafeHttpClient:
         return cls(
             policy,
             blocked_hosts=frozenset({own} if own else ()),
+            own_hosts=frozenset({own} if own else ()),
             extra_ports=frozenset(settings.fetch_test_allowed_ports_list),
             **overrides,  # type: ignore[arg-type]
         )

@@ -26,6 +26,7 @@ class ErrorCode(StrEnum):
     NOT_FOUND = "not_found"
     METHOD_NOT_ALLOWED = "method_not_allowed"
     VALIDATION_FAILED = "validation_failed"
+    PAYLOAD_TOO_LARGE = "payload_too_large"
     CSRF_FAILED = "csrf_failed"
     RATE_LIMITED = "rate_limited"
     INVALID_CREDENTIALS = "invalid_credentials"
@@ -49,6 +50,7 @@ _TITLES = {
     ErrorCode.NOT_FOUND: "Not found",
     ErrorCode.METHOD_NOT_ALLOWED: "Method not allowed",
     ErrorCode.VALIDATION_FAILED: "The request is not valid",
+    ErrorCode.PAYLOAD_TOO_LARGE: "The request is too large",
     ErrorCode.CSRF_FAILED: "The request was refused",
     ErrorCode.RATE_LIMITED: "Too many attempts",
     ErrorCode.INVALID_CREDENTIALS: "Sign-in failed",

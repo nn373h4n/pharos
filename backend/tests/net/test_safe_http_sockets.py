@@ -55,6 +55,8 @@ def client_for(port: int, **options: object) -> SafeHttpClient:
         environment="test",
         fetch_test_allowed_networks="127.0.0.1/32",
         fetch_test_allowed_ports=str(port),
+        # Not the loopback name the default would be: this installation's own address is refused.
+        public_url="https://192.0.2.1",
     )
     return SafeHttpClient.from_settings(settings, **options)
 

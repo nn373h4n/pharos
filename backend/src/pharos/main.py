@@ -20,6 +20,7 @@ from pharos.aitools.service import AiToolService
 from pharos.cards.router import router as cards_router
 from pharos.cards.service import CardService
 from pharos.core.audit import AuditLog
+from pharos.core.bodylimit import BodyLimitMiddleware
 from pharos.core.clock import SystemClock
 from pharos.core.config import Settings, get_settings
 from pharos.core.csrf import CsrfMiddleware, SessionCookie
@@ -240,6 +241,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         key=app.state.csrf_key,
         cookie=cookie,
     )
+    app.add_middleware(BodyLimitMiddleware)  # outside the CSRF check, inside the request id
     app.add_middleware(RequestIdMiddleware)
     app.include_router(health_router, prefix=API_PREFIX)
     app.include_router(identity_router, prefix=API_PREFIX)
