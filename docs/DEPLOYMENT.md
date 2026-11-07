@@ -408,6 +408,37 @@ person until they expire or are destroyed); container logs until they rotate; se
 Redis if Redis was down (they expire by themselves and cannot be used, the account is gone); and
 any counts that never held an identity.
 
+## Load test (`make loadtest`)
+
+`make loadtest` builds a throwaway copy of the stack (own project name, volumes and ports, removed
+at the end), fills it with synthetic data (30,000 articles, 300 people; the articles are invented,
+six in ten sit in clusters of about three), opens one single-sign-on session for each person and
+runs k6 (a digest-pinned container) against the Home feed through Caddy: 50 virtual users for
+10 minutes, each reading the first and the second page and then pausing one second. It prints the
+numbers **with the hardware** and a verdict on each target of decision D5 (feed p95 under 400 ms,
+under 1% failed requests). Settings: `LOAD_VUS`, `LOAD_DURATION`, `LOAD_THINK`, `LOAD_ARTICLES`,
+`LOAD_PEOPLE`, `LOADTEST_OUT`. It needs Docker and about 15 minutes, and it loads the machine it
+runs on: do not run it on a server people are using.
+
+First result, 2026-11-07, **FAIL** (a development virtual machine with 2 CPU threads and 8 GB RAM
+that also ran ten containers of other projects; a pilot server will be larger, so this is not a
+promise about it):
+
+| What | Result | Target |
+| --- | --- | --- |
+| Feed, first page, p95 (median) | 20,989 ms (17,125 ms) | under 400 ms |
+| Feed, second page, p95 | 23,761 ms | under 400 ms |
+| Failed requests | 0 of 1,626 | under 1% |
+| Throughput | 2.6 requests a second | |
+
+The cause is in the query, not in the machine. One feed request scores every eligible article of
+the last 120 days (about 20,000 in this data) before it keeps the best twenty, so its cost grows
+with the number of articles: alone, with no other load, it takes 393 ms and about 120,000 buffer
+reads, and under 50 users PostgreSQL used both cores (215%) while the API used 13%. Forcing hash
+joins did not help (373 ms). The fix is a design change (a bounded candidate set or a ranking kept
+for a short time), tracked as F-49. Until it is done and this test passes, the "30,000 users"
+figure of the proposal is an estimate, not a measurement.
+
 ## Checking a running installation
 
 `/api/readyz` is deliberately not served through the proxy. Ask the API container:
