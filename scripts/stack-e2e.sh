@@ -107,7 +107,7 @@ export STACK_FEED_URL="http://feed.example.test:8080"
 export STACK_COMPOSE="docker compose -p $PROJECT -f $PWD/deploy/docker-compose.yml -f $PWD/deploy/docker-compose.sso-dev.yml -f $PWD/deploy/docker-compose.stack-e2e.yml --env-file $ENV_FILE"
 # The model page's spending counter lives in Redis; a spec moves it as an operator would (the API's user).
 export STACK_REDIS="docker compose -p $PROJECT -f $PWD/deploy/docker-compose.yml -f $PWD/deploy/docker-compose.sso-dev.yml -f $PWD/deploy/docker-compose.stack-e2e.yml --env-file $ENV_FILE exec -T redis redis-cli --no-auth-warning --user pharos_api --pass $(sed -n 's/^PHAROS_REDIS_PASSWORD=//p' "$ENV_FILE")"
-export STACK_PSQL="docker compose -p $PROJECT -f $PWD/deploy/docker-compose.yml -f $PWD/deploy/docker-compose.sso-dev.yml -f $PWD/deploy/docker-compose.stack-e2e.yml --env-file $ENV_FILE exec -T postgres psql -q -tA -U postgres -d pharos"
+export STACK_PSQL="docker compose -p $PROJECT -f $PWD/deploy/docker-compose.yml -f $PWD/deploy/docker-compose.sso-dev.yml -f $PWD/deploy/docker-compose.stack-e2e.yml --env-file $ENV_FILE exec -T postgres psql -q -tA -v ON_ERROR_STOP=1 -U postgres -d pharos"
 (cd frontend && pnpm exec playwright test -c playwright.stack.config.ts "$@")
 status=$?
 if [ "$status" -ne 0 ]; then
