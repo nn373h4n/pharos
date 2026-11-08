@@ -476,6 +476,32 @@ about 62 insights**, because the insights stop at half of it and every call is b
 conservative price of a model without a known price. Set the budget and the price of the model you
 use before the pilot (F-52).
 
+### The single sign-on burst (`LOAD_SCENARIO=sso make loadtest`)
+
+The same harness, with the development Keycloak of `deploy/docker-compose.sso-dev.yml` in the
+throwaway stack. The script makes `LOAD_BURST` (default 100) synthetic Keycloak users through
+Keycloak's admin API with one random password for the run, signs one of them in with `curl` as a
+control, and then k6 signs every user in the way a browser does: start at Pharos, Keycloak's form,
+the callback, `/api/me`. The starts are spread evenly over `LOAD_RAMP` seconds (default 100), all
+from the one address of this machine. A person counts only when the callback sets the session cookie
+and `/api/me` answers with that person's own name. The verdict is PASS when everybody got in, there
+was no 429, no 5xx and no timeout, and the last person was in within 120 seconds of the start.
+
+Result of 2026-11-08 (the same 2-thread machine, Keycloak in `start-dev` mode): 100 of 100 signed
+in, no 429, no 5xx, one sign-in from the first request to the person's own name median 146 ms, p95
+264 ms, longest 593 ms, the last person in at 99 s (set by the spread, not by the speed), 100 users
+created in Pharos (the database count is checked against the burst size). Highest CPU sample (every
+30 s): Keycloak about a fifth of a CPU, the API about an eighth.
+
+What this does and does not show: it fits D5's "100 sign-ins in 2 minutes from one address" with a
+wide margin, and it shows the per-address limit of the sign-in endpoints (120 a minute for the
+start and 120 for the callback, 600 for the whole installation) does not turn this crowd away. At
+one sign-in a second the test is gentle; a faster spread (`LOAD_RAMP=30` is 200 a minute from one
+address) is expected to meet the limit and be turned away with 429, which the verdict then reports
+as FAIL; this was not run. Not covered: Entra ID (real Keycloak and Entra differ in speed and in
+the token they send), a Keycloak configured for production, and people behind a corporate proxy
+that shares one address (they share the same limit).
+
 ## Resilience check (`make test-resilience`)
 
 `make test-resilience` builds a throwaway copy of the stack (like the load test and the stack
