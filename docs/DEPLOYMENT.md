@@ -454,6 +454,29 @@ requests an hour for one person on a fast system.
 Until a run reaches 30,000 *people* on comparable hardware, the "30,000 users" figure of the
 proposal is an estimate, not a measurement; what is measured is 150 people at work on two threads.
 
+## Resilience check (`make test-resilience`)
+
+`make test-resilience` builds a throwaway copy of the stack (like the load test and the stack
+tests; it uses the same test-only overlay, in which the worker may reach one fake feed host and
+nothing else) and makes two checks of the worker. It takes about 15 minutes, because the second
+waits for a lease of five minutes to run out. `RESIL_ONLY=memory` runs the first check alone.
+
+1. **Memory.** A feed of 10,000 entries (1.7 MB; the fetcher refuses an answer over 2 MiB, so a
+   bigger feed would test the refusal) is fetched and read, and the worker container's own peak
+   memory (its cgroup) is read. The parser stops at 200 entries, and the run ends `ok`. Result of
+   2026-11-08: peak **215 MiB** (214 before the feed), limit 300. The peak was the same before the big feed, so it is set
+   by the process starting up and not by the feed; the check says "NOT MEASURED" and fails if the
+   feed was not read.
+2. **A worker killed in the middle of a fetch.** A source whose file takes about six seconds to
+   arrive is fetched; two seconds in, the worker is stopped with `docker kill`. Result: the run is
+   left open as `running`, nothing is stored from it (the entries and the articles are written in
+   one transaction at the end), and after the worker is back and the five-minute lease has run out
+   the source is fetched in full: exactly one run ends `ok`, all 120 entries are there once (none
+   lost, none doubled), an article was made for each, and a second run adds nothing. Note that
+   `docker kill` counts as stopping a container by hand, so Docker's `unless-stopped` policy did
+   **not** bring the worker back (the check started it again); a worker that dies by itself (for
+   example out of memory) is a different case that this check does not show.
+
 ## Checking a running installation
 
 `/api/readyz` is deliberately not served through the proxy. Ask the API container:

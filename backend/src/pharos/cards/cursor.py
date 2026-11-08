@@ -46,7 +46,11 @@ def decode(raw: str, *, now: datetime) -> Cursor | None:
     # The feed is ranked only at the start of a period (ADR-0027). A cursor that names any
     # other moment was not made by us, and each such moment would be a new ranking kept in
     # Redis for somebody who is not signed: refuse it.
-    if cursor.a != rank_moment(cursor.a):
+    try:
+        aligned = cursor.a == rank_moment(cursor.a)
+    except (ValueError, OverflowError):  # a date at the edge of what a clock can hold
+        return None
+    if not aligned:
         return None
     age = (now - cursor.a).total_seconds()
     return cursor if 0 <= age <= CURSOR_LIFETIME_SECONDS else None

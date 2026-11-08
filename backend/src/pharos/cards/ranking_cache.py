@@ -32,7 +32,9 @@ logger = logging.getLogger(__name__)
 RANKING_SIZE = 2000
 TTL_SECONDS = 900  # three rankings' worth: the five minutes it was made for and the pages after
 LOCK_SECONDS = 20
-WAIT_SECONDS = 3.0
+# Short, because the waiting request holds a database connection (idle in its transaction) all the
+# while: a ranking that takes longer is answered from the live query by the ones that gave up.
+WAIT_SECONDS = 1.0
 POLL_SECONDS = 0.05
 KEY_PREFIX = "pharos:api:feed:v1"
 _PROFESSION = re.compile(r"[a-z0-9][a-z0-9_-]{0,63}")
@@ -143,10 +145,10 @@ class RankingCache:
             # Another request is making it: wait for it a little. If it is not there by then, this
             # request answers with the live query for its own page: making the whole ranking again
             # would add the most work when the database is busiest.
-            waited = 0.0
-            while waited < self._wait:
+            clock = asyncio.get_running_loop().time
+            deadline = clock() + self._wait  # real time: a slow Redis answer counts too
+            while clock() < deadline:
                 await asyncio.sleep(POLL_SECONDS)
-                waited += POLL_SECONDS
                 found = await self._read(key)
                 if found is not None:
                     return found

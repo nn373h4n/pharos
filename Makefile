@@ -1,7 +1,7 @@
 .DEFAULT_GOAL := help
 COMPOSE := docker compose -f deploy/docker-compose.yml --env-file deploy/.env
 
-.PHONY: help env dev dev-sso org admin down test-stack-e2e worker beat test test-e2e test-integration test-compose test-sso-dev loadtest lint fmt migrate hooks secrets-scan
+.PHONY: help env dev dev-sso org admin down test-stack-e2e worker beat test test-e2e test-integration test-compose test-sso-dev loadtest test-resilience lint fmt migrate hooks secrets-scan
 
 help: ## Show available targets
 	@grep -E '^[a-z0-9-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-17s %s\n", $$1, $$2}'
@@ -54,6 +54,9 @@ test-stack-e2e: ## Browser tests against the real stack with Keycloak (needs Doc
 
 test-sso-dev: ## Check the development identity provider setup (Keycloak behind Caddy; needs Docker)
 	bash scripts/sso-dev-check.sh
+
+test-resilience: ## A 10,000-entry feed within the worker's memory, and a worker killed mid-fetch loses nothing (needs Docker; ~15 minutes)
+	bash scripts/resilience-check.sh
 
 loadtest: ## Home feed under load on a throwaway stack: 30,000 articles, 300 people, k6 (needs Docker; about 15 minutes)
 	bash scripts/loadtest.sh
