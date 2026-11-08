@@ -27,6 +27,17 @@ export function redis(command: string): string {
   return execSync(`${base} ${command}`, { encoding: "utf8" }).trim();
 }
 
+/**
+ * Lets the ranking period of the Home feed pass. The feed is ranked once in five minutes for each
+ * profession (ADR-0027), so articles the worker has just read can wait for the next ranking. A spec
+ * that has waited for its articles to be read and now looks at the feed forgets the kept rankings,
+ * as five minutes going by would.
+ */
+export function forgetFeedRankings() {
+  const keys = redis("--scan --pattern 'pharos:api:feed:v1:*'").split("\n").filter(Boolean);
+  if (keys.length > 0) redis(`DEL ${keys.join(" ")}`);
+}
+
 /** Runs one `docker compose` command of the stack as an operator would (logs, exec). */
 export function compose(args: string): string {
   const base = process.env.STACK_COMPOSE ?? "";

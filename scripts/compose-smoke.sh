@@ -371,7 +371,9 @@ wait_healthy() { # service...  (up to 5 minutes)
 
 SU -c "INSERT INTO departments (org_id, name) SELECT id, 'Backup marker' FROM organizations WHERE slug = 'smoke'" >/dev/null
 # An article the model has read, so that the Home feed has a card to show before and after.
-SU -c "INSERT INTO items (org_id, canonical_url, url_hash, title, content_sha256, summary, category, quality, enriched_at, enrichment_version) SELECT id, 'https://news.example.org/backup-marker', encode(sha256('backup-marker-url'::bytea), 'hex'), 'Backup marker article', encode(sha256('backup-marker-content'::bytea), 'hex'), 'A summary of the marker article', 'news', 4, now(), 'v1' FROM organizations WHERE slug = 'smoke'" >/dev/null
+# Published an hour ago: the feed is ranked at the start of the current five minutes (ADR-0027), so an
+# article published just now would not show for up to five minutes.
+SU -c "INSERT INTO items (org_id, canonical_url, url_hash, title, content_sha256, summary, category, quality, enriched_at, enrichment_version, published_at) SELECT id, 'https://news.example.org/backup-marker', encode(sha256('backup-marker-url'::bytea), 'hex'), 'Backup marker article', encode(sha256('backup-marker-content'::bytea), 'hex'), 'A summary of the marker article', 'news', 4, now(), 'v1', now() - interval '1 hour' FROM organizations WHERE slug = 'smoke'" >/dev/null
 jar_before="$WORK/cookies-before-backup"
 signed_in_before=$(post_json "$login_json" -H "Origin: $base" -c "$jar_before" -w '\n%{http_code}')
 check "the administrator signs in again before the backup (200)" test "$(tail -1 <<<"$signed_in_before")" = 200
