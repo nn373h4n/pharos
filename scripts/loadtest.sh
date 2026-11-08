@@ -12,6 +12,8 @@
 #   LOAD_STEPS=50,100,200,300 LOAD_DURATION=3m make loadtest   (the stepped run: where does p95 cross?)
 #   LOAD_SCENARIO=insights make loadtest   (the insight burst: every person opens "Try this" at about
 #     the same time; the worker, with the stack's fake provider, makes the insights)
+#   LOAD_SCENARIO=sso make loadtest   (the single sign-on burst: LOAD_BURST people, 100 by default, sign in
+#     through the development Keycloak within 100 s from this one address; takes about 5 minutes)
 #   LOADTEST_OUT=dir  where the report and the k6 summary are written (default: loadtest-results)
 set -uo pipefail
 cd "$(dirname "$0")/.."
@@ -33,8 +35,11 @@ ARTICLES=${LOAD_ARTICLES:-30000}
 PEOPLE=${LOAD_PEOPLE:-300}
 OUT=${LOADTEST_OUT:-loadtest-results}
 SCENARIO=${LOAD_SCENARIO:-feed}
-BURST=${LOAD_BURST:-100}   # people who open "Try this" together in the insight burst (at most LOAD_PEOPLE)
-case "$SCENARIO" in feed | insights) ;; *) echo "LOAD_SCENARIO is feed or insights"; exit 2 ;; esac
+BURST=${LOAD_BURST:-100}   # people in a burst: who open "Try this" together (insights, at most LOAD_PEOPLE) or sign in (sso)
+RAMP=${LOAD_RAMP:-100}     # seconds over which the sign-ins of the sso burst start (the verdict wants all done within 120)
+case "$SCENARIO" in feed | insights | sso) ;; *) echo "LOAD_SCENARIO is feed, insights or sso"; exit 2 ;; esac
+KEYCLOAK="https://auth.localhost:$HTTPS_PORT"
+SSO_PASSWORD=$(openssl rand -hex 16)   # one throwaway password for the synthetic Keycloak users of this run
 WORK=$(mktemp -d)
 ENV_FILE="$WORK/env"
 # The k6 container runs as an unprivileged user: it reads the files in $WORK (the env file with the
@@ -67,6 +72,15 @@ PHAROS_DEFAULT_LOCALE=en
 PHAROS_ORG_SLUG=$ORG_SLUG
 PHAROS_LOCAL_LOGIN=break-glass
 EOF
+if [ "$SCENARIO" = sso ]; then
+  cat >> "$ENV_FILE" <<EOF
+PHAROS_KEYCLOAK_PUBLIC_URL=$KEYCLOAK
+PHAROS_OIDC_ISSUER=$KEYCLOAK/realms/pharos
+PHAROS_OIDC_CLIENT_ID=pharos
+PHAROS_OIDC_CLIENT_SECRET=dev-only-client-secret
+PHAROS_OIDC_PROVIDER_NAME=Keycloak (development)
+EOF
+fi
 if [ "$SCENARIO" = insights ]; then
   cat >> "$ENV_FILE" <<EOF
 PHAROS_LLM_PROVIDER=anthropic
@@ -85,6 +99,7 @@ fi
 
 overlay=()
 [ "$SCENARIO" = insights ] && overlay=(-f deploy/docker-compose.stack-e2e.yml)
+[ "$SCENARIO" = sso ] && overlay=(-f deploy/docker-compose.sso-dev.yml)
 compose() { docker compose -p "$PROJECT" -f deploy/docker-compose.yml "${overlay[@]}" --env-file "$ENV_FILE" "$@"; }
 cleanup() {
   if [ "${LOAD_KEEP:-}" = 1 ]; then echo "kept: project $PROJECT, env $ENV_FILE (remove by hand)"; return; fi
@@ -99,22 +114,65 @@ echo "== build and start the stack"
 if ! compose up -d --build 2>&1 | tail -10; then echo "FAIL  docker compose up"; exit 1; fi
 
 health() { docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$(compose ps -q "$1")" 2>/dev/null; }
-for _ in $(seq 1 120); do
+extra_services=""
+[ "$SCENARIO" = sso ] && extra_services=keycloak
+for _ in $(seq 1 180); do
   pending=""
-  for service in postgres redis web api worker caddy; do
+  for service in postgres redis web api worker caddy $extra_services; do
     [ "$(health "$service")" = "healthy" ] || pending="$pending $service"
   done
   [ -z "$pending" ] && break
   sleep 2
 done
 if [ -n "$pending" ]; then
-  echo "FAIL  not healthy after 4 minutes:$pending"
+  echo "FAIL  not healthy after 6 minutes:$pending"
   for service in $pending; do compose logs --tail 20 "$service" 2>&1; done
   exit 1
 fi
 
 psql_cmd() { compose exec -T postgres psql -q -tA -v ON_ERROR_STOP=1 -U postgres -d pharos "$@"; }
 
+if [ "$SCENARIO" = sso ]; then
+  echo "== organization and $BURST synthetic Keycloak users"
+  compose run --rm migrate python -m pharos.cli create-org --slug "$ORG_SLUG" --name "Load test" || exit 1
+  kc() { curl -sk --max-time 20 --resolve "auth.localhost:$HTTPS_PORT:127.0.0.1" "$@"; }
+  admin_token() {
+    kc -d grant_type=password -d client_id=admin-cli -d username=admin -d password=dev-only-admin-password \
+      "$KEYCLOAK/realms/master/protocol/openid-connect/token" |
+      python3 -I -c "import json, sys; print(json.load(sys.stdin).get('access_token', ''))"
+  }
+  token=""
+  for number in $(seq 1 "$BURST"); do
+    # The administrator's token lives one minute; ask for a new one every 20 users.
+    if [ -z "$token" ] || [ $(( number % 20 )) -eq 1 ]; then token=$(admin_token); fi
+    id=$(printf '%03d' "$number")
+    # The token and the password go through private files (mode 600), not onto a command line.
+    printf 'Authorization: Bearer %s\n' "$token" > "$WORK/admin.hdr"
+    printf '{"username":"load-%s","email":"load-%s@example.test","emailVerified":true,"enabled":true,"firstName":"Load","lastName":"User %s","credentials":[{"type":"password","value":"%s","temporary":false}]}' \
+      "$id" "$id" "$id" "$SSO_PASSWORD" > "$WORK/user.json"
+    code=$(kc -o /dev/null -w '%{http_code}' -H @"$WORK/admin.hdr" -H 'Content-Type: application/json' \
+      -d @"$WORK/user.json" "$KEYCLOAK/admin/realms/pharos/users")
+    if [ "$code" != 201 ]; then echo "FAIL  Keycloak user load-$id: HTTP $code"; exit 1; fi
+  done
+  echo "users in Keycloak: $BURST"
+  cp scripts/loadtest/sso.js "$WORK/sso.js" && chmod 644 "$WORK/sso.js"
+  # Mode 600: read by the docker CLI (`--env-file`), not by k6's unprivileged user, and not in `docker run`'s arguments.
+  printf 'SSO_PASSWORD=%s\n' "$SSO_PASSWORD" > "$WORK/k6.env"
+  # Positive control: one person (not part of the burst) signs in with the script's own steps, so the
+  # run below measures sign-ins and not a wall of refusals. Done with curl, as a browser would.
+  jar="$WORK/probe-jar"
+  browser() { curl -sk --max-time 20 --resolve "localhost:$HTTPS_PORT:127.0.0.1" --resolve "auth.localhost:$HTTPS_PORT:127.0.0.1" -b "$jar" -c "$jar" "$@"; }
+  auth_url=$(browser -D - -o /dev/null "$PUBLIC/api/auth/oidc/login?next=/feed" | grep -i '^location:' | tr -d '\r' | cut -d' ' -f2-)
+  form_action=$(browser -L "$auth_url" | python3 -I -c "import html, re, sys; m = re.search(r'<form[^>]*action=\"([^\"]+)\"', sys.stdin.read()); print(html.unescape(m.group(1)) if m else '')")
+  printf 'username=load-001&password=%s&credentialId=' "$SSO_PASSWORD" > "$WORK/probe.form"
+  callback_url=$(browser -D - -o /dev/null -d @"$WORK/probe.form" "$form_action" | grep -i '^location:' | tr -d '\r' | cut -d' ' -f2-)
+  browser -o /dev/null "$callback_url"
+  probe=$(browser "$PUBLIC/api/me")
+  echo "probe: $(python3 -I -c "import json, sys; print(json.load(sys.stdin).get('user', {}).get('display_name', ''))" <<<"$probe")"
+  if ! grep -q '"display_name":"Load User 001"' <<<"$probe"; then echo "FAIL  the probe sign-in"; exit 1; fi
+  # The probe signed load-001 in once already; the burst signs the same person in again, which is
+  # an ordinary second sign-in (the user row exists, a new session is made).
+else
 echo "== organization and synthetic data ($ARTICLES articles, $PEOPLE people)"
 compose run --rm migrate python -m pharos.cli create-org --slug "$ORG_SLUG" --name "Load test" || exit 1
 started=$(date +%s)
@@ -140,6 +198,7 @@ status=$(curl -sk -o "$WORK/probe.json" -w '%{http_code}' --max-time 20 \
 cards=$(grep -o '"id"' "$WORK/probe.json" | wc -l)
 echo "probe: HTTP $status, $cards cards on the first page"
 if [ "$status" != "200" ] || [ "$cards" -lt 1 ]; then echo "FAIL  the probe of the feed"; exit 1; fi
+fi
 
 ( while sleep 30; do
     docker stats --no-stream --format '{{.Name}} {{.CPUPerc}} {{.MemUsage}}' \
@@ -149,23 +208,36 @@ sampler=$!
 k6_status=0
 summaries=()
 [ "$SCENARIO" = insights ] && STEPS=$BURST
+[ "$SCENARIO" = sso ] && STEPS=$BURST
 script=feed.js
 [ "$SCENARIO" = insights ] && script=insights.js
+sso_env_file=()
+if [ "$SCENARIO" = sso ]; then script=sso.js; sso_env_file=(--env-file "$WORK/k6.env"); fi
 for people in ${STEPS//,/ }; do
   echo "== k6 ($SCENARIO): $people people"
   touch "$WORK/summary-$people.json" && chmod 666 "$WORK/summary-$people.json"
-  docker run --rm --network host -v "$WORK:/work" \
+  docker run --rm --network host -v "$WORK:/work" ${sso_env_file[@]+"${sso_env_file[@]}"} \
     -e BASE_URL="$PUBLIC" -e COOKIE_NAME=__Host-pharos_session \
-    -e VUS="$people" -e DURATION="$DURATION" -e THINK="$THINK" \
+    -e VUS="$people" -e DURATION="$DURATION" -e THINK="$THINK" -e RAMP="$RAMP" \
     "$K6_IMAGE" run --quiet --summary-export="/work/summary-$people.json" "/work/$script" 2>&1 | tee -a "$WORK/k6.txt"
   [ "${PIPESTATUS[0]}" -eq 0 ] || k6_status=1
   cp "$WORK/summary-$people.json" "$OUT/summary-$people.json"
   summaries+=("$OUT/summary-$people.json")
 done
 kill "$sampler" 2>/dev/null
+# The sign-ins must have made exactly one user each: the report is told how many people to expect, and
+# the database has to agree.
+db_users=""
+if [ "$SCENARIO" = sso ]; then
+  db_users=$(psql_cmd -c "SELECT count(*) FROM users WHERE issuer <> 'local' AND email LIKE 'load-%@example.test'")
+fi
 
 {
-  if [ "$SCENARIO" = insights ]; then
+  if [ "$SCENARIO" = sso ]; then
+    echo "Load test, the single sign-on burst ($(date -u +%Y-%m-%dT%H:%MZ))"
+    echo "  data:       $BURST synthetic Keycloak users (development Keycloak, start-dev mode); no articles"
+    echo "  load:       $BURST people sign in, starts spread over $RAMP s, all from this one address, through Caddy over HTTPS; k6 $K6_IMAGE"
+  elif [ "$SCENARIO" = insights ]; then
     echo "Load test, the insight burst ($(date -u +%Y-%m-%dT%H:%MZ))"
     echo "  data:       $ARTICLES synthetic articles, $PEOPLE synthetic people, $BURST of them each ask for the insight of another article"
     echo "  load:       $BURST people open \"Try this\" within 20 s and look again every 3 s until it is ready; the stack's test provider makes the insights; k6 $K6_IMAGE"
@@ -179,7 +251,10 @@ kill "$sampler" 2>/dev/null
   echo "              Docker $(docker version --format '{{.Server.Version}}' 2>/dev/null), $(uname -sr)"
   echo "  other work: $(docker ps -q | wc -l) containers running on this host (the stack's own included)"
   echo "  results:"
-  if [ "$SCENARIO" = insights ]; then
+  if [ "$SCENARIO" = sso ]; then
+    python3 scripts/loadtest/report_sso.py --expected "$BURST" "${summaries[@]}"
+    echo "  users made by the sign-ins in the database: $db_users, expected $BURST: $([ "$db_users" = "$BURST" ] && echo PASS || echo FAIL)"
+  elif [ "$SCENARIO" = insights ]; then
     python3 scripts/loadtest/report_insights.py "${summaries[@]}"
     # The control: what was answered "ready" is in the database, made by the worker.
     echo "  insights stored in the database: $(psql_cmd -c "SELECT count(*) FROM item_insights WHERE status = 'ok'")"
@@ -193,4 +268,5 @@ kill "$sampler" 2>/dev/null
 } | tee "$OUT/report.txt"
 echo "report: $OUT/report.txt  k6 summaries: $OUT/summary-*.json"
 # Both must hold: k6 ran without an error of its own, and every number is inside its limit.
-grep -qE "verdict on the (D5 feed targets|insight burst[^:]*): PASS" "$OUT/report.txt" && [ "$k6_status" -eq 0 ]
+grep -qE "verdict on the (D5 feed targets|insight burst[^:]*|single sign-on burst[^:]*): PASS" "$OUT/report.txt" && [ "$k6_status" -eq 0 ] &&
+  { [ "$SCENARIO" != sso ] || [ "$db_users" = "$BURST" ]; }
