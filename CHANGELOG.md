@@ -11,6 +11,7 @@ All notable changes are listed here, newest first. The format follows [Keep a Ch
 
 ### Changed
 
+- An insight asked for past the minute's limit of calls to the model is no longer dropped (F-51): the worker tries again at the start of the next minute, at most four times. Before, the person waited five minutes and asked again; in a burst of 100 people at once all 100 now get their insight in under three minutes (p95 157 s), no server errors.
 - The Home feed no longer ranks every article of its window on every request (F-49, ADR-0027, `Proposed`): the shared part of the ranking of each profession is made once in five minutes and kept in Redis; each request adds the person's own part. On the load test (30,000 articles, a 2-thread machine) the first page went from p95 6.3 s to 134 ms with 50 people at work and the stack no longer fails with 300. New or changed rankings show up to five minutes late; a held or hidden article disappears at once.
 - Redis now has two users instead of one shared password (follow-up F-14): `pharos_api` for the API and `pharos_worker` for the worker and the scheduler. The worker's user can use only the Celery queue and `pharos:worker:*`, so a compromised worker can no longer forge or read sessions. **Upgrading:** add `PHAROS_REDIS_WORKER_PASSWORD` (a new random value, different from `PHAROS_REDIS_PASSWORD`) to `deploy/.env` before `docker compose up`; `make env` generates it for new installs.
 
@@ -20,6 +21,7 @@ All notable changes are listed here, newest first. The format follows [Keep a Ch
 
 ### Added
 
+- `LOAD_SCENARIO=insights make loadtest` (M5-08): the insight burst, with the stack's test provider; see `docs/DEPLOYMENT.md`.
 - `make test-resilience` (M5-08): a 10,000-entry feed is read within the worker's memory (peak 215 MiB, limit 300), and a worker killed with `docker kill` in the middle of a fetch loses and doubles nothing after its lease runs out; see `docs/DEPLOYMENT.md`, "Resilience check".
 - `make loadtest` (M5-08, first part): the Home feed under load on a throwaway stack with synthetic data (k6 pinned by digest; report with the hardware and a verdict on each D5 target). It showed that the cost of a feed request grew with the number of articles (F-49, fixed in Changed); with the fix the D5 feed target is met on a 2-thread development machine. See `docs/DEPLOYMENT.md`, "Load test".
 - Network and HTTP leftovers (M5-04, closes F-17, F-20 and the body-size part of F-25): the identity provider's signing keys are read again after an hour and every call to the provider has one overall deadline (15 s, 6 s for Graph); `SafeHttpClient` also refuses the addresses that `PHAROS_PUBLIC_URL` resolves to (any name, any spelling, looked up again every minute), looks names up with a time limit on a small pool of its own, and `Settings` cannot be changed after start-up; Caddy sends `Strict-Transport-Security` (`PHAROS_HSTS_MAX_AGE`, default one year) and, like the API (`413 payload_too_large`), refuses request bodies over 1 MiB.

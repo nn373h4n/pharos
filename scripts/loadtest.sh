@@ -10,6 +10,8 @@
 # Usage: make loadtest            (needs Docker; the run takes about 15 minutes)
 #   LOAD_STEPS=50 LOAD_DURATION=10m LOAD_THINK=30 LOAD_ARTICLES=30000 LOAD_PEOPLE=300 make loadtest
 #   LOAD_STEPS=50,100,200,300 LOAD_DURATION=3m make loadtest   (the stepped run: where does p95 cross?)
+#   LOAD_SCENARIO=insights make loadtest   (the insight burst: every person opens "Try this" at about
+#     the same time; the worker, with the stack's fake provider, makes the insights)
 #   LOADTEST_OUT=dir  where the report and the k6 summary are written (default: loadtest-results)
 set -uo pipefail
 cd "$(dirname "$0")/.."
@@ -30,6 +32,9 @@ THINK=${LOAD_THINK:-30}
 ARTICLES=${LOAD_ARTICLES:-30000}
 PEOPLE=${LOAD_PEOPLE:-300}
 OUT=${LOADTEST_OUT:-loadtest-results}
+SCENARIO=${LOAD_SCENARIO:-feed}
+BURST=${LOAD_BURST:-100}   # people who open "Try this" together in the insight burst (at most LOAD_PEOPLE)
+case "$SCENARIO" in feed | insights) ;; *) echo "LOAD_SCENARIO is feed or insights"; exit 2 ;; esac
 WORK=$(mktemp -d)
 ENV_FILE="$WORK/env"
 # The k6 container runs as an unprivileged user: it reads the files in $WORK (the env file with the
@@ -62,8 +67,25 @@ PHAROS_DEFAULT_LOCALE=en
 PHAROS_ORG_SLUG=$ORG_SLUG
 PHAROS_LOCAL_LOGIN=break-glass
 EOF
+if [ "$SCENARIO" = insights ]; then
+  cat >> "$ENV_FILE" <<EOF
+PHAROS_LLM_PROVIDER=anthropic
+PHAROS_LLM_MODEL_FILTER=stack-filter
+PHAROS_LLM_MODEL_ENRICHMENT=stack-enrichment
+PHAROS_LLM_MODEL_INSIGHT=stack-insight
+# The burst measures how fast the calls are let through, not the day's budget (which, at the default
+# of two dollars, covers about 62 insights; the stop at the limit is tested in the stack tests).
+PHAROS_LLM_DAILY_BUDGET_MICRO_USD=1000000000
+EOF
+  # The worker needs the test provider (no model, no key, no cost): the test-only overlay of the
+  # stack tests gives it, with one fake feed host that nothing here uses.
+  export STACK_FEED_DIR="$WORK/feeds"
+  mkdir "$STACK_FEED_DIR" && chmod 755 "$STACK_FEED_DIR"
+fi
 
-compose() { docker compose -p "$PROJECT" -f deploy/docker-compose.yml --env-file "$ENV_FILE" "$@"; }
+overlay=()
+[ "$SCENARIO" = insights ] && overlay=(-f deploy/docker-compose.stack-e2e.yml)
+compose() { docker compose -p "$PROJECT" -f deploy/docker-compose.yml "${overlay[@]}" --env-file "$ENV_FILE" "$@"; }
 cleanup() {
   if [ "${LOAD_KEEP:-}" = 1 ]; then echo "kept: project $PROJECT, env $ENV_FILE (remove by hand)"; return; fi
   compose down --volumes --remove-orphans >/dev/null 2>&1
@@ -103,6 +125,10 @@ org_id=$(psql_cmd -c "SELECT id FROM organizations WHERE slug = '$ORG_SLUG'")
 compose exec -T api python -c "$(cat scripts/loadtest/sessions.py)" < "$WORK/ids.txt" > "$WORK/sessions.txt" || { echo "FAIL  sessions"; exit 1; }
 chmod 644 "$WORK/sessions.txt"
 cp scripts/loadtest/feed.js "$WORK/feed.js" && chmod 644 "$WORK/feed.js"
+cp scripts/loadtest/insights.js "$WORK/insights.js" && chmod 644 "$WORK/insights.js"
+# One article for each person (the newest ones): the burst asks for $BURST different insights.
+psql_cmd -c "SELECT id FROM items WHERE title LIKE 'Load %' ORDER BY published_at DESC, id LIMIT $BURST" > "$WORK/items.txt"
+chmod 644 "$WORK/items.txt"
 echo "sessions: $(wc -l < "$WORK/sessions.txt") (people $(( $(wc -l < "$WORK/ids.txt") - 1 )))"
 if [ "$(wc -l < "$WORK/sessions.txt")" -ne "$PEOPLE" ]; then echo "FAIL  expected $PEOPLE sessions"; exit 1; fi
 
@@ -122,13 +148,16 @@ if [ "$status" != "200" ] || [ "$cards" -lt 1 ]; then echo "FAIL  the probe of t
 sampler=$!
 k6_status=0
 summaries=()
+[ "$SCENARIO" = insights ] && STEPS=$BURST
+script=feed.js
+[ "$SCENARIO" = insights ] && script=insights.js
 for people in ${STEPS//,/ }; do
-  echo "== k6: $people people for $DURATION (a visit every $THINK s or so)"
+  echo "== k6 ($SCENARIO): $people people"
   touch "$WORK/summary-$people.json" && chmod 666 "$WORK/summary-$people.json"
   docker run --rm --network host -v "$WORK:/work" \
     -e BASE_URL="$PUBLIC" -e COOKIE_NAME=__Host-pharos_session \
     -e VUS="$people" -e DURATION="$DURATION" -e THINK="$THINK" \
-    "$K6_IMAGE" run --quiet --summary-export="/work/summary-$people.json" /work/feed.js 2>&1 | tee -a "$WORK/k6.txt"
+    "$K6_IMAGE" run --quiet --summary-export="/work/summary-$people.json" "/work/$script" 2>&1 | tee -a "$WORK/k6.txt"
   [ "${PIPESTATUS[0]}" -eq 0 ] || k6_status=1
   cp "$WORK/summary-$people.json" "$OUT/summary-$people.json"
   summaries+=("$OUT/summary-$people.json")
@@ -136,15 +165,27 @@ done
 kill "$sampler" 2>/dev/null
 
 {
-  echo "Load test of the Home feed ($(date -u +%Y-%m-%dT%H:%MZ))"
-  echo "  data:       $ARTICLES synthetic articles, $PEOPLE synthetic people, six in ten articles in clusters of about three"
-  echo "  load:       $STEPS people at work (one run each) for $DURATION, a visit about every $THINK s, k6 $K6_IMAGE"
+  if [ "$SCENARIO" = insights ]; then
+    echo "Load test, the insight burst ($(date -u +%Y-%m-%dT%H:%MZ))"
+    echo "  data:       $ARTICLES synthetic articles, $PEOPLE synthetic people, $BURST of them each ask for the insight of another article"
+    echo "  load:       $BURST people open \"Try this\" within 20 s and look again every 3 s until it is ready; the stack's test provider makes the insights; k6 $K6_IMAGE"
+  else
+    echo "Load test of the Home feed ($(date -u +%Y-%m-%dT%H:%MZ))"
+    echo "  data:       $ARTICLES synthetic articles, $PEOPLE synthetic people, six in ten articles in clusters of about three"
+    echo "  load:       $STEPS people at work (one run each) for $DURATION, a visit about every $THINK s, k6 $K6_IMAGE"
+  fi
   echo "  hardware:   $(nproc) CPU threads, $(lscpu | sed -n 's/^Model name: *//p' | head -n 1)"
   echo "              $(free -m | awk '/^Mem:/{print $2" MB RAM"}'), load average at the start of the report: $(cut -d' ' -f1-3 /proc/loadavg)"
   echo "              Docker $(docker version --format '{{.Server.Version}}' 2>/dev/null), $(uname -sr)"
   echo "  other work: $(docker ps -q | wc -l) containers running on this host (the stack's own included)"
   echo "  results:"
-  python3 scripts/loadtest/report.py "${summaries[@]}"
+  if [ "$SCENARIO" = insights ]; then
+    python3 scripts/loadtest/report_insights.py "${summaries[@]}"
+    # The control: what was answered "ready" is in the database, made by the worker.
+    echo "  insights stored in the database: $(psql_cmd -c "SELECT count(*) FROM item_insights WHERE status = 'ok'")"
+  else
+    python3 scripts/loadtest/report.py "${summaries[@]}"
+  fi
   if [ -s "$WORK/stats.txt" ]; then
     echo "  peak CPU % per container (samples every 30 s):"
     awk '{gsub(/%/,"",$2); if ($2+0 > m[$1]) m[$1]=$2+0} END{for (k in m) printf "    %-40s %6.1f\n", k, m[k]}' "$WORK/stats.txt" | sort
@@ -152,4 +193,4 @@ kill "$sampler" 2>/dev/null
 } | tee "$OUT/report.txt"
 echo "report: $OUT/report.txt  k6 summaries: $OUT/summary-*.json"
 # Both must hold: k6 ran without an error of its own, and every number is inside its limit.
-grep -q "verdict on the D5 feed targets: PASS" "$OUT/report.txt" && [ "$k6_status" -eq 0 ]
+grep -qE "verdict on the (D5 feed targets|insight burst[^:]*): PASS" "$OUT/report.txt" && [ "$k6_status" -eq 0 ]

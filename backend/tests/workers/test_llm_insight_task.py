@@ -5,9 +5,10 @@ import uuid
 from typing import Any
 
 import pytest
+from celery.exceptions import MaxRetriesExceededError
 
 from pharos.core.config import Settings
-from pharos.llm.errors import BudgetExhausted
+from pharos.llm.errors import BudgetExhausted, CallRateExceeded, StagePaused
 from pharos.workers import app as worker_app
 from pharos.workers import llm_tasks
 
@@ -118,3 +119,56 @@ def test_a_spent_budget_or_a_resting_stage_ends_the_task_quietly(
 ) -> None:
     redis, made, _ = run_task(monkeypatch, outcome=BudgetExhausted())
     assert len(made) == 1 and redis.closed  # it was tried; nothing was raised out of the task
+
+
+# --- the calls of this minute are spent (F-51) ---------------------------------------------
+
+
+class Retried(Exception):
+    """Stands for Celery's Retry, so a test can see what the task asked for."""
+
+
+def retry_calls(monkeypatch: pytest.MonkeyPatch, *, exhausted: bool = False) -> list[float]:
+    asked: list[float] = []
+
+    def retry(*_a: object, countdown: float = 0, **_k: object) -> Exception:
+        asked.append(countdown)
+        if exhausted:
+            raise MaxRetriesExceededError()
+        return Retried()
+
+    monkeypatch.setattr(llm_tasks.insight_task, "retry", retry)
+    return asked
+
+
+def test_when_the_minutes_calls_are_spent_the_task_tries_again_at_the_next_minute(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    asked = retry_calls(monkeypatch)
+    with pytest.raises(Retried):
+        run_task(monkeypatch, outcome=CallRateExceeded())
+    [wait] = asked
+    assert 1 < wait <= 70  # the rest of this minute, and a few seconds more
+    assert llm_tasks.INSIGHT_RETRIES * 70 < 300  # every try ends before the marker does
+
+
+@pytest.mark.parametrize("stop", [BudgetExhausted(), StagePaused()])
+def test_other_reasons_to_stop_are_not_tried_again(
+    monkeypatch: pytest.MonkeyPatch, stop: Exception
+) -> None:
+    """A spent budget or a stage that keeps failing will not be better in a minute."""
+    asked = retry_calls(monkeypatch)
+    run_task(monkeypatch, outcome=stop)
+    assert asked == []
+
+
+def test_a_task_that_has_used_its_tries_ends_quietly(monkeypatch: pytest.MonkeyPatch) -> None:
+    asked = retry_calls(monkeypatch, exhausted=True)
+    run_task(monkeypatch, outcome=CallRateExceeded())  # nothing is raised out of the task
+    assert len(asked) == 1
+
+
+def test_a_task_that_made_its_insight_does_not_try_again(monkeypatch: pytest.MonkeyPatch) -> None:
+    asked = retry_calls(monkeypatch)
+    run_task(monkeypatch, outcome="ok")
+    assert asked == []
