@@ -45,7 +45,7 @@ def summary(
 def verdict(tmp_path: Path, data: dict[str, object], capsys: pytest.CaptureFixture[str]) -> int:
     path = tmp_path / "summary.json"
     path.write_text(json.dumps(data), encoding="utf-8")
-    status: int = load().main(str(path))
+    status: int = load().main([str(path)])
     capsys.readouterr()
     return status
 
@@ -83,7 +83,25 @@ def test_the_report_prints_the_numbers_and_the_verdict(
 ) -> None:
     path = tmp_path / "summary.json"
     path.write_text(json.dumps(summary(first=21_000.0)), encoding="utf-8")
-    load().main(str(path))
+    load().main([str(path)])
     shown = capsys.readouterr().out
     assert "p95 21000 ms" in shown and "FAIL" in shown
     assert "verdict on the D5 feed targets: FAIL" in shown
+
+
+def test_the_first_file_is_the_target_and_the_other_steps_say_where_it_stopped(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    files = []
+    for people, p95 in ((50, 120.0), (150, 380.0), (300, 2_500.0)):
+        path = tmp_path / f"summary-{people}.json"
+        path.write_text(json.dumps(summary(first=p95, nxt=p95)), encoding="utf-8")
+        files.append(str(path))
+    status = load().main(files)
+    shown = capsys.readouterr().out
+    assert status == 0  # the first step (50 people) is the target and it held
+    assert "steps inside the limits: 50, 150; outside: 300" in shown
+    # The other way round: a failing target is a failing run, whatever the larger steps did.
+    status = load().main(list(reversed(files)))
+    capsys.readouterr()
+    assert status == 1

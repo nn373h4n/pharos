@@ -17,6 +17,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from pharos.aitools.router import router as ai_tools_router
 from pharos.aitools.service import AiToolService
+from pharos.cards.ranking_cache import RankingCache
 from pharos.cards.router import router as cards_router
 from pharos.cards.service import CardService
 from pharos.core.audit import AuditLog
@@ -176,8 +177,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             queue=queue,
         )
         app.state.items = ItemService(audit=app.state.audit)
+        # The shared ranking of the Home feed is only a cache (ADR-0027): its own client with
+        # short timeouts, so a Redis that does not answer costs the feed a second, not its life.
+        feed_redis = Redis.from_url(
+            settings.redis_url.get_secret_value(), socket_timeout=1, socket_connect_timeout=1
+        )
         app.state.cards = CardService(
-            profile=app.state.profile, clock=SystemClock(), limiter=limiter
+            profile=app.state.profile,
+            clock=SystemClock(),
+            limiter=limiter,
+            cache=RankingCache(feed_redis),
         )
         app.state.insights = InsightService(
             profile=app.state.profile,
@@ -218,6 +227,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if app.state.oidc is not None:
                 await app.state.oidc.idp.aclose()
             await session_redis.aclose()
+            await feed_redis.aclose()
             await redis.aclose()
             await engine.dispose()
 

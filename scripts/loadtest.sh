@@ -8,7 +8,8 @@
 # hardware means nothing, and a run on a shared development machine is not a promise for a server.
 #
 # Usage: make loadtest            (needs Docker; the run takes about 15 minutes)
-#   LOAD_VUS=50 LOAD_DURATION=10m LOAD_THINK=1 LOAD_ARTICLES=30000 LOAD_PEOPLE=300 make loadtest
+#   LOAD_STEPS=50 LOAD_DURATION=10m LOAD_THINK=30 LOAD_ARTICLES=30000 LOAD_PEOPLE=300 make loadtest
+#   LOAD_STEPS=50,100,200,300 LOAD_DURATION=3m make loadtest   (the stepped run: where does p95 cross?)
 #   LOADTEST_OUT=dir  where the report and the k6 summary are written (default: loadtest-results)
 set -uo pipefail
 cd "$(dirname "$0")/.."
@@ -23,18 +24,17 @@ HTTP_PORT=${PHAROS_LOAD_HTTP_PORT:-19280}
 HTTPS_PORT=${PHAROS_LOAD_HTTPS_PORT:-19643}
 PUBLIC="https://localhost:$HTTPS_PORT"
 ORG_SLUG=load
-VUS=${LOAD_VUS:-50}
+STEPS=${LOAD_STEPS:-50}   # people at work at the same time, one run of k6 for each, the first is the D5 target
 DURATION=${LOAD_DURATION:-10m}
-THINK=${LOAD_THINK:-1}
+THINK=${LOAD_THINK:-30}
 ARTICLES=${LOAD_ARTICLES:-30000}
 PEOPLE=${LOAD_PEOPLE:-300}
 OUT=${LOADTEST_OUT:-loadtest-results}
 WORK=$(mktemp -d)
 ENV_FILE="$WORK/env"
 # The k6 container runs as an unprivileged user: it reads the files in $WORK (the env file with the
-# passwords stays private, mode 600) and may write only the one summary file made for it.
+# passwords stays private, mode 600) and may write only the summary files made for it, below.
 chmod 755 "$WORK"
-touch "$WORK/summary.json" && chmod 666 "$WORK/summary.json"
 mkdir -p "$OUT"
 
 secret() { openssl rand -hex 24; }
@@ -115,35 +115,41 @@ cards=$(grep -o '"id"' "$WORK/probe.json" | wc -l)
 echo "probe: HTTP $status, $cards cards on the first page"
 if [ "$status" != "200" ] || [ "$cards" -lt 1 ]; then echo "FAIL  the probe of the feed"; exit 1; fi
 
-echo "== k6: $VUS virtual users for $DURATION (think time $THINK s)"
 ( while sleep 30; do
     docker stats --no-stream --format '{{.Name}} {{.CPUPerc}} {{.MemUsage}}' \
       $(compose ps -q) >> "$WORK/stats.txt" 2>/dev/null
   done ) &
 sampler=$!
-docker run --rm --network host -v "$WORK:/work" \
-  -e BASE_URL="$PUBLIC" -e COOKIE_NAME=__Host-pharos_session \
-  -e VUS="$VUS" -e DURATION="$DURATION" -e THINK="$THINK" \
-  "$K6_IMAGE" run --summary-export=/work/summary.json /work/feed.js 2>&1 | tee "$WORK/k6.txt"
-k6_status=${PIPESTATUS[0]}
+k6_status=0
+summaries=()
+for people in ${STEPS//,/ }; do
+  echo "== k6: $people people for $DURATION (a visit every $THINK s or so)"
+  touch "$WORK/summary-$people.json" && chmod 666 "$WORK/summary-$people.json"
+  docker run --rm --network host -v "$WORK:/work" \
+    -e BASE_URL="$PUBLIC" -e COOKIE_NAME=__Host-pharos_session \
+    -e VUS="$people" -e DURATION="$DURATION" -e THINK="$THINK" \
+    "$K6_IMAGE" run --quiet --summary-export="/work/summary-$people.json" /work/feed.js 2>&1 | tee -a "$WORK/k6.txt"
+  [ "${PIPESTATUS[0]}" -eq 0 ] || k6_status=1
+  cp "$WORK/summary-$people.json" "$OUT/summary-$people.json"
+  summaries+=("$OUT/summary-$people.json")
+done
 kill "$sampler" 2>/dev/null
-cp "$WORK/summary.json" "$OUT/summary.json" 2>/dev/null
 
 {
   echo "Load test of the Home feed ($(date -u +%Y-%m-%dT%H:%MZ))"
   echo "  data:       $ARTICLES synthetic articles, $PEOPLE synthetic people, six in ten articles in clusters of about three"
-  echo "  load:       $VUS virtual users for $DURATION, think time $THINK s, k6 $K6_IMAGE"
+  echo "  load:       $STEPS people at work (one run each) for $DURATION, a visit about every $THINK s, k6 $K6_IMAGE"
   echo "  hardware:   $(nproc) CPU threads, $(lscpu | sed -n 's/^Model name: *//p' | head -n 1)"
   echo "              $(free -m | awk '/^Mem:/{print $2" MB RAM"}'), load average at the start of the report: $(cut -d' ' -f1-3 /proc/loadavg)"
   echo "              Docker $(docker version --format '{{.Server.Version}}' 2>/dev/null), $(uname -sr)"
   echo "  other work: $(docker ps -q | wc -l) containers running on this host (the stack's own included)"
   echo "  results:"
-  python3 scripts/loadtest/report.py "$OUT/summary.json"
+  python3 scripts/loadtest/report.py "${summaries[@]}"
   if [ -s "$WORK/stats.txt" ]; then
     echo "  peak CPU % per container (samples every 30 s):"
     awk '{gsub(/%/,"",$2); if ($2+0 > m[$1]) m[$1]=$2+0} END{for (k in m) printf "    %-40s %6.1f\n", k, m[k]}' "$WORK/stats.txt" | sort
   fi
 } | tee "$OUT/report.txt"
-echo "report: $OUT/report.txt  k6 summary: $OUT/summary.json"
+echo "report: $OUT/report.txt  k6 summaries: $OUT/summary-*.json"
 # Both must hold: k6 ran without an error of its own, and every number is inside its limit.
 grep -q "verdict on the D5 feed targets: PASS" "$OUT/report.txt" && [ "$k6_status" -eq 0 ]

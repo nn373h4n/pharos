@@ -5,6 +5,7 @@ import {
   ADMIN_USER,
   FEED_URL,
   finishOnboarding,
+  forgetFeedRankings,
   insertSource,
   makeDue,
   rss,
@@ -76,6 +77,7 @@ test("the worker reads four articles, embeds them and joins the copy to the orig
 });
 
 test("the Home feed shows one card for the story, and no article is lost", async ({ page }) => {
+  forgetFeedRankings(); // the articles were read after the feed was last ranked
   await signInAsAdmin(page);
   await page.goto("/en");
   const main = page.getByRole("main");

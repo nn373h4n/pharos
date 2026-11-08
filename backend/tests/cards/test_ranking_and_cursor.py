@@ -75,6 +75,22 @@ def test_a_cursor_from_the_future_or_older_than_an_hour_is_refused(age: int) -> 
     assert cursor.decode(raw, now=NOW + timedelta(seconds=age)) is None
 
 
+@pytest.mark.parametrize(
+    "offset",
+    [
+        timedelta(seconds=1),
+        timedelta(seconds=60),
+        timedelta(milliseconds=900),
+        timedelta(minutes=4),
+    ],
+)
+def test_a_cursor_that_names_no_ranking_moment_is_refused(offset: timedelta) -> None:
+    """Each moment would be a ranking of its own kept in Redis for somebody who is not signed."""
+    later = NOW + timedelta(minutes=10)
+    assert cursor.decode(cursor.encode(NOW, 1, ITEM), now=later) is not None  # the control
+    assert cursor.decode(cursor.encode(NOW + offset, 1, ITEM), now=later + offset) is None
+
+
 def test_the_edges_of_the_lifetime_are_accepted() -> None:
     raw = cursor.encode(NOW, 1, ITEM)
     assert cursor.decode(raw, now=NOW) is not None

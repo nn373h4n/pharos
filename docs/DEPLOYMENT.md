@@ -413,31 +413,46 @@ any counts that never held an identity.
 `make loadtest` builds a throwaway copy of the stack (own project name, volumes and ports, removed
 at the end), fills it with synthetic data (30,000 articles, 300 people; the articles are invented,
 six in ten sit in clusters of about three), opens one single-sign-on session for each person and
-runs k6 (a digest-pinned container) against the Home feed through Caddy: 50 virtual users for
-10 minutes, each reading the first and the second page and then pausing one second. It prints the
-numbers **with the hardware** and a verdict on each target of decision D5 (feed p95 under 400 ms,
-under 1% failed requests). Settings: `LOAD_VUS`, `LOAD_DURATION`, `LOAD_THINK`, `LOAD_ARTICLES`,
-`LOAD_PEOPLE`, `LOADTEST_OUT`. It needs Docker and about 15 minutes, and it loads the machine it
-runs on: do not run it on a server people are using.
+runs k6 (a digest-pinned container) against the Home feed through Caddy. One virtual user is one
+person, kept for the whole run: a visit every 30 seconds or so (spread, and the first visit at a
+random moment), the first page of the feed and, one visit in two, the second page. That stays inside
+the product's own limit of 300 feed requests an hour for one person; hammering the feed with no
+pause would only measure that limit. It prints the numbers **with the hardware** and a verdict on
+each target of decision D5 (feed p95 under 400 ms, under 1% failed requests, for the first step).
 
-First result, 2026-11-07, **FAIL** (a development virtual machine with 2 CPU threads and 8 GB RAM
-that also ran ten containers of other projects; a pilot server will be larger, so this is not a
-promise about it):
+Settings: `LOAD_STEPS` (people at work, one run of k6 for each; the first is the D5 target; default
+`50`, for the stepped run `50,150,300`), `LOAD_DURATION` (default `10m`), `LOAD_THINK` (default
+`30`), `LOAD_ARTICLES`, `LOAD_PEOPLE`, `LOADTEST_OUT`. It needs Docker and about 15 minutes, and it
+loads the machine it runs on: do not run it on a server people are using.
 
-| What | Result | Target |
+Results of 2026-11-08, all on one development virtual machine with **2 CPU threads and 8 GB RAM**
+that also ran about ten containers of other projects. A pilot server will be larger, so these are
+not promises about it; they show how the feed behaves as people are added.
+
+| People at work | Before (ranking on every request) | After (ADR-0027) |
 | --- | --- | --- |
-| Feed, first page, p95 (median) | 20,989 ms (17,125 ms) | under 400 ms |
-| Feed, second page, p95 | 23,761 ms | under 400 ms |
-| Failed requests | 0 of 1,626 | under 1% |
-| Throughput | 2.6 requests a second | |
+| 50, first page p95 (median) | 6,304 ms (2,259 ms) | **134 ms (26 ms), 10 minutes** |
+| 50, second page p95 | 9,052 ms | 85 ms |
+| 150, first page p95 | 34,589 ms, 5% of requests failed | **235 ms**, none failed |
+| 300, first page p95 | 34,899 ms, 44% of requests failed | 2,012 ms, none failed |
+| 300, requests a second | 5.0 | 12.7 |
 
-The cause is in the query, not in the machine. One feed request scores every eligible article of
-the last 120 days (about 20,000 in this data) before it keeps the best twenty, so its cost grows
-with the number of articles: alone, with no other load, it takes 393 ms and about 120,000 buffer
-reads, and under 50 users PostgreSQL used both cores (215%) while the API used 13%. Forcing hash
-joins did not help (373 ms). The fix is a design change (a bounded candidate set or a ranking kept
-for a short time), tracked as F-49. Until it is done and this test passes, the "30,000 users"
-figure of the proposal is an estimate, not a measurement.
+The D5 target (50 people, 10 minutes, 30,000 articles) is **met**: first page p95 134 ms, second
+page p95 85 ms, 0 failed of 1,476 requests (the last run, of the code as merged). The stepped run (made before the last review fixes) shows 150 people inside the limit and
+300 outside it on this hardware. Two things the numbers hide: the slowest answers (p99 about
+1.8 s, at most 3.3 s) are the requests that arrive as a profession's ranking is being made, once in
+five minutes for each profession; and above 150 people the limit is the API's own CPU (reading the
+kept list and adding the person's part for every request), tracked as F-50.
+
+What it was before: one feed request scored every eligible article of the window (about 20,000)
+before it kept twenty, 393 ms alone and about 120,000 buffer reads, and PostgreSQL used both cores
+(215%) while the API used 13%. Forcing hash joins gave 373 ms, so it was not the planner. The fix is
+ADR-0027 (`Proposed`). A first run, with a harsher profile (a one-second pause, people taken in
+turn), also failed and is not the basis of these numbers: it would have met the limit of 300
+requests an hour for one person on a fast system.
+
+Until a run reaches 30,000 *people* on comparable hardware, the "30,000 users" figure of the
+proposal is an estimate, not a measurement; what is measured is 150 people at work on two threads.
 
 ## Checking a running installation
 

@@ -6,6 +6,7 @@ import {
   FEED_URL,
   compose,
   finishOnboarding,
+  forgetFeedRankings,
   insertSource,
   makeDue,
   redis,
@@ -127,6 +128,7 @@ test("what the model calls cost is booked as numbers, never as text", async () =
 test("the Home feed shows the two cards, Try this is made by the worker, and a save is stored", async ({
   page,
 }) => {
+  forgetFeedRankings(); // the articles were read after the feed was last ranked
   await signInAsAdmin(page);
   await page.goto("/en");
   const main = page.getByRole("main");
