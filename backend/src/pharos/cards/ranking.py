@@ -14,9 +14,13 @@ they can be tuned with real use and with the evaluation of M4-09; a test keeps t
 up to one and the tables covering every interest and level the profile can hold.
 
 The score is computed in the database at one moment (`as_of`) fixed by the first page, so the list
-does not reorder itself while someone reads it.
+does not reorder itself while someone reads it. The first page is ranked at the start of the
+current five minutes (`rank_moment`): everybody who asks in that time is ranked at the same
+moment, which is what lets the shared part of the ranking be kept and reused (ADR-0027).
 """
 
+from datetime import UTC, datetime
+from decimal import ROUND_FLOOR, Context, Decimal
 from typing import Final
 
 WEIGHTS: Final = {
@@ -68,3 +72,46 @@ def categories_for_interests(interests: list[str]) -> list[str]:
 
 def categories_for_level(level: str | None) -> list[str]:
     return sorted(LEVEL_CATEGORIES.get(level or "", ()))
+
+
+# --- the person's part of the score, for the cached ranking (ADR-0027) ---
+
+INTEREST_WEIGHT: Final = Decimal(str(WEIGHTS["interest"]))
+LEVEL_WEIGHT: Final = Decimal(str(WEIGHTS["level"]))
+# The most the person's own part can add to the shared part of an article's score.
+MAX_BONUS: Final = INTEREST_WEIGHT + LEVEL_WEIGHT
+# Five minutes: the ranking of a profession is made once in that time, and a request that arrives
+# just as it is being made waits for it. New articles come hourly at the fastest and are read by
+# the model a minute or more after that, so a lag of five minutes is not what people wait for.
+RANK_MOMENT_SECONDS: Final = 300
+_EXACT = Context(prec=80, rounding=ROUND_FLOOR)
+
+
+def person_score(
+    base: Decimal,
+    category: str,
+    interest_categories: frozenset[str],
+    level_categories: frozenset[str],
+) -> int:
+    """The whole score of an article for a person, from the shared part the database worked out.
+
+    Exactly what the live query computes in SQL: the terms are decimal numbers added without
+    rounding, and the sum is floored once, after it has been scaled."""
+    total = base
+    if category in interest_categories:
+        total = _EXACT.add(total, INTEREST_WEIGHT)
+    if category in level_categories:
+        total = _EXACT.add(total, LEVEL_WEIGHT)
+    return int(_EXACT.to_integral_value(_EXACT.multiply(total, SCORE_SCALE)))
+
+
+def score_ceiling(base: Decimal) -> int:
+    """The highest score any article with this shared part (or less) can have for anybody."""
+    return int(_EXACT.to_integral_value(_EXACT.multiply(_EXACT.add(base, MAX_BONUS), SCORE_SCALE)))
+
+
+def rank_moment(now: datetime) -> datetime:
+    """The moment the first page of the feed is ranked at: the start of the current five minutes."""
+    return datetime.fromtimestamp(
+        int(now.timestamp()) // RANK_MOMENT_SECONDS * RANK_MOMENT_SECONDS, tz=UTC
+    )

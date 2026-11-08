@@ -13,7 +13,7 @@ from datetime import UTC, datetime
 
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, ValidationError
 
-from pharos.cards.ranking import CURSOR_LIFETIME_SECONDS, SCORE_SCALE
+from pharos.cards.ranking import CURSOR_LIFETIME_SECONDS, SCORE_SCALE, rank_moment
 
 
 class Cursor(BaseModel):
@@ -42,6 +42,11 @@ def decode(raw: str, *, now: datetime) -> Cursor | None:
     except (ValueError, binascii.Error, ValidationError, UnicodeDecodeError):
         return None
     if cursor.a.tzinfo is None or cursor.s < 0:
+        return None
+    # The feed is ranked only at the start of a period (ADR-0027). A cursor that names any
+    # other moment was not made by us, and each such moment would be a new ranking kept in
+    # Redis for somebody who is not signed: refuse it.
+    if cursor.a != rank_moment(cursor.a):
         return None
     age = (now - cursor.a).total_seconds()
     return cursor if 0 <= age <= CURSOR_LIFETIME_SECONDS else None

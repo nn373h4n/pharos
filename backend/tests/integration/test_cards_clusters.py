@@ -8,13 +8,26 @@ import uuid
 from typing import Any
 
 import pytest
+from redis.asyncio import Redis
 from sqlalchemy import text
+
+from pharos.cards.ranking_cache import KEY_PREFIX
 
 from .test_cards_api import card, feed, put, stack_and_person, titles
 from .test_local_auth import MakeStack, Stack, make_stack  # noqa: F401
 from .test_sources_api import _remove_what_the_test_made  # noqa: F401
 
 pytestmark = [pytest.mark.integration, pytest.mark.anyio]
+
+
+async def a_minute_later(stack: Stack) -> None:
+    """The feed is ranked once in five minutes for everybody (ADR-0027): a change to which copy stands for
+    a story, or to whether it may be shown, reaches the ranking at the next minute. A test that
+    changes the articles and looks again lets that minute pass by forgetting the kept ranking."""
+    redis = Redis.from_url(stack.settings.redis_url.get_secret_value())
+    async for key in redis.scan_iter(match=f"{KEY_PREFIX}:*"):
+        await redis.delete(key)
+    await redis.aclose()
 
 
 async def cluster(stack: Stack, *items: uuid.UUID, id: uuid.UUID | None = None) -> uuid.UUID:
@@ -72,6 +85,7 @@ async def test_quality_breaks_a_tie_between_copies_seen_at_the_same_moment(
             ),
             {"a": low, "b": high},
         )
+    await a_minute_later(stack)
     assert titles(await feed(who)) == ["high"]
 
 
@@ -93,11 +107,13 @@ async def test_when_the_best_copy_cannot_be_shown_the_next_one_takes_its_place(
             text("UPDATE items SET status = 'held', hold_reason = 'editor_hold' WHERE id = :i"),
             {"i": first},
         )
+    await a_minute_later(stack)
     assert titles(await feed(who)) == ["best"]  # the story did not disappear
     async with stack.owner.begin() as connection:
         await connection.execute(
             text("UPDATE items SET status = 'hidden' WHERE id = :i"), {"i": best}
         )
+    await a_minute_later(stack)
     assert titles(await feed(who)) == ["last"]
 
 

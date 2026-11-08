@@ -8,11 +8,14 @@ statement names the organization and the person itself; row-level security is th
 import uuid
 from dataclasses import dataclass
 from datetime import date, datetime
+from decimal import Decimal
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from pharos.cards.ranking import HALF_LIFE_DAYS, SCORE_SCALE, WEIGHTS, WINDOW_DAYS
+
+_SHARED_WEIGHTS = frozenset({"relevance", "recency", "quality"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,21 +49,19 @@ async def act_as(session: AsyncSession, user: uuid.UUID) -> None:
     )
 
 
-_RANKED = f"""
-SELECT i.id, i.canonical_url AS url, i.title, i.published_at, i.fetched_at, i.summary,
-       i.category, i.quality,
-       EXISTS (SELECT 1 FROM interactions s WHERE s.org_id = i.org_id AND s.user_id = :user
-               AND s.item_id = i.id AND s.type = 'save') AS saved,
-       floor({SCORE_SCALE} * (
+# The part of the score that everybody with the same profession shares: how well the article fits
+# the profession, how recent it is and how good it is. The two category bonuses (interests, level)
+# are the person's own; the live query adds them in SQL, the cached ranking in `person_score`.
+_BASE_SCORE = f"""
            CAST(:w_relevance AS numeric) * coalesce(p.relevance, 0) / 100.0
          + CAST(:w_recency AS numeric) * power(0.5, greatest(0, extract(epoch FROM (CAST(:as_of AS timestamptz)
                - coalesce(i.published_at, i.fetched_at))) / 86400.0) / {HALF_LIFE_DAYS})
          + CAST(:w_quality AS numeric) * i.quality / 5.0
-         + CAST(:w_interest AS numeric) * (CASE WHEN i.category = ANY(CAST(:interest_categories AS text[]))
-                               THEN 1 ELSE 0 END)
-         + CAST(:w_level AS numeric) * (CASE WHEN i.category = ANY(CAST(:level_categories AS text[]))
-                            THEN 1 ELSE 0 END)
-       ))::bigint AS score
+"""  # noqa: E501 (the numbers are module constants; a SQL text)
+
+# Which articles may be shown at all, the same for everybody: the organization's current, read,
+# public articles in the window, and of a cluster of copies only the one that stands for the story.
+_SHOWN = f"""
 FROM items i
 LEFT JOIN item_professions p
   ON p.org_id = i.org_id AND p.item_id = i.id AND p.profession_code = :profession
@@ -69,8 +70,6 @@ WHERE i.org_id = :org AND i.owner_user_id IS NULL AND i.status = 'new'
   AND coalesce(i.published_at, i.fetched_at) <= CAST(:as_of AS timestamptz)
   AND coalesce(i.published_at, i.fetched_at)
       > CAST(:as_of AS timestamptz) - interval '{WINDOW_DAYS} days'
-  AND NOT EXISTS (SELECT 1 FROM interactions n WHERE n.org_id = i.org_id AND n.user_id = :user
-                  AND n.item_id = i.id AND n.type = 'not_useful')
   -- One card for one story (ADR-0021): of the articles that share a cluster and could be shown,
   -- only the one seen first is (then higher quality, then the lower id). Quality is model output
   -- over text a source wrote, so it must not decide which link stands for a story: a later copy
@@ -89,7 +88,36 @@ WHERE i.org_id = :org AND i.owner_user_id IS NULL AND i.status = 'new'
                OR (o.created_at = i.created_at
                    AND (o.quality > i.quality
                         OR (o.quality = i.quality AND o.id < i.id))))))
-"""  # noqa: S608, E501 (the numbers are module constants; a SQL text)
+"""  # noqa: S608 (the numbers are module constants; a SQL text)
+
+# What the person has marked not useful is theirs alone (ADR-0018).
+_NOT_HIDDEN = """
+  AND NOT EXISTS (SELECT 1 FROM interactions n WHERE n.org_id = i.org_id AND n.user_id = :user
+                  AND n.item_id = i.id AND n.type = 'not_useful')
+"""
+
+_RANKED = f"""
+SELECT i.id, i.canonical_url AS url, i.title, i.published_at, i.fetched_at, i.summary,
+       i.category, i.quality,
+       EXISTS (SELECT 1 FROM interactions s WHERE s.org_id = i.org_id AND s.user_id = :user
+               AND s.item_id = i.id AND s.type = 'save') AS saved,
+       floor({SCORE_SCALE} * (
+           {_BASE_SCORE}
+         + CAST(:w_interest AS numeric) * (CASE WHEN i.category = ANY(CAST(:interest_categories AS text[]))
+                               THEN 1 ELSE 0 END)
+         + CAST(:w_level AS numeric) * (CASE WHEN i.category = ANY(CAST(:level_categories AS text[]))
+                            THEN 1 ELSE 0 END)
+       ))::bigint AS score
+{_SHOWN}{_NOT_HIDDEN}
+"""  # noqa: S608, E501 (fixed fragments only)
+
+# The shared part of the ranking, best first: what the cache keeps (ADR-0027).
+_CANDIDATES = f"""
+SELECT i.id, i.category, CAST(({_BASE_SCORE}) AS text) AS base
+{_SHOWN}
+ORDER BY ({_BASE_SCORE}) DESC, i.id DESC
+LIMIT :limit
+"""
 
 
 async def ranked_cards(
@@ -119,7 +147,7 @@ async def ranked_cards(
             "interest_categories": interest_categories,
             "level_categories": level_categories,
             "limit": limit,
-            **{f"w_{name}": weight for name, weight in WEIGHTS.items()},
+            **{f"w_{name}": Decimal(str(weight)) for name, weight in WEIGHTS.items()},
             **({"after_score": after[0], "after_id": after[1]} if after else {}),
         },
     )
@@ -138,6 +166,85 @@ async def ranked_cards(
         )
         for r in rows
     ]
+
+
+@dataclass(frozen=True, slots=True)
+class Candidate:
+    """One article of the shared ranking: its category and the part of its score that does not
+    depend on the person, as the exact decimal the database worked out."""
+
+    id: uuid.UUID
+    category: str
+    base: Decimal
+
+
+async def ranked_candidates(
+    session: AsyncSession,
+    org: uuid.UUID,
+    *,
+    profession: str,
+    as_of: datetime,
+    limit: int,
+) -> list[Candidate]:
+    """The best `limit` articles for a profession by the shared part of the score. No person is
+    named: the result is the same for everybody with this profession at this moment."""
+    rows = await session.execute(
+        text(_CANDIDATES),
+        {
+            "org": org,
+            "profession": profession,
+            "as_of": as_of,
+            "limit": limit,
+            **{
+                f"w_{name}": Decimal(str(weight))
+                for name, weight in WEIGHTS.items()
+                if name in _SHARED_WEIGHTS
+            },
+        },
+    )
+    return [Candidate(id=r.id, category=r.category, base=Decimal(r.base)) for r in rows]
+
+
+async def cards_by_ids(
+    session: AsyncSession, org: uuid.UUID, user: uuid.UUID, ids: list[uuid.UUID]
+) -> dict[uuid.UUID, tuple[CardRow, bool]]:
+    """The cards of these articles, each with whether the person hid it, for those that may still
+    be shown. An article that has been held, hidden, deleted or is not current any more is simply
+    not in the answer, so a cached list can never show it."""
+    if not ids:
+        return {}
+    rows = await session.execute(
+        text(
+            "SELECT i.id, i.canonical_url AS url, i.title, i.published_at, i.fetched_at, "
+            "i.summary, i.category, i.quality, "
+            "EXISTS (SELECT 1 FROM interactions s WHERE s.org_id = i.org_id AND s.user_id = :user "
+            "AND s.item_id = i.id AND s.type = 'save') AS saved, "
+            "EXISTS (SELECT 1 FROM interactions n WHERE n.org_id = i.org_id AND n.user_id = :user "
+            "AND n.item_id = i.id AND n.type = 'not_useful') AS hidden "
+            "FROM items i WHERE i.org_id = :org AND i.id = ANY(CAST(:ids AS uuid[])) "
+            "AND i.owner_user_id IS NULL AND i.status = 'new' "
+            "AND i.enriched_at IS NOT NULL AND i.summary IS NOT NULL"
+        ),
+        {"org": org, "user": user, "ids": ids},
+    )
+    return {
+        r.id: (
+            CardRow(
+                id=r.id,
+                url=r.url,
+                title=r.title,
+                published_at=r.published_at,
+                fetched_at=r.fetched_at,
+                summary=r.summary,
+                category=r.category,
+                quality=r.quality,
+                saved=r.saved,
+                score=0,  # the caller knows the score (it worked it out from the ranking)
+            ),
+            bool(r.hidden),
+        )
+        for r in rows
+    }
 
 
 async def item_is_readable(session: AsyncSession, org: uuid.UUID, item: uuid.UUID) -> bool:
