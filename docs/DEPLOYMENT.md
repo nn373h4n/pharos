@@ -454,6 +454,28 @@ requests an hour for one person on a fast system.
 Until a run reaches 30,000 *people* on comparable hardware, the "30,000 users" figure of the
 proposal is an estimate, not a measurement; what is measured is 150 people at work on two threads.
 
+### The insight burst (`LOAD_SCENARIO=insights make loadtest`)
+
+The same harness (same throwaway stack, with the test provider in the worker: no model, no key)
+makes a burst: `LOAD_BURST` people (default 100) open "Try this" within 20 seconds, each on another
+article, and look again every 3 seconds until the insight is ready. The verdict is PASS when no
+answer was a server error or a timeout and every person got a ready insight within five minutes;
+the report also checks that the insights are in the database.
+
+Result of 2026-11-08 (the same 2-thread machine): 100 people, **all 100 ready**, median 39 s, p95
+157 s, longest 163 s, no 5xx, no 429, 100 insights stored. The pace is the limit of calls to the
+model, 30 a minute for the whole organization (`PHAROS_LLM_CALLS_PER_MINUTE`): 100 insights take
+about three and a half minutes whatever the machine. Before the fix of F-51 the same kind of burst
+left everyone past the limit waiting for five minutes and then asking again (30 of 60 and 30 of 300
+people got their insight in five minutes). With the default limit a burst of 300 people is
+expected to take ten minutes or more; it was not run.
+
+Two facts for whoever runs a pilot: the limit of 30 calls a minute is shared by every stage (the
+filter, the enrichment and the insights), and the **default budget of two dollars a day covers only
+about 62 insights**, because the insights stop at half of it and every call is booked at the
+conservative price of a model without a known price. Set the budget and the price of the model you
+use before the pilot (F-52).
+
 ## Resilience check (`make test-resilience`)
 
 `make test-resilience` builds a throwaway copy of the stack (like the load test and the stack

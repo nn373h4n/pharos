@@ -2,10 +2,13 @@
 
 import asyncio
 import logging
+import random
 import uuid
 from datetime import UTC, datetime
+from typing import Any
 
 from celery import shared_task
+from celery.exceptions import MaxRetriesExceededError
 from redis import asyncio as aioredis
 from sqlalchemy.ext.asyncio import AsyncEngine
 
@@ -13,7 +16,7 @@ from pharos.core.clock import SystemClock
 from pharos.core.config import get_settings
 from pharos.ingest import repository
 from pharos.llm import clustering, enrichment, insights, keytest
-from pharos.llm.errors import LLMError
+from pharos.llm.errors import CallRateExceeded, LLMError
 from pharos.llm.factory import build_gateway
 from pharos.llm.usage import DatabaseUsageSink
 from pharos.workers.runtime import runtime
@@ -192,8 +195,17 @@ def embed_sweep_task() -> None:
 INSIGHT_TASK = "pharos.llm.insight"
 
 
-@shared_task(name=INSIGHT_TASK, ignore_result=True)
-def insight_task(item_id: str, profession: str, language: str) -> None:
+# The calls to the model are counted for each wall-clock minute (30 by default, for the whole
+# organization). When a burst of people asks for insights, the ones past the limit used to be
+# dropped and left waiting for the five minutes the marker of their request lives (F-51). They now
+# try again at the start of the next minute, at most this many times: 4 x about a minute is less
+# than the five minutes the marker and the task live, so the last try is over before the person's
+# next look can ask again.
+INSIGHT_RETRIES = 4
+
+
+@shared_task(name=INSIGHT_TASK, bind=True, ignore_result=True, max_retries=INSIGHT_RETRIES)
+def insight_task(self: Any, item_id: str, profession: str, language: str) -> None:
     """Make the insight of one article for a profession and a language (M4-06). Identifiers and
     two words only come through the broker; everything is checked again here. Safe to run twice."""
     try:
@@ -207,27 +219,39 @@ def insight_task(item_id: str, profession: str, language: str) -> None:
     if settings.llm_provider == "off":
         return
 
-    async def work(engine: AsyncEngine) -> None:
+    async def work(engine: AsyncEngine) -> bool:
+        """True when the calls of this minute are spent and the task should try again."""
         async with engine.begin() as connection:
             org = await repository.resolve_org(connection, settings.org_slug)
         if org is None:
-            return
+            return False
         redis = aioredis.from_url(settings.redis_url.get_secret_value())
         try:
             try:
                 gateway = build_gateway(settings, redis, DatabaseUsageSink(engine), SystemClock())
             except Exception:  # a provider named without a key, or without LiteLLM
                 logger.warning("insight: the model layer is not configured")
-                return
+                return False
             try:
                 outcome = await insights.make_insight(
                     engine, gateway, org, item, profession, language
                 )
+            except CallRateExceeded:
+                logger.info("insight waits for the next minute: this minute's calls are spent")
+                return True
             except LLMError as stop:
                 logger.info("insight not made", extra={"reason": stop.code})
-                return
+                return False
             logger.info("insight", extra={"outcome": outcome})
+            return False
         finally:
             await redis.aclose()
 
-    runtime.run(work)
+    if runtime.run(work):
+        # The count is kept for each minute of the clock: the next try is at the start of the next
+        # one, spread over a few seconds so that those who waited do not all come in one second.
+        wait = 60 - datetime.now(UTC).second + random.uniform(1, 10)  # noqa: S311 (spreading)
+        try:
+            raise self.retry(countdown=wait)
+        except MaxRetriesExceededError:
+            logger.info("insight not made: no free call in %d minutes", INSIGHT_RETRIES)
