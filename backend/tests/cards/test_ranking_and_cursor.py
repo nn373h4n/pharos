@@ -91,6 +91,19 @@ def test_a_cursor_that_names_no_ranking_moment_is_refused(offset: timedelta) -> 
     assert cursor.decode(cursor.encode(NOW + offset, 1, ITEM), now=later + offset) is None
 
 
+@pytest.mark.parametrize(
+    "moment",
+    ["0001-01-01T00:00:00+14:00", "9999-12-31T23:59:00-14:00", "9999-12-31T23:59:59+00:00"],
+)
+def test_a_moment_at_the_edge_of_what_a_clock_holds_is_refused_not_a_crash(moment: str) -> None:
+    import base64
+    import json
+
+    body = {"a": moment, "s": 1, "i": str(ITEM)}
+    raw = base64.urlsafe_b64encode(json.dumps(body).encode()).decode().rstrip("=")
+    assert cursor.decode(raw, now=NOW) is None  # a 422 for the caller, never a 500
+
+
 def test_the_edges_of_the_lifetime_are_accepted() -> None:
     raw = cursor.encode(NOW, 1, ITEM)
     assert cursor.decode(raw, now=NOW) is not None

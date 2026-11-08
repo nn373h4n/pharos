@@ -30,13 +30,13 @@ are ranked at one moment.
 
 ## Options considered
 
-1. **Rank once a minute for each profession and keep the best two thousand in Redis, then add the
+1. **Rank once in five minutes for each profession and keep the best two thousand in Redis, then add the
    person's own terms in the application.** Per request: read the list, add the bonuses, take the
    slice after the cursor, read the cards of that slice from the database (checking again that each
    article may still be shown), drop what this person hid. Pros: the cost of a request stops
    depending on the corpus; no migration; the person's own data never enters the shared list; the
    number of cached lists is the number of professions, not of profiles. Cons: a new article or a
-   change of ranking shows up to a minute late; a cache in Redis, whose memory is fixed and which
+   change of ranking shows up to five minutes late; a cache in Redis, whose memory is fixed and which
    never drops keys; the exactness of the cut list needs an argument and a test; a person who pages
    past the exact part falls back to the slow query.
 2. **The same list, keyed by profession, interests and level.** Pros: simpler arithmetic. Cons: the
@@ -65,7 +65,7 @@ Option 1.
   period; a cursor from an older one reads what is still kept and otherwise gets the live query.
   Without this a member could make a new 170 KB ranking with every forged second, and fill the
   Redis that also holds the sessions (found by the security review, fixed before merge).
-- **What is kept.** For each (organization, profession, minute), the best 2,000 articles by the
+- **What is kept.** For each (organization, profession, five minutes), the best 2,000 articles by the
   shared part of the score, each with its category and the exact decimal the database worked out,
   in Redis under `pharos:api:feed:v1:` for fifteen minutes. Nothing about a person is in it: no
   interaction, no identity, no text of an article.
@@ -83,7 +83,7 @@ Option 1.
   this person saved and hid; hidden ones are skipped and the next ids are read until the page is
   full.
 - **How it is made once.** One request ranks while the others wait (a lock that only its owner
-  lets go, up to three seconds); one that is still without a list then answers its own page with
+  lets go, up to one second); one that is still without a list then answers its own page with
   the live query. It does not rank the whole list again: that would add the most work when the
   database is busiest.
 - **Redis down or slow.** The feed answers from the existing query, correct and slow. The cache has
@@ -94,15 +94,15 @@ Option 1.
 ## Consequences
 
 - Positive: a feed request costs a Redis read and two small queries whatever the corpus; the ranking
-  is paid once for each profession and minute (about 0.4 s now).
+  is paid once for each profession and five minutes (about 0.4 s now).
 - Negative: a new article, or a change of which copy stands for a story, can take up to five
   minutes to show, and a re-read article can show twice for that long (once from the kept list,
   once from the live query where they hand over); a removed one never stays. When an editor holds the copy that stood for a story, the story
   is gone from the feed until the next ranking, then shows with another copy. The ranking
-  of each profession is made every minute in which someone asks, even if it is one person.
+  of each profession is made every period in which someone asks, even if it is one person.
 - Redis: the list of one profession is about 170 KB. Redis has 200 MB and never drops keys, and the
   sessions live there too. At most the current and the previous period are made, each kept for
-  fifteen minutes, so about three lists live for each profession: tens of professions are a few
+  fifteen minutes, so normally three and at most five lists live for each profession: tens of professions are a few
   megabytes, hundreds of professions could reach tens of megabytes (noted in the threat model).
 - Follow-up: `make loadtest` is the acceptance (feed p95 under 400 ms with 50 people, and the
   stepped run shows where it stops). Option 5 can follow if the ranking itself becomes too slow.

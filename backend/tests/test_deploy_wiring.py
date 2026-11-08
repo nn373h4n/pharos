@@ -94,7 +94,7 @@ def test_compose_never_passes_the_test_only_fetch_allowance() -> None:
     assert "FETCH_TEST_ALLOWED" not in example
 
 
-def test_the_test_only_overlay_is_used_by_the_stack_test_and_nothing_else() -> None:
+def test_the_test_only_overlay_is_used_by_the_two_stack_tests_and_nothing_else() -> None:
     """The overlay runs the worker with environment=test; no real installation may include it."""
     root = DEPLOY.parent
     overlay = "docker-compose.stack-e2e.yml"
@@ -107,7 +107,7 @@ def test_the_test_only_overlay_is_used_by_the_stack_test_and_nothing_else() -> N
         + list(root.glob(".github/workflows/*"))
         if path.is_file() and path.name != overlay and overlay in path.read_text(errors="ignore")
     ]
-    assert sorted(users) == ["scripts/stack-e2e.sh"], users
+    assert sorted(users) == ["scripts/resilience-check.sh", "scripts/stack-e2e.sh"], users
     text = (DEPLOY / overlay).read_text()
     # exactly one address and one port may be reached, and only by the worker
     assert "PHAROS_FETCH_TEST_ALLOWED_NETWORKS: 172.28.77.10/32" in text

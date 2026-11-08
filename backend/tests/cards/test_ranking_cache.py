@@ -129,9 +129,12 @@ class FakeRedis:
         self.expiry: dict[str, int] = {}
         self.fail: Exception | None = None
         self.reads = 0
+        self.delay = 0.0
 
     async def get(self, key: str) -> Any:
         self.reads += 1
+        if self.delay:
+            await asyncio.sleep(self.delay)
         if self.fail:
             raise self.fail
         return self.data.get(key)
@@ -218,6 +221,24 @@ async def test_a_caller_that_waits_too_long_gets_none_and_does_not_rank_again() 
     assert (
         redis.data[f"{KEY}:lock"] == "somebody-else"
     )  # the other one's lock is not ours to remove
+
+
+@pytest.mark.anyio
+async def test_the_wait_is_measured_in_real_time_so_a_slow_redis_cannot_stretch_it() -> None:
+    """Each wait for the ranking holds a database connection. Counting only the sleeps would let a
+    Redis that answers slowly keep the request for a minute."""
+    import time
+
+    redis = FakeRedis()
+    redis.data[f"{KEY}:lock"] = "somebody-else"
+    redis.delay = 0.3  # every read takes much longer than the pause between reads
+
+    async def rank(limit: int) -> list[Candidate]:
+        return [candidate("0.9")]
+
+    started = time.monotonic()
+    assert await cache_with(redis, wait_seconds=0.6).get_or_rank(KEY, rank) is None
+    assert time.monotonic() - started < 2.0  # about 1.2 s, not the 60 reads the sleeps alone allow
 
 
 @pytest.mark.anyio

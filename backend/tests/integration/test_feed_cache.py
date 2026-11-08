@@ -339,3 +339,128 @@ async def test_a_forged_cursor_cannot_fill_redis_with_rankings(make_stack: MakeS
         assert made  # (the articles exist; the feed above had something to page through)
     finally:
         await cards.close()
+
+
+async def forged(first: dict[str, Any], moment: datetime) -> str:
+    """A cursor of the real kind, but naming another (aligned) moment."""
+    raw = first["next_cursor"]
+    body = json.loads(base64.urlsafe_b64decode(raw + "=" * (-len(raw) % 4)))
+    body["a"] = moment.isoformat()
+    return base64.urlsafe_b64encode(json.dumps(body).encode()).decode().rstrip("=")
+
+
+@pytest.mark.anyio
+async def test_a_ranking_is_made_for_the_previous_period_and_not_for_the_one_before_it(
+    make_stack: MakeStack,
+) -> None:
+    stack, who = await stack_and_person(make_stack)
+    cards = Cards(stack)
+    try:
+        await fill(stack, 30)
+        await cards.clear()
+        cards.cached()
+        first = await feed(who, limit=5)
+        assert len(await cards.keys()) == 1
+        period = datetime.fromisoformat(
+            json.loads(
+                base64.urlsafe_b64decode(
+                    first["next_cursor"] + "=" * (-len(first["next_cursor"]) % 4)
+                )
+            )["a"]
+        )
+        # Exactly one period back: still made (a visit that began a little before the boundary).
+        cursor = await forged(first, period - timedelta(minutes=5))
+        assert (
+            await who.client.get("/api/cards", params={"cursor": cursor, "limit": 5})
+        ).status_code == 200
+        assert len(await cards.keys()) == 2
+        # Two periods back: only read, never made.
+        cursor = await forged(first, period - timedelta(minutes=10))
+        assert (
+            await who.client.get("/api/cards", params={"cursor": cursor, "limit": 5})
+        ).status_code == 200
+        assert len(await cards.keys()) == 2
+    finally:
+        await cards.close()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("size", [3, 6, 9, 14])
+async def test_articles_with_exactly_the_same_score_are_paged_like_the_live_query(
+    make_stack: MakeStack, size: int
+) -> None:
+    """Fourteen articles equal in fit, quality, category and time: the order among them is by id,
+    and the cut of the kept list runs through them. Their score is also exactly the ceiling a cut
+    list can prove, which is the edge of the certain part."""
+    stack, who = await stack_and_person(make_stack, level="beginner", interests=["writing"])
+    cards = Cards(stack)
+    try:
+        when = datetime.now(UTC) - timedelta(hours=3)
+        for n in range(14):
+            await card(
+                stack, title=f"Same {n:02d}", quality=5, category="tool", fit={"accountant": 100}
+            )
+        async with stack.owner.begin() as connection:
+            await connection.execute(
+                text("UPDATE items SET published_at = :w WHERE title LIKE 'Same %'"), {"w": when}
+            )
+        for n in range(6):
+            await card(stack, title=f"Lower {n}", quality=2, category="news", hours=40 + n)
+        await cards.clear()
+        cards.live()
+        expected = await pages(who, per_page=4)
+        cards.cached(size)
+        assert await pages(who, per_page=4) == expected
+        seen = [t for page in expected for t in titles(page)]
+        assert len(seen) == len(set(seen)) == 20  # nothing twice, nothing lost
+    finally:
+        await cards.close()
+
+
+async def card_with_id(
+    stack: Stack, ident: uuid.UUID, *, title: str, category: str, relevance: int
+) -> None:
+    """An article with an id of our choosing and everything else equal, so that scores can be made
+    to meet exactly."""
+    made = await card(stack, title=title, quality=3, category=category)
+    async with stack.owner.begin() as connection:
+        await connection.execute(
+            text("UPDATE items SET id = :new, published_at = :w WHERE id = :old"),
+            {"new": ident, "old": made, "w": datetime.now(UTC) - timedelta(hours=5)},
+        )
+        await connection.execute(
+            text(
+                "INSERT INTO item_professions (org_id, item_id, profession_code, relevance) "
+                "VALUES (:o, :i, 'accountant', :r)"
+            ),
+            {"o": stack.org_a, "i": ident, "r": relevance},
+        )
+
+
+@pytest.mark.anyio
+async def test_equal_scores_that_come_from_different_parts_are_not_trusted_at_the_edge(
+    make_stack: MakeStack,
+) -> None:
+    """The edge of the certain part is a strict one. Article X has a shared part 0.10 higher than
+    the articles M but only the level bonus (0.05), the Ms have both (0.15): all score the same, and
+    the live order among equals is by id. X has the lowest id, so it must come after every M; but the
+    list is cut after X and five Ms, so it holds Ms the cut-off line would let it put before the rest.
+    Trusting a score equal to the line would put X ahead of the Ms that are not in the list."""
+    stack, who = await stack_and_person(make_stack, level="beginner", interests=["writing"])
+    cards = Cards(stack)
+    try:
+        low = uuid.UUID(int=1)
+        await card_with_id(stack, low, title="X", category="news", relevance=90)
+        for n in range(10):
+            await card_with_id(
+                stack, uuid.UUID(int=0x10 + n), title=f"M{n}", category="tool", relevance=70
+            )
+        await cards.clear()
+        cards.live()
+        expected = await pages(who, per_page=4)
+        order = [t for page in expected for t in titles(page)]
+        assert order == [f"M{n}" for n in range(9, -1, -1)] + ["X"]  # the control: ties by id
+        cards.cached(6)
+        assert await pages(who, per_page=4) == expected
+    finally:
+        await cards.close()
