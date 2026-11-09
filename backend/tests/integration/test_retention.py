@@ -806,3 +806,61 @@ async def test_the_worker_role_cannot_touch_the_counts_the_people_or_the_log(
                     text(statement), {"i": who.id} if ":i" in statement else {}
                 )
             await nested.rollback()
+
+
+async def test_no_function_or_view_reads_the_monthly_counts(owner_engine: Any) -> None:
+    """F-47: the monthly counts next to the daily summary reveal a small group by subtraction, so
+    nothing in the database may read the table (function, view, materialized view, policy, rule)
+    and nobody but the table owner may be granted anything on it. A guard against a future
+    change, not proof that nothing leaks."""
+    table = "interaction_counts_monthly"
+    system = "('pg_catalog', 'information_schema') AND n.nspname NOT LIKE 'pg\\_toast%'"
+    sources = (
+        "SELECT p.proname AS name, p.prosrc AS body FROM pg_proc p "
+        f"JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname NOT IN {system} "
+        "UNION ALL SELECT v.viewname, v.definition FROM pg_views v "
+        "WHERE v.schemaname NOT IN ('pg_catalog', 'information_schema') "
+        "UNION ALL SELECT m.matviewname, m.definition FROM pg_matviews m "
+        "WHERE m.schemaname NOT IN ('pg_catalog', 'information_schema') "
+        "UNION ALL SELECT pol.polname, coalesce(pg_get_expr(pol.polqual, pol.polrelid), '') "
+        "|| ' ' || coalesce(pg_get_expr(pol.polwithcheck, pol.polrelid), '') FROM pg_policy pol "
+        "UNION ALL SELECT r.rulename, pg_get_ruledef(r.oid) FROM pg_rewrite r "
+        "JOIN pg_class c ON c.oid = r.ev_class JOIN pg_namespace n ON n.oid = c.relnamespace "
+        f"WHERE n.nspname NOT IN {system} AND c.relkind <> 'v'"
+    )
+    # Every grantee of the table, PUBLIC included (oid 0); the owner's own default rights count.
+    grants = (
+        "SELECT CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END "
+        "AS grantee, a.grantee = c.relowner AS is_owner "
+        "FROM pg_class c, aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) a "
+        "WHERE c.oid = to_regclass('public.interaction_counts_monthly')"
+    )
+    async with owner_engine.connect() as connection:
+        mentioning = (
+            (
+                await connection.execute(
+                    text(f"SELECT name FROM ({sources}) s WHERE body ILIKE :p ORDER BY name"),
+                    {"p": f"%{table}%"},
+                )
+            )
+            .scalars()
+            .all()
+        )
+        # The body of the daily summary reads `public.interactions` (the name is not in its body).
+        positive = (
+            await connection.execute(
+                text(f"SELECT count(*) FROM ({sources}) s WHERE name = :f AND body LIKE :p"),
+                {"f": "pharos_interaction_counts", "p": "%public.interactions%"},
+            )
+        ).scalar_one()
+        grantees = (await connection.execute(text(grants))).all()
+    assert positive == 1, "control: the daily summary function was not found"
+    assert any(row.is_owner for row in grantees), "control: the owner's grant was not seen"
+    assert not mentioning, (
+        f"{mentioning} mention {table}: daily and monthly counts must not be published together, "
+        "a group smaller than 5 would show by subtraction (F-47)"
+    )
+    others = sorted({row.grantee for row in grantees if not row.is_owner})
+    assert not others, (
+        f"{others} are granted rights on {table}: only the table owner may touch it (F-47)"
+    )

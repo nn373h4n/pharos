@@ -21,6 +21,7 @@ All notable changes are listed here, newest first. The format follows [Keep a Ch
 
 ### Added
 
+- Tests and a written rule for F-47 (M5-09 follow-up, no behaviour change): the monthly interaction counts are not shown to anyone who could see the daily summary while those months were recent (administrators), nor together with overlapping periods; tests guard against a future change in the repo or the database; see ADR-0025 and `docs/DEPLOYMENT.md`.
 - `LOAD_SCENARIO=insights make loadtest` (M5-08): the insight burst, with the stack's test provider; see `docs/DEPLOYMENT.md`.
 - `LOAD_SCENARIO=sso make loadtest` (M5-08): 100 synthetic people sign in through a development Keycloak from one address; all 100 signed in, no 429, 5xx or timeout, one sign-in p95 264 ms, the last one in at 99 s; see `docs/DEPLOYMENT.md`.
 - `make test-resilience` (M5-08): a 10,000-entry feed is read within the worker's memory (peak 215 MiB, limit 300), and a worker killed with `docker kill` in the middle of a fetch loses and doubles nothing after its lease runs out; see `docs/DEPLOYMENT.md`, "Resilience check".
