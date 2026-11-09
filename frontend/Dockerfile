@@ -1,6 +1,6 @@
 # Web image: Next.js standalone server. Build context: the repository root.
 #   docker build -f frontend/Dockerfile .
-FROM node:24-slim AS build
+FROM node:24-slim@sha256:01d566e8d94d8c619591d78652babfccd3c6992a3dffa9ed5ab39e11cf6c70e9 AS build
 
 ENV NEXT_TELEMETRY_DISABLED=1
 # pnpm is fetched at the version pinned in package.json ("packageManager").
@@ -12,7 +12,7 @@ RUN pnpm install --frozen-lockfile
 COPY frontend/ ./
 RUN pnpm build
 
-FROM node:24-slim
+FROM node:24-slim@sha256:01d566e8d94d8c619591d78652babfccd3c6992a3dffa9ed5ab39e11cf6c70e9
 
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 PORT=3000 HOSTNAME=0.0.0.0
 

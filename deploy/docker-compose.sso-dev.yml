@@ -56,7 +56,7 @@ services:
   # holds the CA's private keys (readable by root only) and must never be mounted into another
   # service. Runs once, waits for Caddy to create the certificate, then exits.
   dev-ca-export:
-    image: caddy:2-alpine
+    image: caddy:2-alpine@sha256:78bd35025c7ba85961dd149ae670315129954e77abe2383ac47c89106b35ade9
     restart: "no"
     read_only: true
     cap_drop: [ALL]

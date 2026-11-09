@@ -143,7 +143,7 @@ x-backend-env: &backend-env
 
 services:
   caddy:
-    image: caddy:2-alpine
+    image: caddy:2-alpine@sha256:78bd35025c7ba85961dd149ae670315129954e77abe2383ac47c89106b35ade9
     <<: *hardening
     # Root inside the container with every capability dropped except the one needed to bind 80/443.
     cap_add: [NET_BIND_SERVICE]
@@ -405,7 +405,7 @@ services:
     mem_limit: 512m
 
   postgres:
-    image: pgvector/pgvector:pg16
+    image: pgvector/pgvector:pg16@sha256:0dd3149a06e4579a0d70d8fef9945636cd514005e7237deb27f9b67886f8dc4f
     <<: *hardening
     user: postgres
     environment:
@@ -428,7 +428,7 @@ services:
     mem_limit: 1g
 
   redis:
-    image: redis:8.10.0-alpine
+    image: redis:8.10.0-alpine@sha256:978f0e01593e65eed801f2402944efcd936d43b5027e4908a7897baf88ed6241
     <<: *hardening
     user: redis
     command: ["sh", "/redis/start.sh"]

@@ -1,10 +1,15 @@
 # Backend image for the API, the worker, the scheduler and the migration job.
 # Build context: the repository root (uv.lock lives there).
 #   docker build -f backend/Dockerfile .
-FROM python:3.12-slim AS build
+# uv comes from its own image, pinned by digest (ADR-0024), not from a pip install that follows an
+# index. Dependabot's docker updates keep this line and the base images below fresh. Keep the uv
+# version equal to UV_VERSION in .github/workflows/ci.yml (a test compares them).
+FROM ghcr.io/astral-sh/uv:0.13.5@sha256:32a7bb39b496babbd997b0a39a4d66c126bdaf5661b302bf6f06abda8deca6ff AS uv
 
-ENV PIP_DISABLE_PIP_VERSION_CHECK=1 PIP_NO_CACHE_DIR=1 UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
-RUN pip install uv==0.13.5
+FROM python:3.12-slim@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b AS build
+
+ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
+COPY --from=uv /uv /usr/local/bin/uv
 
 WORKDIR /app
 COPY pyproject.toml uv.lock README.md ./
@@ -14,7 +19,7 @@ COPY backend/src backend/src
 # mode so that it finds backend/alembic next to backend/src at run time.
 RUN uv sync --frozen --no-dev --package pharos
 
-FROM python:3.12-slim
+FROM python:3.12-slim@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b
 
 # The base image ships two packages with published HIGH vulnerabilities: apt 3.0.3 (CVE-2026-109518:
 # an on-path attacker while apt downloads packages; fixed in 3.0.4) and zlib1g 1:1.3.dfsg+really1.3.1-1+b1
