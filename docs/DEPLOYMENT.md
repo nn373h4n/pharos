@@ -391,9 +391,11 @@ cron) or run them by hand; the first dry run shows what would happen.
   before the cutoff (the first day of the month `--months` back, in UTC), all in one transaction. A
   month and kind with fewer than five people is not kept; one person's minutes count at most 120
   a month and the total is rounded to a multiple of 30 (the daily summary caps each row instead). If a count for a
-  month already exists (after a restore, for example) it stops and deletes nothing. A monthly count
-  next to the daily summary can let someone work out a smaller group by subtraction; the pilot's
-  report should publish one or the other.
+  month already exists (after a restore, for example) it stops and deletes nothing. The pilot's
+  report must not show the monthly counts to anyone who could see the daily summary while those
+  months were recent (administrators), and must not put a month next to days of the same month, or
+  any two periods that overlap; the application itself never shows the monthly counts, and the
+  months that are folded are no longer in the daily summary's 30-day window.
 - `delete-person` removes the person's profile, password, interactions, personal feeds and the
   articles of those feeds; clears their username from the target of earlier audit entries and the
   address hash from their own entries and from refused sign-ins that named them; clears the `created_by` marks on sources and tools; writes

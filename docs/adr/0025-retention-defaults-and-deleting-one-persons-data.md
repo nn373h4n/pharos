@@ -57,6 +57,18 @@ What was built, where it differs from the text above. The status stays `Proposed
   default is not enforced by Pharos.
 - Interactions are folded into a new table, `interaction_counts_monthly` (migration 0011), kept
   only for a month and kind with at least five people, with the daily summary's cap and rounding.
+- The monthly counts are never read by the application or the worker (no grant, no endpoint), and
+  must not be shown to anyone who could see the daily summary while those months were recent
+  (administrators). A day's count that the summary showed, taken from the count of its month, could
+  reveal a group smaller than five, and a month's actions minus the days the summary showed give
+  the actions of the days it hid because of the floor (F-47). Today no code publishes the monthly
+  counts, and the months `fold-interactions` folds are no longer in the daily summary (the fold
+  deletes their interactions and the summary looks back 30 days, `SUMMARY_DAYS`); both are tested
+  as a guard against a future change. These tests do not prove that nothing leaks over time: an
+  administrator who wrote down the daily counts could still subtract them from a monthly row shown
+  to them. Counts of periods that overlap must not be published together. Publishing the monthly
+  counts, or widening the summary window to 90 days or more, needs a new decision that deals with
+  subtraction first.
 - Floors: audit retention at least 30 days, interactions at least 3 months, so a typing mistake
   cannot wipe the trail.
 - Deleting a person also clears their username from the target of earlier audit entries and the
