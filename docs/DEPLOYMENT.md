@@ -539,6 +539,29 @@ docker compose -f deploy/docker-compose.yml --env-file deploy/.env exec api \
 `make test-compose` builds and checks the whole stack in a throwaway project, with its own
 volumes and ports, and removes it afterwards.
 
+## Pinned images and tools
+
+Every image Pharos builds from or starts is pinned by digest (ADR-0024): the `python` and `node`
+base images, `caddy`, `pgvector`, `redis`, `ollama`, `keycloak` and the `uv` image the backend
+build copies `uv` from. `pnpm` is pinned by the hash in the `packageManager` field of
+`frontend/package.json`, which Corepack checks. Two builds of one commit therefore use the same
+bases. The images Compose builds itself (`pharos-backend`, `pharos-web`) are the only references
+without a digest.
+
+Dependabot opens the update pull requests (`docker` for the two Dockerfiles, `docker-compose` for
+`deploy/`); each one changes the tag and the digest together, and a person reviews it like any
+other dependency change. To bump one by hand, read the digest of the multi-architecture index:
+
+```bash
+docker buildx imagetools inspect python:3.12-slim --format '{{.Manifest.Digest}}'
+```
+
+`backend/tests/test_image_pins.py` fails on a floating `FROM` or `image:` line, on a `pip install`
+in the backend Dockerfile, on a `uv` version that differs from `UV_VERSION` in
+`.github/workflows/ci.yml`, and on a `packageManager` without a hash. A pinned digest also
+pins its known vulnerabilities: the scheduled Trivy scan reports them, and a bump is how they
+are fixed.
+
 ## Known limits
 
 - Backup and restore are scripts with a rehearsal on a small throwaway database (see "Backup and
