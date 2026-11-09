@@ -265,7 +265,7 @@ services:
   # It runs for a moment, has no network at all and keeps the one capability that chown needs.
   ollama-init:
     profiles: ["local-llm", "local-llm-pull"]
-    image: ollama/ollama:0.40.6@sha256:265409e1d931028a8f7d5a32bcbafddd7bffbc6cc629d77efe9560adf692a5e7
+    image: ollama/ollama:0.40.15@sha256:0e59999e0e8f9fd4e704bd788a89b7e4cad399367fb1365f8c102ac662288761
     <<: *hardening
     restart: "no"
     user: "0:0"
@@ -283,7 +283,7 @@ services:
   # service: an operator puts them in the volume with scripts/ollama-pull.sh (see `ollama-pull`).
   ollama:
     profiles: ["local-llm"]
-    image: ollama/ollama:0.40.6@sha256:265409e1d931028a8f7d5a32bcbafddd7bffbc6cc629d77efe9560adf692a5e7
+    image: ollama/ollama:0.40.15@sha256:0e59999e0e8f9fd4e704bd788a89b7e4cad399367fb1365f8c102ac662288761
     <<: *hardening
     user: "10001:10001"
     environment:
@@ -320,7 +320,7 @@ services:
   # runs; the server above never has one.
   ollama-pull:
     profiles: ["local-llm-pull"]
-    image: ollama/ollama:0.40.6@sha256:265409e1d931028a8f7d5a32bcbafddd7bffbc6cc629d77efe9560adf692a5e7
+    image: ollama/ollama:0.40.15@sha256:0e59999e0e8f9fd4e704bd788a89b7e4cad399367fb1365f8c102ac662288761
     <<: *hardening
     user: "10001:10001"
     restart: "no"
