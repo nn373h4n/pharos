@@ -473,5 +473,6 @@ def test_cosign_is_pinned_and_the_same_in_the_workflow_and_the_script() -> None:
 def test_the_workflow_identity_is_the_one_the_script_verifies() -> None:
     script = (ROOT / "scripts/verify-release.sh").read_text()
     assert "/.github/workflows/release.yml@refs/tags/" in script
-    assert "https://token.actions.githubusercontent.com" in script
+    issuer = re.search(r"^ISSUER=(\S+)$", script, re.MULTILINE)
+    assert issuer and issuer.group(1) == "https://token.actions.githubusercontent.com"
     assert WORKFLOW.name == "release.yml"
