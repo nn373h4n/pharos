@@ -1,6 +1,6 @@
 [project]
 name = "pharos"
-version = "0.0.0"
+version = "0.1.0"
 description = "Pharos backend: API and worker"
 readme = "../README.md"
 requires-python = ">=3.12"
