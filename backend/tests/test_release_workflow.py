@@ -79,7 +79,7 @@ def violations(text: str) -> list[str]:
     for name, block in blocks.items():
         granted = permissions(block, 4)
         writes = {k for k, v in granted.items() if v != "read" or k == "*"}
-        allowed = {"packages"} if name == "publish" else set()
+        allowed = {"publish": {"packages"}, "sign": {"packages", "id-token"}}.get(name, set())
         if writes - allowed:
             bad.append(f"job {name} has extra permissions: {sorted(writes - allowed)}")
     publish = blocks.get("publish", "")
@@ -92,7 +92,7 @@ def violations(text: str) -> list[str]:
     if not re.search(r"^    needs: build-scan\s*$", publish, re.MULTILINE):
         bad.append("publish does not wait for build-scan")
     for name, block in blocks.items():
-        if name != "publish" and re.search(
+        if name not in {"publish", "sign"} and re.search(
             r"docker (login|push)|ghcr\.io", "\n".join(run_scripts(block))
         ):
             bad.append(f"job {name} logs in or pushes")
@@ -110,9 +110,39 @@ def violations(text: str) -> list[str]:
         bad.append("publish does not hand its digests on")
     if not re.search(r"- name: Log out\n\s+if: always\(\)\n\s+run: docker logout", publish):
         bad.append("publish does not always log out")
-    code = "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
+    outside_sign = text.replace(blocks.get("sign", "\0"), "")
+    code = "\n".join(l for l in outside_sign.splitlines() if not l.lstrip().startswith("#"))
     if re.search(r"\bid-token\b|\bcontents:\s*write\b|write-all", code):
         bad.append("an id-token or contents: write permission appeared")
+    sign = blocks.get("sign", "")
+    sign_code = "\n".join(run_scripts(sign))
+    if permissions(sign, 4).get("id-token") != "write":
+        bad.append("sign does not hold id-token: write")
+    if not re.search(r"^    if: startsWith\(github\.ref, 'refs/tags/v'\)\s*$", sign, re.MULTILINE):
+        bad.append("sign is not limited to a v* tag")
+    if not re.search(r"^    needs: publish\s*$", sign, re.MULTILINE):
+        bad.append("sign does not wait for publish")
+    if re.search(r"docker\s+(image\s+)?build|docker push|docker load", sign_code):
+        bad.append("sign builds or pushes images")
+    if "sign --yes" not in sign_code or "attest --yes --type cyclonedx" not in sign_code:
+        bad.append("sign does not sign and attest")
+    if "sha256:[0-9a-f]{64}" not in sign_code:
+        bad.append("sign does not insist on a digest")
+    if not re.search(
+        r'^\s*scripts/verify-release\.sh "\$REPO" "\$TAG"\s*$', sign_code, re.MULTILINE
+    ):
+        bad.append("sign does not verify its own work")
+    if (
+        "PHAROS_VERIFY_IDENTITY_REF" not in sign_code
+        or "A wrong identity was accepted" not in sign_code
+    ):
+        bad.append("sign has no negative control for the identity")
+    if "-e ACTIONS_ID_TOKEN_REQUEST_URL -e ACTIONS_ID_TOKEN_REQUEST_TOKEN" not in sign_code:
+        bad.append("cosign is not given the workflow identity")
+    if "--key" in sign_code or "COSIGN_PRIVATE_KEY" in sign or "secrets." in text:
+        bad.append("a stored key or a secret is used")
+    if "$COSIGN_IMAGE" not in sign_code:
+        bad.append("cosign does not run from the pinned image")
     triggers = set(re.findall(r"^  ([a-z_]+):", top_level(text, "on"), re.MULTILINE))
     if triggers != {"push", "pull_request"}:
         bad.append(
@@ -263,6 +293,33 @@ BREAKS = {
     "images of another run": _break('gh run download "$RUN_ID"', "gh run download"),
     "sbom not checked": _break("jq -e --argjson", "jq --argjson"),
     "digests not handed on": _break('echo "$image=$digest" >> "$GITHUB_OUTPUT"', "true"),
+    "sign without id-token": _break(
+        "      packages: write\n      id-token: write\n", "      packages: write\n"
+    ),
+    "id-token on publish": _break(
+        "      actions: read\n      packages: write\n    outputs:",
+        "      actions: read\n      packages: write\n      id-token: write\n    outputs:",
+    ),
+    "sign without tag guard": _break(
+        "    if: startsWith(github.ref, 'refs/tags/v')\n    needs: publish",
+        "    needs: publish",
+    ),
+    "sign does not wait": _break("    needs: publish\n", "    needs: build-scan\n"),
+    "sign by tag": _break(
+        "printf '%s' \"$ref\" | grep -Eq '^ghcr\\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$'", "true"
+    ),
+    "no own verification": _break('scripts/verify-release.sh "$REPO" "$TAG"\n', "true\n"),
+    "no identity negative control": _break("A wrong identity was accepted", "x"),
+    "stored key": _break('"sign --yes"', '"sign --yes --key /k/cosign.key"'),
+    "cosign by tag": _break(
+        '"$COSIGN_IMAGE" $cmd "$ref"', 'ghcr.io/sigstore/cosign/cosign:v3.1.4 $cmd "$ref"'
+    ),
+    "no identity for cosign": _break(
+        "-e ACTIONS_ID_TOKEN_REQUEST_URL -e ACTIONS_ID_TOKEN_REQUEST_TOKEN", "-e X"
+    ),
+    "sign pushes": _break(
+        'for cmd in "sign --yes"', 'docker push x\n            for cmd in "sign --yes"'
+    ),
 }
 
 
@@ -294,6 +351,17 @@ EXPECTED = {
     "images of another run": "images of this run",
     "sbom not checked": "SBOMs are not checked",
     "digests not handed on": "hand its digests",
+    "sign without id-token": "sign does not hold id-token",
+    "id-token on publish": "job publish has extra permissions: ['id-token']",
+    "sign without tag guard": "sign is not limited to a v* tag",
+    "sign does not wait": "sign does not wait for publish",
+    "sign by tag": "insist on a digest",
+    "no own verification": "verify its own work",
+    "no identity negative control": "negative control for the identity",
+    "stored key": "a stored key or a secret",
+    "cosign by tag": "pinned image",
+    "no identity for cosign": "workflow identity",
+    "sign pushes": "builds or pushes",
 }
 
 
@@ -313,3 +381,24 @@ def test_every_way_of_breaking_the_workflow_is_noticed(name: str) -> None:
 def test_run_scripts_reads_every_block_scalar_header(header: str) -> None:
     text = f"steps:\n  {header}\n    echo hidden\n  other: x\n"
     assert run_scripts(text) == ["    echo hidden"]
+
+
+def _cosign_image(text: str, pattern: str) -> str:
+    match = re.search(pattern, text, re.MULTILINE)
+    assert match, pattern
+    return match.group(1)
+
+
+def test_cosign_is_pinned_and_the_same_in_the_workflow_and_the_script() -> None:
+    in_workflow = _cosign_image(WORKFLOW.read_text(), r"^  COSIGN_IMAGE: (\S+)(?:\s+#.*)?$")
+    script = (ROOT / "scripts/verify-release.sh").read_text()
+    in_script = _cosign_image(script, r"^COSIGN_IMAGE=\$\{COSIGN_IMAGE:-(\S+)\}$")
+    assert in_workflow == in_script
+    assert re.fullmatch(r"ghcr\.io/sigstore/cosign/cosign:v[\d.]+@sha256:[0-9a-f]{64}", in_script)
+
+
+def test_the_workflow_identity_is_the_one_the_script_verifies() -> None:
+    script = (ROOT / "scripts/verify-release.sh").read_text()
+    assert "/.github/workflows/release.yml@refs/tags/" in script
+    assert "https://token.actions.githubusercontent.com" in script
+    assert WORKFLOW.name == "release.yml"

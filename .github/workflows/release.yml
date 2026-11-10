@@ -4,7 +4,10 @@ name: Release
 #   - A pull request that changes this file runs the build, the scan and the SBOM: a dry run that
 #     never logs in to a registry and never publishes.
 #   - Pushing a tag `vX.Y.Z` also publishes the images to GHCR, by the digest of what was scanned.
-# Signing the images (a second permission, `id-token`) and the release notes are separate steps.
+#   - The `sign` job then signs each pushed image keylessly (Sigstore, the workflow's own GitHub
+#     identity, no stored key) and attaches its SBOM as a signed attestation. It is the only job
+#     with `id-token: write`, and it checks its own work with scripts/verify-release.sh.
+# The release notes and the Compose switch to published images are separate steps.
 # Tags are created by the maintainer only; nothing here creates one.
 
 on:
@@ -24,6 +27,8 @@ concurrency:
 env:
   # Tools run as pinned Docker images instead of third-party actions.
   TRIVY_IMAGE: aquasec/trivy@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c # 0.76.1
+  # Keep equal to COSIGN_IMAGE in scripts/verify-release.sh (a test compares them).
+  COSIGN_IMAGE: ghcr.io/sigstore/cosign/cosign:v3.1.4@sha256:0f06154836d2de34f887a5c273506d52ca43edaa1d9e53e6510fa78a48f69c2d # v3.1.4
 
 jobs:
   build-scan:
@@ -185,3 +190,75 @@ jobs:
       - name: Log out
         if: always()
         run: docker logout ghcr.io
+
+  sign:
+    name: Sign the images
+    # Only a version tag signs, and only after the images are published.
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read
+      packages: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Fetch the SBOMs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -eu
+          mkdir -p "$RUNNER_TEMP/sbom"
+          gh run download "$RUN_ID" --repo "$REPO" --name sbom --dir "$RUNNER_TEMP/sbom"
+          ls -l "$RUNNER_TEMP/sbom"
+      - name: Sign the images and attach the SBOMs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ACTOR: ${{ github.actor }}
+          BACKEND_REF: ${{ needs.publish.outputs.backend_digest }}
+          WEB_REF: ${{ needs.publish.outputs.web_digest }}
+        run: |
+          set -eu
+          mkdir -p "$RUNNER_TEMP/dockercfg"
+          chmod 755 "$RUNNER_TEMP/dockercfg"
+          printf '%s' "$GH_TOKEN" | DOCKER_CONFIG="$RUNNER_TEMP/dockercfg" docker login ghcr.io -u "$ACTOR" --password-stdin
+          chmod -R a+rX "$RUNNER_TEMP/dockercfg"
+          for image in backend web; do
+            case "$image" in
+              backend) ref="$BACKEND_REF" ;;
+              web) ref="$WEB_REF" ;;
+            esac
+            # Sign what the publish job pushed, by digest, never by tag.
+            printf '%s' "$ref" | grep -Eq '^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$'
+            for cmd in "sign --yes" "attest --yes --type cyclonedx --predicate /sbom/pharos-$image.cdx.json"; do
+              # shellcheck disable=SC2086
+              docker run --rm \
+                -e ACTIONS_ID_TOKEN_REQUEST_URL -e ACTIONS_ID_TOKEN_REQUEST_TOKEN \
+                -v "$RUNNER_TEMP/dockercfg:/dockercfg:ro" -e DOCKER_CONFIG=/dockercfg \
+                -v "$RUNNER_TEMP/sbom:/sbom:ro" \
+                "$COSIGN_IMAGE" $cmd "$ref"
+            done
+          done
+      - name: Verify what was signed, and that a wrong identity is refused
+        env:
+          REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -eu
+          export DOCKER_CONFIG="$RUNNER_TEMP/dockercfg"
+          # The same command an operator runs (it is in the release notes).
+          scripts/verify-release.sh "$REPO" "$TAG"
+          # Positive control: the check must be able to fail. A different tag's identity is refused.
+          if PHAROS_VERIFY_IDENTITY_REF="v0.0.0-not-this-release" scripts/verify-release.sh "$REPO" "$TAG" > /dev/null 2>&1; then
+            echo "A wrong identity was accepted; the verification proves nothing" >&2
+            exit 1
+          fi
+      - name: Log out
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/dockercfg"
