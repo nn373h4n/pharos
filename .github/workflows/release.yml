@@ -1,0 +1,187 @@
+name: Release
+
+# Builds the two images, scans them and makes an SBOM for each (ADR-0024, M5-10).
+#   - A pull request that changes this file runs the build, the scan and the SBOM: a dry run that
+#     never logs in to a registry and never publishes.
+#   - Pushing a tag `vX.Y.Z` also publishes the images to GHCR, by the digest of what was scanned.
+# Signing the images (a second permission, `id-token`) and the release notes are separate steps.
+# Tags are created by the maintainer only; nothing here creates one.
+
+on:
+  push:
+    tags: ["v*"]
+  pull_request:
+    paths: [".github/workflows/release.yml"]
+
+# Nothing is writable by default. The one job that may write packages says so itself.
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # Tools run as pinned Docker images instead of third-party actions.
+  TRIVY_IMAGE: aquasec/trivy@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c # 0.76.1
+
+jobs:
+  build-scan:
+    name: Build, scan, SBOM
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    outputs:
+      backend_sha256: ${{ steps.hashes.outputs.backend }}
+      web_sha256: ${{ steps.hashes.outputs.web }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Check the tag
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -eu
+          if ! printf '%s' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'; then
+            echo "The tag '$TAG' is not of the form vX.Y.Z" >&2
+            exit 1
+          fi
+          # A release is cut from the main branch, never from a side branch.
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" FETCH_HEAD; then
+            echo "The tagged commit is not in the history of main" >&2
+            exit 1
+          fi
+      - name: Build the images
+        env:
+          REPO: ${{ github.repository }}
+          VERSION: ${{ github.ref_name }}
+        run: |
+          set -eu
+          labels="--label org.opencontainers.image.source=https://github.com/$REPO \
+            --label org.opencontainers.image.revision=$GITHUB_SHA \
+            --label org.opencontainers.image.version=$VERSION \
+            --label org.opencontainers.image.licenses=Apache-2.0"
+          # shellcheck disable=SC2086
+          docker build $labels -f backend/Dockerfile -t pharos-backend:release .
+          # shellcheck disable=SC2086
+          docker build $labels -f frontend/Dockerfile -t pharos-web:release .
+          mkdir -p "$RUNNER_TEMP/images" "$RUNNER_TEMP/sbom"
+          docker save pharos-backend:release -o "$RUNNER_TEMP/images/backend.tar"
+          docker save pharos-web:release -o "$RUNNER_TEMP/images/web.tar"
+      - name: Scan the images
+        run: |
+          set -eu
+          for image in backend web; do
+            echo "== $image"
+            docker run --rm -v "$RUNNER_TEMP/images:/images:ro" -v trivy-cache:/root/.cache "$TRIVY_IMAGE" image \
+              --input "/images/$image.tar" --scanners vuln,secret --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1
+          done
+      - name: Make the SBOMs
+        run: |
+          set -eu
+          for image in backend web; do
+            docker run --rm -v "$RUNNER_TEMP/images:/images:ro" -v "$RUNNER_TEMP/sbom:/sbom" -v trivy-cache:/root/.cache \
+              "$TRIVY_IMAGE" image --input "/images/$image.tar" --format cyclonedx \
+              --output "/sbom/pharos-$image.cdx.json"
+          done
+          ls -l "$RUNNER_TEMP/sbom"
+          # An empty scan would pass the scan above, so the SBOM must name the packages we ship.
+          check() { # file, minimum number of components, a component that must be there
+            test -s "$1"
+            grep -q '"bomFormat": "CycloneDX"' "$1"
+            jq -e --argjson min "$2" --arg name "$3" \
+              '(.components | length) >= $min and ([.components[].name] | index($name) != null)' "$1" > /dev/null
+          }
+          check "$RUNNER_TEMP/sbom/pharos-backend.cdx.json" 100 fastapi
+          check "$RUNNER_TEMP/sbom/pharos-web.cdx.json" 50 next
+      - name: Record the image hashes
+        id: hashes
+        run: |
+          set -eu
+          for image in backend web; do
+            sum=$(sha256sum "$RUNNER_TEMP/images/$image.tar" | cut -d' ' -f1)
+            echo "$image=$sum" >> "$GITHUB_OUTPUT"
+          done
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sbom
+          path: ${{ runner.temp }}/sbom/*.cdx.json
+          if-no-files-found: error
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          name: images
+          path: ${{ runner.temp }}/images/*.tar
+          retention-days: 1
+          if-no-files-found: error
+
+  publish:
+    name: Publish to GHCR
+    # Only a version tag publishes. The images pushed are the ones that were scanned above.
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build-scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
+      packages: write
+    outputs:
+      backend_digest: ${{ steps.push.outputs.backend }}
+      web_digest: ${{ steps.push.outputs.web }}
+    steps:
+      - name: Fetch the scanned images
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -eu
+          mkdir -p "$RUNNER_TEMP/images"
+          gh run download "$RUN_ID" --repo "$REPO" --name images --dir "$RUNNER_TEMP/images"
+          ls -l "$RUNNER_TEMP/images"
+      - name: Check the images are the ones that were scanned
+        env:
+          BACKEND_SHA256: ${{ needs.build-scan.outputs.backend_sha256 }}
+          WEB_SHA256: ${{ needs.build-scan.outputs.web_sha256 }}
+        run: |
+          set -eu
+          printf '%s  %s\n' "$BACKEND_SHA256" "$RUNNER_TEMP/images/backend.tar" \
+            "$WEB_SHA256" "$RUNNER_TEMP/images/web.tar" | sha256sum -c -
+      - name: Load, push and record the digests
+        id: push
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ACTOR: ${{ github.actor }}
+          OWNER: ${{ github.repository_owner }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -eu
+          lower_owner=$(printf '%s' "$OWNER" | tr '[:upper:]' '[:lower:]')
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$ACTOR" --password-stdin
+          for image in backend web; do
+            docker load -i "$RUNNER_TEMP/images/$image.tar"
+            target="ghcr.io/$lower_owner/pharos-$image"
+            # A release tag is never overwritten. If the registry cannot be asked, the push goes
+            # on; the tag ruleset in the repository settings is the other half of this rule.
+            if docker manifest inspect "$target:$TAG" > /dev/null 2>&1; then
+              echo "$target:$TAG already exists; a release is never overwritten" >&2
+              exit 1
+            fi
+            docker tag "pharos-$image:release" "$target:$TAG"
+            docker push "$target:$TAG"
+            digest=$(docker inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$target:$TAG" \
+              | grep -E "^$target@sha256:[0-9a-f]{64}$" || true)
+            if [ "$(printf '%s\n' "$digest" | grep -c .)" -ne 1 ]; then
+              echo "Expected exactly one digest for $target:$TAG, got: '$digest'" >&2
+              exit 1
+            fi
+            echo "pharos-$image: $digest" | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "$image=$digest" >> "$GITHUB_OUTPUT"
+          done
+      - name: Log out
+        if: always()
+        run: docker logout ghcr.io

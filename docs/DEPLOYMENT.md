@@ -562,6 +562,43 @@ in the backend Dockerfile, on a `uv` version that differs from `UV_VERSION` in
 pins its known vulnerabilities: the scheduled Trivy scan reports them, and a bump is how they
 are fixed.
 
+## Release images (`.github/workflows/release.yml`)
+
+The release workflow builds the two images (`pharos-backend`, `pharos-web`), scans them with the
+same Trivy rules as the security workflow (HIGH and CRITICAL, fixable only; a finding fails the
+run) and makes a CycloneDX SBOM for each. It runs in two situations:
+
+- **A pull request that changes `release.yml`** runs the build, the scan and the SBOMs as a dry
+  run. It never logs in to a registry and never publishes. The SBOMs are the artifact `sbom` of
+  the run.
+- **A pushed tag `vX.Y.Z`** does the same and then publishes: the `publish` job pushes the images
+  it just scanned (not a second build) to `ghcr.io/<owner>/pharos-backend:<tag>` and
+  `ghcr.io/<owner>/pharos-web:<tag>` and prints the digest of each in the run summary. There is no
+  `latest` tag; pull by digest. A tag is refused unless it has the form `vX.Y.Z` and its commit is
+  in the history of `main`. Before the push, the job checks the SHA-256 of each image file against
+  the one recorded when it was scanned, and it stops if the tag already exists in the registry (a
+  release is never overwritten). The SBOMs must name the packages we ship (`fastapi`, `next`), so
+  an empty scan cannot pass.
+
+Only the `publish` job can write packages; every other job and the workflow as a whole hold
+`contents: read`. `backend/tests/test_release_workflow.py` fails if that changes, if a pull
+request path gains a registry login, if an action is not pinned by commit, or if a workflow
+expression is pasted into a shell script.
+
+What the repository must provide, because the workflow cannot enforce it:
+
+- **Who creates tags.** Tags are created by the maintainer only. Restrict `v*` tags with a tag
+  ruleset in the repository settings (no create, update or delete except for the maintainer); the
+  workflow publishes whatever `v*` tag reaches it, and without a ruleset a deleted and recreated
+  tag could point a release at another commit (on 2026-11-09 the repository had no ruleset).
+- **Actions policy.** Turn on "Require actions to be pinned to a full-length commit SHA"; today the
+  pinning is guarded by the test alone.
+- **Package visibility.** A first push creates the packages, and GitHub may make them private. The
+  maintainer sets them to public in the package settings once, after the first release.
+- **Not yet in place** (later steps of M5-10): the signature (`cosign`, keyless), the SBOM attached
+  to each image, the release notes with the verify command, and Compose pulling the images by
+  digest. Until then an installation still builds its own images.
+
 ## Known limits
 
 - Backup and restore are scripts with a rehearsal on a small throwaway database (see "Backup and
