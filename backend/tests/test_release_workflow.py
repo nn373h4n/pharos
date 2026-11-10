@@ -111,7 +111,9 @@ def violations(text: str) -> list[str]:
     if not re.search(r"- name: Log out\n\s+if: always\(\)\n\s+run: docker logout", publish):
         bad.append("publish does not always log out")
     outside_sign = text.replace(blocks.get("sign", "\0"), "")
-    code = "\n".join(l for l in outside_sign.splitlines() if not l.lstrip().startswith("#"))
+    code = "\n".join(
+        line for line in outside_sign.splitlines() if not line.lstrip().startswith("#")
+    )
     if re.search(r"\bid-token\b|\bcontents:\s*write\b|write-all", code):
         bad.append("an id-token or contents: write permission appeared")
     sign = blocks.get("sign", "")
@@ -120,7 +122,7 @@ def violations(text: str) -> list[str]:
         bad.append("sign does not hold id-token: write")
     if not re.search(r"^    if: startsWith\(github\.ref, 'refs/tags/v'\)\s*$", sign, re.MULTILINE):
         bad.append("sign is not limited to a v* tag")
-    if not re.search(r"^    needs: publish\s*$", sign, re.MULTILINE):
+    if not re.search(r"^    needs: \[publish, build-scan\]\s*$", sign, re.MULTILINE):
         bad.append("sign does not wait for publish")
     if re.search(r"docker\s+(image\s+)?build|docker push|docker load", sign_code):
         bad.append("sign builds or pushes images")
@@ -129,19 +131,51 @@ def violations(text: str) -> list[str]:
     if "sha256:[0-9a-f]{64}" not in sign_code:
         bad.append("sign does not insist on a digest")
     if not re.search(
-        r'^\s*scripts/verify-release\.sh "\$REPO" "\$TAG"\s*$', sign_code, re.MULTILINE
+        r'^\s*scripts/verify-release\.sh "\$REPO" "\$TAG" "\$COMMIT"\s*$', sign_code, re.MULTILINE
     ):
         bad.append("sign does not verify its own work")
     if (
-        "PHAROS_VERIFY_IDENTITY_REF" not in sign_code
+        sign_code.count("must_fail verify ") < 4
+        or 'if "$@" > /dev/null 2>&1; then' not in sign_code
         or "A wrong identity was accepted" not in sign_code
     ):
         bad.append("sign has no negative control for the identity")
+    if "PHAROS_VERIFY_IDENTITY_REF" in text:
+        bad.append("an environment variable can weaken the verification")
+    for banned in (
+        "|| true",
+        "set +e",
+        "--tlog-upload",
+        "--insecure-ignore-tlog",
+        "--use-signing-config",
+        "--allow-insecure-registry",
+        "--skip",
+    ):
+        if banned in sign_code:
+            bad.append(f"sign contains {banned}")
+    if "continue-on-error" in text:
+        bad.append("a step is allowed to fail")
+    allowed_env = {
+        "ACTIONS_ID_TOKEN_REQUEST_URL",
+        "ACTIONS_ID_TOKEN_REQUEST_TOKEN",
+        "DOCKER_CONFIG",
+    }
+    for name in re.findall(r"\s-e (\w+)", sign_code):
+        if name not in allowed_env:
+            bad.append(f"cosign is given the variable {name}")
+    cleanup = r"- name: Log out\n\s+if: always\(\)\n\s+run: rm -rf \"\$RUNNER_TEMP/dockercfg\""
+    if not re.search(cleanup, sign):
+        bad.append("sign does not always remove the registry credentials")
+    if "sha256sum -c" not in sign_code:
+        bad.append("sign does not check the hashes of the SBOMs")
     if "-e ACTIONS_ID_TOKEN_REQUEST_URL -e ACTIONS_ID_TOKEN_REQUEST_TOKEN" not in sign_code:
         bad.append("cosign is not given the workflow identity")
     if "--key" in sign_code or "COSIGN_PRIVATE_KEY" in sign or "secrets." in text:
         bad.append("a stored key or a secret is used")
-    if "$COSIGN_IMAGE" not in sign_code:
+    if (
+        sign_code.count("docker run") != sign_code.count('"$COSIGN_IMAGE"')
+        or "cosign/cosign" in sign_code
+    ):
         bad.append("cosign does not run from the pinned image")
     triggers = set(re.findall(r"^  ([a-z_]+):", top_level(text, "on"), re.MULTILINE))
     if triggers != {"push", "pull_request"}:
@@ -301,14 +335,14 @@ BREAKS = {
         "      actions: read\n      packages: write\n      id-token: write\n    outputs:",
     ),
     "sign without tag guard": _break(
-        "    if: startsWith(github.ref, 'refs/tags/v')\n    needs: publish",
-        "    needs: publish",
+        "    if: startsWith(github.ref, 'refs/tags/v')\n    needs: [publish, build-scan]",
+        "    needs: [publish, build-scan]",
     ),
-    "sign does not wait": _break("    needs: publish\n", "    needs: build-scan\n"),
+    "sign does not wait": _break("    needs: [publish, build-scan]\n", "    needs: build-scan\n"),
     "sign by tag": _break(
-        "printf '%s' \"$ref\" | grep -Eq '^ghcr\\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$'", "true"
+        "[[ $ref =~ ^ghcr\\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]] ||", "true ||"
     ),
-    "no own verification": _break('scripts/verify-release.sh "$REPO" "$TAG"\n', "true\n"),
+    "no own verification": _break('scripts/verify-release.sh "$REPO" "$TAG" "$COMMIT"\n', "true\n"),
     "no identity negative control": _break("A wrong identity was accepted", "x"),
     "stored key": _break('"sign --yes"', '"sign --yes --key /k/cosign.key"'),
     "cosign by tag": _break(
@@ -319,6 +353,36 @@ BREAKS = {
     ),
     "sign pushes": _break(
         'for cmd in "sign --yes"', 'docker push x\n            for cmd in "sign --yes"'
+    ),
+    "digest check ignored": _break(
+        "|| { echo \"not a digest reference: '$ref'\" >&2; exit 1; }", "|| true"
+    ),
+    "negative control inverted": _break(
+        'if "$@" > /dev/null 2>&1; then', 'if ! "$@" > /dev/null 2>&1; then'
+    ),
+    "token given to cosign": _break(
+        "-e ACTIONS_ID_TOKEN_REQUEST_URL -e ACTIONS_ID_TOKEN_REQUEST_TOKEN",
+        "-e ACTIONS_ID_TOKEN_REQUEST_URL -e ACTIONS_ID_TOKEN_REQUEST_TOKEN -e GH_TOKEN",
+    ),
+    "credentials not removed": _break(
+        '        run: rm -rf "$RUNNER_TEMP/dockercfg"', "        run: true"
+    ),
+    "step may fail": _break(
+        "      - name: Verify what was signed",
+        "      - continue-on-error: true\n        name: Verify what was signed",
+    ),
+    "verification weakened by a variable": _break(
+        '          export DOCKER_CONFIG="$RUNNER_TEMP/dockercfg"\n          # The same command',
+        '          export DOCKER_CONFIG="$RUNNER_TEMP/dockercfg"\n'
+        "          export PHAROS_VERIFY_IDENTITY_REF=v0.0.1\n          # The same command",
+    ),
+    "no transparency log": _break('"sign --yes"', '"sign --yes --tlog-upload=false"'),
+    "sbom hash not checked": _break(
+        '"$WEB_SBOM_SHA256" "$RUNNER_TEMP/sbom/pharos-web.cdx.json" | sha256sum -c -',
+        '"$WEB_SBOM_SHA256" "$RUNNER_TEMP/sbom/pharos-web.cdx.json" | cat',
+    ),
+    "negative controls removed": _break(
+        "must_fail verify --certificate-identity", "true verify --certificate-identity"
     ),
 }
 
@@ -362,6 +426,15 @@ EXPECTED = {
     "cosign by tag": "pinned image",
     "no identity for cosign": "workflow identity",
     "sign pushes": "builds or pushes",
+    "digest check ignored": "sign contains || true",
+    "negative control inverted": "negative control for the identity",
+    "token given to cosign": "cosign is given the variable GH_TOKEN",
+    "credentials not removed": "remove the registry credentials",
+    "step may fail": "allowed to fail",
+    "verification weakened by a variable": "can weaken the verification",
+    "no transparency log": "sign contains --tlog-upload",
+    "sbom hash not checked": "hashes of the SBOMs",
+    "negative controls removed": "negative control for the identity",
 }
 
 
@@ -392,7 +465,7 @@ def _cosign_image(text: str, pattern: str) -> str:
 def test_cosign_is_pinned_and_the_same_in_the_workflow_and_the_script() -> None:
     in_workflow = _cosign_image(WORKFLOW.read_text(), r"^  COSIGN_IMAGE: (\S+)(?:\s+#.*)?$")
     script = (ROOT / "scripts/verify-release.sh").read_text()
-    in_script = _cosign_image(script, r"^COSIGN_IMAGE=\$\{COSIGN_IMAGE:-(\S+)\}$")
+    in_script = _cosign_image(script, r"^readonly COSIGN_IMAGE=(\S+)$")
     assert in_workflow == in_script
     assert re.fullmatch(r"ghcr\.io/sigstore/cosign/cosign:v[\d.]+@sha256:[0-9a-f]{64}", in_script)
 

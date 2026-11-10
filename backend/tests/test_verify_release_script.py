@@ -80,17 +80,44 @@ def test_a_good_release_is_verified_by_digest_for_both_images(tmp_path: Path) ->
     assert "Pull by these digests" in result.stdout
 
 
-def test_the_identity_override_changes_only_the_tag_of_the_identity(tmp_path: Path) -> None:
+def test_environment_variables_cannot_replace_the_verifier_or_weaken_the_identity(
+    tmp_path: Path,
+) -> None:
     result, calls = run(
         tmp_path,
         "Acme-Org/pharos",
         "v0.1.0",
-        env={"PHAROS_VERIFY_IDENTITY_REF": "v9.9.9"},
+        env={"COSIGN_IMAGE": "evil/always-ok:latest", "PHAROS_VERIFY_IDENTITY_REF": "v9.9.9"},
     )
     assert result.returncode == 0
     runs = [c for c in calls if c.startswith("run ")]
-    assert all(ID.replace("v0.1.0", "v9.9.9") in c for c in runs)
-    assert not any(ID in c for c in runs)
+    assert len(runs) == 4
+    assert not any("evil" in c for c in runs)
+    assert all(ID in c and "v9.9.9" not in c for c in runs)
+
+
+def test_the_repository_and_the_trigger_are_always_pinned(tmp_path: Path) -> None:
+    _, calls = run(tmp_path, "Acme-Org/pharos", "v0.1.0")
+    runs = [c for c in calls if c.startswith("run ")]
+    assert all("--certificate-github-workflow-repository Acme-Org/pharos" in c for c in runs)
+    assert all("--certificate-github-workflow-trigger push" in c for c in runs)
+    assert not any("--certificate-github-workflow-sha" in c for c in runs)
+
+
+def test_without_a_commit_the_script_says_the_commit_is_not_checked(tmp_path: Path) -> None:
+    result, _ = run(tmp_path, "Acme-Org/pharos", "v0.1.0")
+    assert result.returncode == 0
+    assert "commit that was built is NOT checked" in result.stderr
+
+
+def test_a_given_commit_is_pinned_in_the_certificate_check(tmp_path: Path) -> None:
+    sha = "0123456789abcdef0123456789abcdef01234567"
+    result, calls = run(tmp_path, "Acme-Org/pharos", "v0.1.0", sha)
+    assert result.returncode == 0
+    runs = [c for c in calls if c.startswith("run ")]
+    assert len(runs) == 4
+    assert all(f"--certificate-github-workflow-sha {sha}" in c for c in runs)
+    assert "NOT checked" not in result.stderr
 
 
 def test_docker_config_is_passed_on_read_only_when_set(tmp_path: Path) -> None:
@@ -106,7 +133,6 @@ def test_docker_config_is_passed_on_read_only_when_set(tmp_path: Path) -> None:
     [
         (),
         ("Acme-Org/pharos",),
-        ("Acme-Org/pharos", "v0.1.0", "extra"),
         ("Acme-Org", "v0.1.0"),
         ("Acme-Org/pharos", "0.1.0"),
         ("Acme-Org/pharos", "latest"),
@@ -118,6 +144,10 @@ def test_docker_config_is_passed_on_read_only_when_set(tmp_path: Path) -> None:
         ("Acme Org/pharos", "v0.1.0"),
         ("../pharos", "v0.1.0"),
         ("Acme-Org/pharos/x", "v0.1.0"),
+        ("Acme-Org/pharos", "v0.1.0", "abc123"),
+        ("Acme-Org/pharos", "v0.1.0", "0123456789ABCDEF0123456789ABCDEF01234567"),
+        ("Acme-Org/pharos", "v0.1.0", "0123456789abcdef0123456789abcdef01234567\nx"),
+        ("Acme-Org/pharos", "v0.1.0", "0123456789abcdef0123456789abcdef01234567", "extra"),
     ],
 )
 def test_bad_input_is_refused_before_any_docker_call(tmp_path: Path, args: tuple[str, ...]) -> None:
