@@ -580,10 +580,46 @@ run) and makes a CycloneDX SBOM for each. It runs in two situations:
   release is never overwritten). The SBOMs must name the packages we ship (`fastapi`, `next`), so
   an empty scan cannot pass.
 
-Only the `publish` job can write packages; every other job and the workflow as a whole hold
-`contents: read`. `backend/tests/test_release_workflow.py` fails if that changes, if a pull
-request path gains a registry login, if an action is not pinned by commit, or if a workflow
-expression is pasted into a shell script.
+After the images are pushed, the `sign` job signs each of them **by digest** with cosign, keylessly:
+the signing certificate is issued by Sigstore to the workflow's own GitHub identity, so there is
+no key to store or lose. It also attaches the image's SBOM as a signed CycloneDX attestation. cosign
+runs as a container pinned by digest (no new action). The job then verifies its own work with
+`scripts/verify-release.sh`, the command an operator runs, and proves the check can fail: four more
+checks (a wrong identity, a wrong issuer, a wrong repository, a wrong commit) must be refused.
+
+Only the `publish` job (`packages: write`) and the `sign` job (`packages: write` and
+`id-token: write`) can write; every other job and the workflow as a whole hold `contents: read`.
+`backend/tests/test_release_workflow.py` fails if that changes, if a pull request path gains a
+registry login, if an action is not pinned by commit, if a workflow expression is pasted into a
+shell script, or if signing is weakened (a stored key, a skipped transparency log, a swallowed
+failure, an extra variable handed to cosign).
+
+### Verifying a release
+
+```bash
+scripts/verify-release.sh <owner>/<repo> vX.Y.Z <commit-sha>
+```
+
+It needs Docker and network access to `ghcr.io` and Sigstore, and, while the packages are private,
+a `docker login ghcr.io` with `DOCKER_CONFIG` set to that login's directory. The release notes
+state the tag and the commit. For each image the script resolves the digest, then requires that
+the signature and the SBOM attestation were made by `release.yml` of that repository, for a push
+of that tag, at that commit, and prints the digest. Run the images by that digest, not by the tag.
+
+A passing check **does** mean: both images were signed, and given a CycloneDX attestation, by this
+repository's release workflow on a push of that tag, at that commit, and the signature is in the
+public transparency log. It does **not** mean: that the commit is on `main` (the workflow checks
+that, the signature does not say it), that the SBOM is complete, that the image has no
+vulnerability (the scan covers fixable HIGH and CRITICAL on the day of the release), or that the
+tag was never moved. Without the commit argument the script says so and does not check which commit
+was built; with it, a tag deleted and recreated on another commit fails.
+
+Sigstore's public instance records the repository name, workflow, ref, commit and run in a public,
+permanent log. That is fine for a public repository; a private fork must not release through it.
+
+If the `sign` job fails after `publish` succeeded, the images are already in the registry but
+unsigned, and a full re-run stops at the "tag already exists" check. Use "Re-run failed jobs" for
+the `sign` job; do not delete the tag or the images.
 
 What the repository must provide, because the workflow cannot enforce it:
 
@@ -595,9 +631,12 @@ What the repository must provide, because the workflow cannot enforce it:
   pinning is guarded by the test alone.
 - **Package visibility.** A first push creates the packages, and GitHub may make them private. The
   maintainer sets them to public in the package settings once, after the first release.
-- **Not yet in place** (later steps of M5-10): the signature (`cosign`, keyless), the SBOM attached
-  to each image, the release notes with the verify command, and Compose pulling the images by
-  digest. Until then an installation still builds its own images.
+- **Not yet in place** (the last step of M5-10): the release notes with the verify command and the
+  release commit, and Compose pulling the images by digest. Until then an installation still
+  builds its own images. Nothing in the release workflow, `publish` and `sign` included, has run
+  against the real registry and Sigstore yet; that happens at the first tag.
+- **cosign upkeep.** Dependabot does not see the cosign image written in the workflow and the
+  script; move both together, and when bumping, check the new image's own Sigstore signature.
 
 ## Known limits
 

@@ -22,7 +22,8 @@ All notable changes are listed here, newest first. The format follows [Keep a Ch
 
 ### Added
 
-- Release workflow, first part (M5-10b): on a tag `vX.Y.Z` on main, the workflow builds both images, scans them with Trivy, makes an SBOM per image and pushes them to GHCR; a pull request that changes the workflow runs the build and scan as a dry run. Nothing is signed yet and no GitHub Release is cut.
+- Release workflow, first part (M5-10b): on a tag `vX.Y.Z` on main, the workflow builds both images, scans them with Trivy, makes an SBOM per image and pushes them to GHCR; a pull request that changes the workflow runs the build and scan as a dry run. No GitHub Release is cut.
+- Release signing (M5-10c): on a tag the workflow signs both images with cosign, keyless (no stored key), and attaches each image's SBOM as a signed attestation; `scripts/verify-release.sh <owner>/<repo> vX.Y.Z [<commit-sha>]` checks the signatures and prints the digests to pull. Not yet run on GitHub: no tag exists.
 - Tests and a written rule for F-47 (M5-09 follow-up, no behaviour change): the monthly interaction counts are not shown to anyone who could see the daily summary while those months were recent (administrators), nor together with overlapping periods; tests guard against a future change in the repo or the database; see ADR-0025 and `docs/DEPLOYMENT.md`.
 - `LOAD_SCENARIO=insights make loadtest` (M5-08): the insight burst, with the stack's test provider; see `docs/DEPLOYMENT.md`.
 - `LOAD_SCENARIO=sso make loadtest` (M5-08): 100 synthetic people sign in through a development Keycloak from one address; all 100 signed in, no 429, 5xx or timeout, one sign-in p95 264 ms, the last one in at 99 s; see `docs/DEPLOYMENT.md`.
