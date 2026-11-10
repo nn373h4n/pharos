@@ -55,6 +55,8 @@ jobs:
             echo "The tag '$TAG' is not of the form vX.Y.Z" >&2
             exit 1
           fi
+          # The tag must name the version the code says it is (backend and frontend).
+          scripts/check-release-version.sh "$TAG"
           # A release is cut from the main branch, never from a side branch.
           git fetch --no-tags origin main
           if ! git merge-base --is-ancestor "$GITHUB_SHA" FETCH_HEAD; then

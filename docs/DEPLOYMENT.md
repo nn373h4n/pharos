@@ -617,6 +617,41 @@ was built; with it, a tag deleted and recreated on another commit fails.
 Sigstore's public instance records the repository name, workflow, ref, commit and run in a public,
 permanent log. That is fine for a public repository; a private fork must not release through it.
 
+A tag is also refused unless the version in `backend/pyproject.toml` and in
+`frontend/package.json` equals the tag's `X.Y.Z` (`scripts/check-release-version.sh`), so a release
+cannot be built or published before its version was raised (the tag itself can still be pushed;
+the workflow stops at its first step).
+
+### Installing a published release
+
+`deploy/docker-compose.release.yml` replaces the images Compose would build with the published
+ones, so nothing is built on the host:
+
+```bash
+export PHAROS_BACKEND_IMAGE=ghcr.io/<owner>/pharos-backend@sha256:<digest>
+export PHAROS_WEB_IMAGE=ghcr.io/<owner>/pharos-web@sha256:<digest>
+docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.release.yml \
+  --env-file deploy/.env up -d
+```
+
+Take both references from the release notes and check them first, passing the very values you are
+about to run:
+
+```bash
+scripts/verify-release.sh <owner>/<repo> vX.Y.Z <commit-sha> \
+  --backend "$PHAROS_BACKEND_IMAGE" --web "$PHAROS_WEB_IMAGE"
+```
+
+The script refuses a reference that is not in the digest form (a tag, a local image, another
+registry) and fails if either one differs from the digest it finds for the tag, owner included.
+Without the two flags it only verifies the release and says that your references were not compared.
+Compose itself only stops if a variable is missing; it does not check the form, so run the check
+above first. The overlay needs Docker Compose 2.24.4 or later (`!reset`). Use the same two
+files in every later `docker compose` command for this installation (stop, logs, running a command
+in a container), or Compose will look for images built on the host. To go back to a previous
+release, set the two variables to that release's digests and run `up -d` again; a restore of the
+backup (ADR-0022) is a separate step, taken only if the newer version changed the schema.
+
 If the `sign` job fails after `publish` succeeded, the images are already in the registry but
 unsigned, and a full re-run stops at the "tag already exists" check. Use "Re-run failed jobs" for
 the `sign` job; do not delete the tag or the images.
@@ -631,10 +666,9 @@ What the repository must provide, because the workflow cannot enforce it:
   pinning is guarded by the test alone.
 - **Package visibility.** A first push creates the packages, and GitHub may make them private. The
   maintainer sets them to public in the package settings once, after the first release.
-- **Not yet in place** (the last step of M5-10): the release notes with the verify command and the
-  release commit, and Compose pulling the images by digest. Until then an installation still
-  builds its own images. Nothing in the release workflow, `publish` and `sign` included, has run
-  against the real registry and Sigstore yet; that happens at the first tag.
+- **Not yet done.** Nothing in the release workflow, `publish` and `sign` included, has run against
+  the real registry and Sigstore yet; that happens at the first tag, which is the maintainer's. The
+  steps of a release are in [the releasing guide](guides/releasing.md).
 - **cosign upkeep.** Dependabot does not see the cosign image written in the workflow and the
   script; move both together, and when bumping, check the new image's own Sigstore signature.
 

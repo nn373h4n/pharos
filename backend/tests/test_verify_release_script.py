@@ -183,3 +183,78 @@ def test_a_registry_error_stops_the_script(tmp_path: Path) -> None:
     result, calls = run(tmp_path, "Acme-Org/pharos", "v0.1.0", env={"STUB_BUILDX_EXIT": "1"})
     assert result.returncode != 0
     assert not any(c.startswith("run ") for c in calls)
+
+
+BACKEND = f"ghcr.io/acme-org/pharos-backend@{DIGEST}"
+WEB = f"ghcr.io/acme-org/pharos-web@{DIGEST}"
+
+
+def test_references_that_match_the_release_pass_and_no_note_is_printed(tmp_path: Path) -> None:
+    result, _ = run(tmp_path, "Acme-Org/pharos", "v0.1.0", "--backend", BACKEND, "--web", WEB)
+    assert result.returncode == 0, result.stderr
+    assert "NOT compared" not in result.stderr
+
+
+def test_without_references_the_script_says_none_were_compared(tmp_path: Path) -> None:
+    result, _ = run(tmp_path, "Acme-Org/pharos", "v0.1.0")
+    assert result.returncode == 0
+    assert "NOT compared" in result.stderr
+
+
+def test_one_reference_alone_still_says_the_other_was_not_compared(tmp_path: Path) -> None:
+    result, _ = run(tmp_path, "Acme-Org/pharos", "v0.1.0", "--backend", BACKEND)
+    assert result.returncode == 0
+    assert "NOT compared" in result.stderr
+
+
+def test_flags_may_come_after_the_commit(tmp_path: Path) -> None:
+    sha = "0123456789abcdef0123456789abcdef01234567"
+    result, _ = run(tmp_path, "Acme-Org/pharos", "v0.1.0", sha, "--web", WEB, "--backend", BACKEND)
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize(
+    "flag, value",
+    [
+        ("--backend", f"ghcr.io/other-org/pharos-backend@{DIGEST}"),  # another owner
+        ("--backend", f"ghcr.io/acme-org/pharos-backend@sha256:{'cd' * 32}"),  # another digest
+        ("--web", f"ghcr.io/acme-org/pharos-backend@{DIGEST}"),  # the wrong image
+        ("--web", f"ghcr.io/acme-org/pharos-web@sha256:{'ab' * 31}cd"),  # one byte off
+    ],
+)
+def test_a_reference_that_differs_from_the_release_fails_before_cosign(
+    tmp_path: Path, flag: str, value: str
+) -> None:
+    result, calls = run(tmp_path, "Acme-Org/pharos", "v0.1.0", flag, value)
+    assert result.returncode == 1
+    assert "FAIL" in result.stderr
+    name = flag.removeprefix("--")  # the image whose reference was wrong is not verified at all
+    assert not any(c.startswith("run ") and f"/pharos-{name}@" in c for c in calls)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "ghcr.io/acme-org/pharos-backend:v0.1.0",  # a tag can be moved
+        "pharos-backend:local",  # built on the host
+        f"ghcr.io/Acme-Org/pharos-backend@{DIGEST}",  # not lower case
+        f"docker.io/acme-org/pharos-backend@{DIGEST}",  # another registry
+        f"ghcr.io/acme-org/pharos-backend@{DIGEST}\nx",
+        "",
+    ],
+)
+def test_a_reference_not_in_the_digest_form_is_refused_before_any_docker_call(
+    tmp_path: Path, value: str
+) -> None:
+    result, calls = run(tmp_path, "Acme-Org/pharos", "v0.1.0", "--backend", value)
+    if value == "":  # an empty value means "not given"
+        assert result.returncode == 0
+        return
+    assert result.returncode == 2
+    assert calls == []
+
+
+def test_a_flag_without_a_value_is_refused(tmp_path: Path) -> None:
+    result, calls = run(tmp_path, "Acme-Org/pharos", "v0.1.0", "--web")
+    assert result.returncode == 2
+    assert calls == []

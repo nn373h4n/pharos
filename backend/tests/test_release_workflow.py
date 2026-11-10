@@ -205,6 +205,11 @@ def violations(text: str) -> list[str]:
         bad.append("no SBOM is made")
     if 'if ! git merge-base --is-ancestor "$GITHUB_SHA" FETCH_HEAD; then' not in scan:
         bad.append("the tagged commit is not checked against main")
+    check = re.search(r'^\s*scripts/check-release-version\.sh "\$TAG"\s*$', scan, re.MULTILINE)
+    if not check:
+        bad.append("the tag is not checked against the version of the code")
+    elif "docker build" in scan[: check.start()] or "docker save" in scan[: check.start()]:
+        bad.append("the version is checked after an image was built")
     if "jq -e" not in scan or "fastapi" not in scan or "next" not in scan:
         bad.append("the SBOMs are not checked for the packages we ship")
     return bad
@@ -384,6 +389,17 @@ BREAKS = {
     "negative controls removed": _break(
         "must_fail verify --certificate-identity", "true verify --certificate-identity"
     ),
+    "no version check": _break(
+        '          scripts/check-release-version.sh "$TAG"\n', "          true\n"
+    ),
+    "version checked after the build": _break(
+        '          scripts/check-release-version.sh "$TAG"\n', "          true\n"
+    ).replace(
+        "          docker save pharos-backend:release",
+        '          scripts/check-release-version.sh "$TAG"\n'
+        "          docker save pharos-backend:release",
+        1,
+    ),
 }
 
 
@@ -435,6 +451,8 @@ EXPECTED = {
     "no transparency log": "sign contains --tlog-upload",
     "sbom hash not checked": "hashes of the SBOMs",
     "negative controls removed": "negative control for the identity",
+    "no version check": "checked against the version of the code",
+    "version checked after the build": "checked after an image was built",
 }
 
 

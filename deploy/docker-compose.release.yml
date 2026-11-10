@@ -1,0 +1,34 @@
+# Runs a published release instead of building the images on this host (ADR-0024, M5-10).
+#
+#   export PHAROS_BACKEND_IMAGE=ghcr.io/<owner>/pharos-backend@sha256:<digest>
+#   export PHAROS_WEB_IMAGE=ghcr.io/<owner>/pharos-web@sha256:<digest>
+#   docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.release.yml \
+#     --env-file deploy/.env up -d
+#
+# Take the two references from the release notes, and check them first:
+#   scripts/verify-release.sh <owner>/<repo> vX.Y.Z <commit> --backend "$PHAROS_BACKEND_IMAGE" \
+#     --web "$PHAROS_WEB_IMAGE"
+# Compose only stops if a reference is not set; it does not check the digest form, that script does
+# (a tag can be moved, a digest cannot). `!reset null` removes the build section, so nothing is
+# built here: the images are pulled.
+#
+# Used only for a published release; development and the test suites use the base file alone.
+services:
+  web:
+    build: !reset null
+    image: ${PHAROS_WEB_IMAGE:?set PHAROS_WEB_IMAGE to the digest reference in the release notes}
+  api:
+    build: !reset null
+    image: ${PHAROS_BACKEND_IMAGE:?set PHAROS_BACKEND_IMAGE to the digest reference in the release notes}
+  worker:
+    build: !reset null
+    image: ${PHAROS_BACKEND_IMAGE:?set PHAROS_BACKEND_IMAGE to the digest reference in the release notes}
+  beat:
+    build: !reset null
+    image: ${PHAROS_BACKEND_IMAGE:?set PHAROS_BACKEND_IMAGE to the digest reference in the release notes}
+  migrate:
+    build: !reset null
+    image: ${PHAROS_BACKEND_IMAGE:?set PHAROS_BACKEND_IMAGE to the digest reference in the release notes}
+  operator:
+    build: !reset null
+    image: ${PHAROS_BACKEND_IMAGE:?set PHAROS_BACKEND_IMAGE to the digest reference in the release notes}
