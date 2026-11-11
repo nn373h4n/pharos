@@ -527,6 +527,25 @@ waits for a lease of five minutes to run out. `RESIL_ONLY=memory` runs the first
    **not** bring the worker back (the check started it again); a worker that dies by itself (for
    example out of memory) is a different case that this check does not show.
 
+## Starter catalogue check (`scripts/starter-catalogue-check.sh`)
+
+`make check-catalogue` (manual, never in CI) builds a throwaway copy of the stack (own project
+name `pharos-catalogue`, volumes, image tag, random passwords, ports 19880 and 19843; no test
+overlay, so the worker reaches the real internet through its egress network and `SafeHttpClient`,
+as in an installation). It creates the organization and an administrator with a generated
+password that is never printed or put on a command line, imports the starter sources, signs in
+through the API, switches every source on and waits (`--timeout SECONDS`, default 600) until each
+one has been fetched or has failed. It prints one table (name, type, health, articles, last
+problem) and removes everything it created. The language model and personal feeds stay off. Exit
+code 0 means every source was fetched well, 1 that one failed or was not fetched in time, 2 wrong
+usage. It contacts the 25 public sites of the starter catalogue from the host it runs on.
+
+Result of 2026-11-11: **25 of 25 ok** in 524 seconds (115 of them to build and start the stack),
+1,185 articles in all; no redirect, block, 404, timeout or parse failure. The sources do not
+all finish in the first minute: 16 were done within about a minute of being switched on and the rest over the next six
+minutes. Feeds move and start blocking bots over time (F-30), so run it again before a pilot and
+after changing `starter_sources.json`.
+
 ## Checking a running installation
 
 `/api/readyz` is deliberately not served through the proxy. Ask the API container:
