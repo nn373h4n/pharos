@@ -8,7 +8,8 @@
 #   services   every long-running Compose service is running (and healthy, where it has a check)
 #   readyz     the API's own readiness report: database, database role, redis, worker, migrations,
 #              organization
-#   backup     the age of the newest dump under DIR (daily/, weekly/, monthly/); only with --backups
+#   backup     the age of the newest dump under DIR (daily/, weekly/, monthly/); only with --backups.
+#              It looks at the file's date only, not its size or content: rehearse scripts/restore.sh
 #   disk       free space on the disk that holds Docker's data
 # It does NOT check: that the sources fetch, that the model answers, the budget, or that a dump can
 # be restored (rehearse scripts/restore.sh). Those are on the admin pages and in the runbook.
@@ -17,13 +18,14 @@
 # 2 for wrong usage. PHAROS_COMPOSE names the Compose command (default: this repository's file and
 # deploy/.env), as in scripts/backup.sh.
 set -euo pipefail
+caller=$PWD # a relative --backups path is read from where the script was run, not from the repository
 cd "$(dirname "$0")/.."
 
 read -r -a COMPOSE <<<"${PHAROS_COMPOSE:-docker compose -f deploy/docker-compose.yml --env-file deploy/.env}"
 compose() { "${COMPOSE[@]}" "$@"; }
 
 # Services that run once and exit; every other service in the default profile must stay up.
-ONE_SHOT=" migrate operator "
+ONE_SHOT=" migrate operator ollama-init ollama-pull "
 BACKUP_WARN_HOURS=30
 BACKUP_FAIL_HOURS=54
 DISK_WARN_PERCENT=85
@@ -40,6 +42,7 @@ while [ "$#" -gt 0 ]; do
     --backups)
       [ "$#" -ge 2 ] || usage
       backups=$2
+      case $backups in /*) ;; *) backups="$caller/$backups" ;; esac
       shift 2
       ;;
     *) usage ;;
@@ -58,10 +61,22 @@ if services=$(compose config --services 2>/dev/null) && [ -n "$services" ]; then
   bad=
   count=0
   while IFS= read -r name; do
-    [[ $name =~ ^[a-z0-9_-]+$ ]] || continue
+    # A name that cannot be matched safely is a failure, never skipped: a skipped service is a
+    # service nobody looked at.
+    if ! [[ $name =~ ^[A-Za-z0-9._-]+$ ]]; then
+      count=$((count + 1))
+      bad="$bad (a service name this script cannot read)"
+      continue
+    fi
     case "$ONE_SHOT" in *" $name "*) continue ;; esac
     count=$((count + 1))
-    line=$(printf '%s\n' "$state" | grep -- "^${name}|" | head -n 1 || true)
+    line=
+    while IFS= read -r candidate; do # the exact service name, not a prefix or a pattern
+      if [ "${candidate%%|*}" = "$name" ]; then
+        line=$candidate
+        break
+      fi
+    done <<<"$state"
     run=${line#*|}
     run_state=${run%%|*}
     health=${run#*|}
@@ -71,6 +86,8 @@ if services=$(compose config --services 2>/dev/null) && [ -n "$services" ]; then
   done <<<"$services"
   if [ -n "$bad" ]; then
     report FAIL services "not running or not healthy:$bad"
+  elif [ "$count" -eq 0 ]; then
+    report FAIL services "no long-running service was found to check"
   else
     report PASS services "$count long-running services are up"
   fi
@@ -121,9 +138,14 @@ else
     -name 'pharos-*.dump' -printf '%T@\n' 2>/dev/null | sort -rn | head -n 1 || true)
   if [ -z "$newest" ]; then
     report FAIL backup "no dump found under daily/, weekly/ or monthly/"
+  elif ! [[ $newest =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+    report FAIL backup "the date of the newest dump could not be read"
   else
+    # Only the file's date is checked: not its size, its content or whether it restores.
     hours=$(((${EPOCHSECONDS:-$(date +%s)} - ${newest%.*}) / 3600))
-    if [ "$hours" -ge "$BACKUP_FAIL_HOURS" ]; then
+    if [ "$hours" -lt 0 ]; then
+      report FAIL backup "the newest dump is dated in the future (check the clock)"
+    elif [ "$hours" -ge "$BACKUP_FAIL_HOURS" ]; then
       report FAIL backup "newest dump is ${hours} hours old (limit ${BACKUP_FAIL_HOURS})"
     elif [ "$hours" -ge "$BACKUP_WARN_HOURS" ]; then
       report WARN backup "newest dump is ${hours} hours old (warning at ${BACKUP_WARN_HOURS})"

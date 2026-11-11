@@ -31,8 +31,11 @@ repository, an issue or a pull request. They belong in `deploy/.env` and the adm
 
 ## 1. Install
 
-A published release is run by digest, so nothing is built on the server and what you run is what
-was signed ([DEPLOYMENT.md, "Installing a published release"](../DEPLOYMENT.md#installing-a-published-release)).
+A published release is run by digest, so nothing is built on the server, and the check below is
+meant to show that what you run is what the release workflow signed
+([DEPLOYMENT.md, "Installing a published release"](../DEPLOYMENT.md#installing-a-published-release)).
+That chain (publishing, signing, the check) had never run on GitHub when this runbook was written:
+see "Not ready in this release" in the changelog and treat the first release as its first test.
 
 ```bash
 git clone https://github.com/<owner>/<repo>.git pharos && cd pharos
@@ -41,7 +44,8 @@ make env                      # creates deploy/.env with generated passwords (mo
 ```
 
 Open the release notes of that tag and take the commit and the two image references from them. Put
-the two references into `deploy/.env` (the lines are in the file, commented out):
+the two references into `deploy/.env`: the lines are already in the file, commented out; remove the
+leading hash sign and the space after it, and replace the placeholders:
 
 ```text
 PHAROS_BACKEND_IMAGE=ghcr.io/<owner>/pharos-backend@sha256:<digest>
@@ -57,7 +61,9 @@ scripts/verify-release.sh <owner>/<repo> vX.Y.Z <commit-from-the-notes> \
   --web "$(sed -n 's/^PHAROS_WEB_IMAGE=//p' deploy/.env)"
 ```
 
-If it fails, stop. A passing check says the images were signed by this repository's release
+If a variable is still commented out, the `sed` prints nothing and the script answers with its
+usage text; if one is set twice, it prints two lines and the script fails. If it fails, stop. A
+passing check says the images were signed by this repository's release
 workflow for this tag and commit; it does not say the commit is on `main`, that the SBOM is
 complete, or that the images have no vulnerability.
 
@@ -67,15 +73,15 @@ For the pilot, set these on purpose:
 | Variable | Pilot value | Why |
 | --- | --- | --- |
 | `PHAROS_DOMAIN`, `PHAROS_PUBLIC_URL`, `PHAROS_TLS` | your host name, `https://...`, your certificate plan | redirects and the CSRF check use the public URL; production needs https |
-| `PHAROS_ORG_SLUG` | one short name | must equal the slug you create in step 2 |
+| `PHAROS_ORG_SLUG` | one short name | must equal the slug you create just below |
 | `PHAROS_LOCAL_LOGIN` | `break-glass` | administrators can always sign in with a password, even when the identity provider is down; nobody else can |
 | `PHAROS_PERSONAL_FEEDS` | `off` | people's own feeds fetch arbitrary addresses; leave them off until the egress check has passed on this host (gate G7) |
 | `PHAROS_EMBEDDING_PROVIDER` | `off` | near-duplicate vectors and the local model stay off unless you have tuned them |
 | `PHAROS_LLM_PROVIDER` | `off` first | switch the model on in step 4, once everything else works |
 | `PHAROS_OIDC_*` or the Entra preset | your provider | see the SSO guides |
 
-Leave `PHAROS_ENVIRONMENT` unset: production refuses placeholder or short secrets, and serves no
-API documentation.
+Leave `PHAROS_ENVIRONMENT` at `production`, the value `make env` writes: production refuses
+placeholder or short secrets, and serves no API documentation.
 
 Start it, then create the organization and the first administrator:
 
@@ -93,21 +99,28 @@ pharos() { docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.
 export PHAROS_COMPOSE="docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.release.yml --env-file deploy/.env"
 ```
 
-(`PHAROS_COMPOSE` is read by `scripts/backup.sh`, `scripts/restore.sh` and `scripts/status.sh`.)
+(`PHAROS_COMPOSE` is read by `scripts/backup.sh`, `scripts/restore.sh` and `scripts/status.sh`. Put
+both lines in the profile of the user who runs them and in the environment of the host's scheduler,
+not only in the current shell: without `PHAROS_COMPOSE` the scripts fall back to the base Compose
+file.)
 
 ```bash
 pharos run --rm migrate python -m pharos.cli create-org --slug default --name "Your organization"
 pharos exec api python -m pharos.cli create-admin --username admin   # asks for a password, 15 characters or more
 ```
 
-Until the organization exists `/api/readyz` reports `organization: fail`. Then look at the whole
-installation:
+In a script, add `-T` after `exec` and `--password-stdin`, and pipe the password in.
+
+Until the organization exists the readiness report says `organization: fail`. (`/api/readyz` is not
+served through the proxy, so it cannot be opened from outside; `scripts/status.sh` asks the API
+container for it.) Then look at the whole installation:
 
 ```bash
 scripts/status.sh
 ```
 
-Every line should say PASS. It checks the services, the API's own readiness report and the disk;
+Every line should say PASS. A WARN on the disk line (85% used) means: free space or grow the disk
+before it reaches 95%, where it becomes a FAIL. The script checks the services, the API's own readiness report and the disk;
 it does not check that sources fetch or that a model answers (steps 3 and 4).
 
 ## 2. First sign-in
@@ -154,7 +167,7 @@ Skip this step to run without a model; people still get the cards.
    key; the answer says whether the key works, was refused, or the provider did not answer.
 
 Only public article text goes to a cloud model: the title, an excerpt of at most 500 characters,
-the host of the link and the language ([ADR-0015](../adr/0015-what-may-reach-a-model.md)). Nothing a
+the host of the link, the language and the profession the example is written for ([ADR-0015](../adr/0015-what-may-reach-a-model.md)). Nothing a
 person typed, no name, e-mail address, department or personal-feed article is sent. The gateway also
 masks e-mail addresses, phone numbers and similar patterns as a second line of defence.
 
@@ -182,7 +195,10 @@ is that they were briefed.
 scripts/status.sh --backups /srv/pharos-backups/dumps
 ```
 
-PASS, WARN, FAIL or NOT CHECKED per line; exit status 1 if anything fails. In the admin pages:
+Name the directory you gave to `backup.sh run --dir`, not its `daily/` folder. The output has PASS,
+WARN, FAIL or NOT CHECKED per line; the exit status is 1 if anything fails. The readiness line lags
+behind a stopped worker (its heartbeat has to expire first), so trust the `services` line for that.
+In the admin pages:
 
 - **Sources:** rows marked Failing, and how many failed in a row.
 - **Model:** today's spending against the cap, the key check, and the last seven days of calls.
@@ -190,8 +206,10 @@ PASS, WARN, FAIL or NOT CHECKED per line; exit status 1 if anything fails. In th
   line is the alert.
 
 Container logs rotate by size (five files of 10 MB for each service by default). Read them with
-`pharos logs --tail 100 <service>`. Pharos is built not to log prompts, answers or secrets and the real stack's logs were searched
-for them in M5-12; if you ever see one in a log, treat it as an incident and tell the maintainers.
+`pharos logs --tail 100 <service>`. Pharos is built not to log prompts, answers or secrets, and in
+M5-12 the real stack's logs were searched for the answers of the test provider; the answers of a
+real provider were not searched. If you ever see a prompt, an answer or a secret in a log, treat it
+as an incident and tell the maintainers.
 
 ## 8. Backups and retention (set up once, then watch)
 
@@ -208,16 +226,37 @@ scripts/backup.sh env --dir /home/operator/pharos-env --dumps /srv/pharos-backup
   chain and the tokens cannot be read.
 - **Restore once on a spare machine before you rely on it** (gate G8). A dump that has never been
   restored is not a backup.
-- Schedule the two retention commands, for example monthly, after reading their dry runs
+- Schedule the two retention commands, for example monthly. Without `--confirm` each only reports
+  what it would do; read that first
   ([DEPLOYMENT.md, "Retention and deleting a person"](../DEPLOYMENT.md#retention-and-deleting-a-person)):
+
+```bash
+pharos --profile operator run --rm operator python -m pharos.cli prune-audit
+pharos --profile operator run --rm operator python -m pharos.cli fold-interactions
+```
+
+- Only after reading that output, and only in the scheduled job, add `--confirm`. These commands
+  remove data, and only a backup brings it back:
 
 ```bash
 pharos --profile operator run --rm operator python -m pharos.cli prune-audit --confirm
 pharos --profile operator run --rm operator python -m pharos.cli fold-interactions --confirm
 ```
 
-- Deleting one person: run `delete-person --username NAME` (a dry run), then again with
-  `--confirm`. Backups made before the deletion still hold the person until they expire.
+- Deleting one person: run a dry run first, then the same command with `--confirm`. Backups made
+  before the deletion still hold the person until they expire.
+
+```bash
+pharos --profile operator run --rm operator python -m pharos.cli delete-person --username NAME
+```
+
+  `--username` finds only local accounts. People who sign in through single sign-on are found with
+  `--user-id <uuid>`, and the command refuses them unless you add `--allow-reprovision`: their
+  account is made again, empty, at their next sign-in, so **remove or disable them at the identity
+  provider first**. This release has no page that lists people, so you take the identifier from the
+  `users` table as the database owner (columns in [DATA_MODEL.md](../DATA_MODEL.md)); that gap is
+  logged in `TASKS.md`. What deletion leaves behind (audit entries, older backups, container logs
+  until they rotate) is listed in DEPLOYMENT.md, "Retention and deleting a person".
 
 ## 9. When something goes wrong
 
@@ -228,6 +267,8 @@ pharos --profile operator run --rm operator python -m pharos.cli fold-interactio
 | Identity provider is down | Administrators sign in with a password (`break-glass`). Others wait. |
 | `status.sh` says a service is not healthy | `pharos ps -a`, then `pharos logs --tail 100 <service>`. [DEPLOYMENT.md, "Troubleshooting"](../DEPLOYMENT.md#troubleshooting) lists the common causes. |
 | `readyz` fails on `worker` just after start | Wait a few seconds for the first heartbeat. |
+| `services` fails but `readyz` still passes | The worker's heartbeat has not expired yet and `readyz` will follow. Trust `services`. |
+| Disk WARN or FAIL | Free space (old images: `docker image prune`; old dumps: `scripts/backup.sh prune --dir DIR`) or grow the disk. Do not remove Docker volumes. |
 | A secret may have leaked | Replace it in `deploy/.env` (for the model key, also revoke it at the provider), `pharos up -d`. Changing `PHAROS_SECRET_KEY` signs everyone out and makes old audit entries unverifiable: ask the maintainers first. |
 | The database is lost or damaged | Restore ([DEPLOYMENT.md, "Backup and restore"](../DEPLOYMENT.md#backup-and-restore)). People sign in again; sessions are not backed up. |
 
@@ -237,10 +278,14 @@ pharos --profile operator run --rm operator python -m pharos.cli fold-interactio
    and copy it off the server.
 2. `git fetch --tags && git checkout vX.Y.Z`, put the new release's two digests into `deploy/.env`,
    and run `scripts/verify-release.sh` as in step 1. Do not continue if it fails.
-3. `pharos up -d`. The database is migrated when the API starts (`PHAROS_MIGRATE_ON_START=true`).
+3. `pharos up -d`. With `PHAROS_MIGRATE_ON_START=true` the database is migrated when the API
+   starts. `deploy/.env.example` suggests `false` in production; if you set it so, apply the
+   migrations yourself first, after reading them:
+   `pharos run --rm -e PHAROS_MIGRATE_ON_START=true migrate`.
 4. `scripts/status.sh --backups ...` until every line passes.
 
-**Roll back:** put the previous release's digests back in `deploy/.env` and run `pharos up -d`.
+**Roll back:** `git checkout` the previous tag (the Compose files and scripts must match the images),
+put the previous release's digests back in `deploy/.env` and run `pharos up -d`.
 If the newer version changed the database schema, the older code does not run on it: restore the
 backup taken in step 1 of the upgrade (people lose what they did after that backup).
 
@@ -263,7 +308,7 @@ never PASS.
 
 - [ ] `scripts/verify-release.sh` passed for the exact digests in `deploy/.env`.
 - [ ] `deploy/.env` is mode 600, not in git, and a copy is kept apart from the dumps.
-- [ ] `PHAROS_ENVIRONMENT` unset (production); valid TLS; `PHAROS_PUBLIC_URL` is https.
+- [ ] `PHAROS_ENVIRONMENT=production`; valid TLS; `PHAROS_PUBLIC_URL` is https.
 - [ ] `PHAROS_LOCAL_LOGIN=break-glass`; single sign-on tested with a test account; two administrators.
 - [ ] `PHAROS_PERSONAL_FEEDS=off` unless gate G7 has passed on this host.
 - [ ] Embeddings off; model off, or key tested, real prices set, cap accepted.

@@ -43,7 +43,7 @@ printf 'Filesystem B Used Avail Capacity Mount\\n/dev/x 100 1 1 %s%% /\\n' "${ST
 
 
 def run(
-    tmp_path: Path, *args: str, env: dict[str, str] | None = None
+    tmp_path: Path, *args: str, env: dict[str, str] | None = None, cwd: Path | None = None
 ) -> tuple[subprocess.CompletedProcess[str], list[str]]:
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir(exist_ok=True)
@@ -65,7 +65,7 @@ def run(
         **(env or {}),
     }
     result = subprocess.run(  # noqa: S603
-        [str(SCRIPT), *args], env=full_env, capture_output=True, text=True, timeout=60
+        [str(SCRIPT), *args], env=full_env, capture_output=True, text=True, timeout=60, cwd=cwd
     )
     return result, log.read_text().splitlines()
 
@@ -162,6 +162,32 @@ def test_a_service_name_that_is_a_prefix_of_another_is_not_mistaken_for_it(tmp_p
     assert "api(missing)" in result.stdout
 
 
+@pytest.mark.parametrize(
+    "services",
+    ["Web API", "web my$proxy", "migrate operator", "ollama-init ollama-pull migrate"],
+)
+def test_nothing_checked_is_never_a_pass(tmp_path: Path, services: str) -> None:
+    # Names the script cannot match safely, or only one-shot services: no PASS with 0 services.
+    result, _ = run(tmp_path, env={"STUB_SERVICES": services})
+    assert result.returncode == 1
+    assert levels(result)["services"] == "FAIL"
+
+
+def test_a_service_name_with_a_dot_is_checked_like_any_other(tmp_path: Path) -> None:
+    ps = "web|running|\\nmy.proxy|exited|\\n"
+    result, _ = run(tmp_path, env={"STUB_SERVICES": "web my.proxy", "STUB_PS": ps})
+    assert levels(result)["services"] == "FAIL"
+    assert "my.proxy(exited)" in result.stdout
+
+
+def test_the_local_model_s_one_shot_services_are_not_required_to_run(tmp_path: Path) -> None:
+    result, _ = run(
+        tmp_path,
+        env={"STUB_SERVICES": "web api worker beat migrate ollama-init ollama-pull"},
+    )
+    assert levels(result)["services"] == "PASS"
+
+
 def test_compose_not_answering_is_a_failure_not_a_pass(tmp_path: Path) -> None:
     result, _ = run(tmp_path, env={"STUB_CONFIG_EXIT": "1"})
     assert result.returncode == 1
@@ -206,13 +232,36 @@ def test_text_from_the_container_is_not_echoed(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize(
     "hours, level",
-    [(1, "PASS"), (29, "PASS"), (31, "WARN"), (53, "WARN"), (55, "FAIL"), (500, "FAIL")],
+    [
+        (1, "PASS"),
+        (29, "PASS"),
+        (30, "WARN"),  # the limits themselves belong to the worse level
+        (31, "WARN"),
+        (53, "WARN"),
+        (54, "FAIL"),
+        (55, "FAIL"),
+        (500, "FAIL"),
+        (-48, "FAIL"),  # a dump dated in the future is not fresh
+    ],
 )
 def test_the_age_of_the_newest_dump_sets_the_level(tmp_path: Path, hours: int, level: str) -> None:
     make_dump(tmp_path / "dumps", hours)
     result, _ = run(tmp_path, "--backups", str(tmp_path / "dumps"))
     assert levels(result)["backup"] == level
     assert (result.returncode == 1) == (level == "FAIL")
+
+
+@pytest.mark.parametrize("folder", ["daily", "weekly", "monthly"])
+def test_a_dump_in_any_of_the_three_folders_is_found(tmp_path: Path, folder: str) -> None:
+    make_dump(tmp_path / "dumps", 2, folder)
+    result, _ = run(tmp_path, "--backups", str(tmp_path / "dumps"))
+    assert levels(result)["backup"] == "PASS"
+
+
+def test_a_relative_backups_path_is_read_from_where_the_script_was_run(tmp_path: Path) -> None:
+    make_dump(tmp_path / "dumps", 2)
+    result, _ = run(tmp_path, "--backups", "dumps", cwd=tmp_path)
+    assert levels(result)["backup"] == "PASS"
 
 
 def test_the_newest_dump_counts_even_when_an_older_one_is_in_another_folder(tmp_path: Path) -> None:

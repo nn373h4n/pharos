@@ -13,7 +13,7 @@ First release. Upgrade notes: none, there is no earlier release to upgrade from.
 Said plainly so nobody reads a missing item as done:
 
 - Egress control for the containers (M5-03, F-04, F-06), the worker boundary checks (M5-05) and the model-layer leftovers (M5-06) wait for gate G1: the ADRs they amend (0022 to 0025 and the older Proposed ones) are still `Proposed`.
-- The pilot runbook and production checklist (M5-11), the whole-milestone security review and readiness report (M5-13) are not done.
+- The pilot runbook and production checklist (M5-11) exist, but were rehearsed only on images built from `main`, not on this release's published images; its egress line says plainly that there is nothing to tick. The whole-milestone security review and readiness report (M5-13) are not done.
 - The release chain itself (`publish`, `sign`, keyless signing on GitHub, anonymous verification) has not run yet; this tag is its first run.
 
 ### Fixed
@@ -34,6 +34,7 @@ Said plainly so nobody reads a missing item as done:
 
 ### Added
 
+- Pilot runbook, production checklist and participant briefing template (M5-11): `docs/guides/pilot-runbook.md` (install, first sign-in, sources, model key and budget, approved tools, daily checks, backups and retention, incidents, upgrade and rollback, end of the pilot) and `docs/guides/pilot-briefing-template.md` (what to tell people about pasting data into AI tools, what is stored, what reaches a model). `make status` (`scripts/status.sh`) is a read-only look at a running installation: services, readiness, the age of the newest backup, the disk.
 - Release workflow, first part (M5-10b): on a tag `vX.Y.Z` on main, the workflow builds both images, scans them with Trivy, makes an SBOM per image and pushes them to GHCR; a pull request that changes the workflow runs the build and scan as a dry run. No GitHub Release is cut.
 - Release signing (M5-10c): on a tag the workflow signs both images with cosign, keyless (no stored key), and attaches each image's SBOM as a signed attestation; `scripts/verify-release.sh <owner>/<repo> vX.Y.Z [<commit-sha>]` checks the signatures and prints the digests to pull. Not yet run on GitHub: no tag exists.
 - Release preparation (M5-10d): a tag must equal the version in the code before anything is built; `deploy/docker-compose.release.yml` runs the published images by digest; `scripts/verify-release.sh --backend <ref> --web <ref>` checks your digests against the release's; the steps, the release notes template and the install and rollback notes are in `docs/guides/releasing.md` and `docs/DEPLOYMENT.md`.

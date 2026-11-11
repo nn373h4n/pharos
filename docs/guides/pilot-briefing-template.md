@@ -45,23 +45,30 @@ work, ask `<contact>` first.
 - Your choices: your profession and language, and what you do with the cards (that you viewed or saved one, marked it useful or not useful, tried it, and
   the minutes you say it saved). This is kept for `<12 months, or your setting>`.
 - Administrators see a daily summary of use, as counts. A group with fewer than five people is not
-  shown, so a number does not point at one person. Administrators can also see a record of
-  administrative actions (the audit log), kept for `<365 days, or your setting>`.
+  shown. That lowers the chance that a number points at one person; it does not remove it (an
+  administrator who noted earlier counts could still work one out).
+- The audit log records administrative actions and also every sign-in and sign-out, with your
+  account's identifier and a one-way hash of the address you connected from. It is kept for
+  `<365 days, or your setting>` and can be read by `<who>`.
 - `<If personal feeds are on: feeds you add yourself are seen only by you. If they are off, delete
   this line.>`
 
 ### What goes to an AI model
 
-`<If no model is switched on, write: "No AI model is used inside Pharos.">` Otherwise: only the
-public text of an article (its title, a short excerpt, the website name and the language) is sent
-to `<provider>` to write the summary and the example. What you type, your name, your department and
-your own feeds are not sent.
+`<If no model is switched on, write: "No AI model is used inside Pharos.">` Otherwise: the public
+text of an article (its title, a short excerpt, the website name and the language) and the
+profession the example is written for are sent to `<provider>` to write the summary and the
+example. What you type, your name, your department and your own feeds are not sent.
 
 ### Your data and your questions
 
 You can ask `<contact>` to see or delete your Pharos data. Deleting removes your profile, your
-activity and your own feeds; backups made earlier keep it until they expire, and the audit log may
-still hold an entry that leads to no name. Questions about this briefing: `<contact>`.
+activity and your own feeds. It does not reach everything at once: backups made earlier keep your
+data until they expire, container logs keep what they hold until they rotate, and older audit
+entries keep your account's identifier, which leads to no name once you are deleted. If you sign in
+through `<identity provider>`, your account there is separate and `<who>` must remove it there too,
+or Pharos makes a new empty account at your next sign-in. Questions about this briefing:
+`<contact>`.
 
 ---
 
