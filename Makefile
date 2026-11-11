@@ -1,7 +1,7 @@
 .DEFAULT_GOAL := help
 COMPOSE := docker compose -f deploy/docker-compose.yml --env-file deploy/.env
 
-.PHONY: help env dev dev-sso org admin down test-stack-e2e worker beat test test-e2e test-integration test-compose test-sso-dev loadtest test-resilience lint fmt migrate hooks secrets-scan
+.PHONY: help env dev dev-sso org admin down test-stack-e2e worker beat test test-e2e test-integration test-compose test-sso-dev loadtest test-resilience lint fmt migrate hooks secrets-scan status
 
 help: ## Show available targets
 	@grep -E '^[a-z0-9-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-17s %s\n", $$1, $$2}'
@@ -78,6 +78,9 @@ hooks: ## Enable the git pre-commit secret scan
 
 secrets-scan: ## Scan the full git history for secrets (gitleaks in Docker)
 	docker run --rm -v "$(CURDIR):/repo:ro" zricethezav/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f git --redact --verbose /repo
+
+status: ## One look at a running installation: services, readiness, newest backup (BACKUPS=dir), disk; read-only
+	bash scripts/status.sh $(if $(BACKUPS),--backups "$(BACKUPS)")
 
 migrate: ## Apply database migrations (ask first)
 	uv run alembic -c backend/alembic.ini upgrade head
