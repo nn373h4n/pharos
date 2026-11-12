@@ -461,8 +461,12 @@ describe("while the next list is on its way", () => {
     await loaded();
     fireEvent.click(act(en.Sources.actions.disable, "Source 1"));
     await waitFor(() => expect(status().textContent).toContain("Switched off: Source 1"));
-    expect(document.activeElement).toBe(
-      screen.getByRole("heading", { level: 2, name: en.Sources.results }),
+    // The focus moves in an effect, which React may run after the notice is already on the page
+    // (F-55), so the check waits for it too.
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByRole("heading", { level: 2, name: en.Sources.results }),
+      ),
     );
   });
 });
