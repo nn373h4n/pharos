@@ -10,6 +10,10 @@
 	# The admin API is not needed and is not exposed.
 	admin off
 
+	# Caddy runs as an ordinary user (F-08) in a read-only container: it cannot, and need not, add its
+	# local certificate authority to the container's trust store.
+	skip_install_trust
+
 	# The automatic HTTP-to-HTTPS redirect reflects the request's Host header and leaves out a
 	# non-default HTTPS port; the explicit redirect below replaces it.
 	auto_https disable_redirects

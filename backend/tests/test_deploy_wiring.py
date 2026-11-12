@@ -550,3 +550,45 @@ def test_the_roles_script_refuses_a_password_unsafe_in_an_address_before_any_rol
     assert "reject" not in (tmp_path / "data" / "pg_hba.conf").read_text()
     assert "Sentinel" not in done.stderr
     assert not (tmp_path / "x").exists()  # never run as a command
+
+
+# --- F-08: Caddy is not root ------------------------------------------------------------------
+
+
+def test_caddy_runs_as_an_ordinary_user_with_no_capability() -> None:
+    block = service_block("caddy")
+    assert 'user: "65532:65532"' in block
+    assert "<<: *hardening" in block  # every capability dropped, no-new-privileges, read-only
+    assert "cap_add" not in block and not re.search(r"^\s+privileged:", block, re.MULTILINE)
+    # Ports below 1024 through the container's own network namespace, not a capability.
+    assert re.search(r"sysctls:\n\s+net\.ipv4\.ip_unprivileged_port_start: 0\n", block)
+    # It starts only after its volumes were handed to that user.
+    assert "caddy-volumes: { condition: service_completed_successfully }" in block
+
+
+def test_caddy_s_volume_helper_has_no_network_and_cannot_follow_links() -> None:
+    block = service_block("caddy-volumes")
+    caddy = service_block("caddy")
+    assert re.search(r"image: (\S+)", block).group(1) == re.search(r"image: (\S+)", caddy).group(1)  # type: ignore[union-attr]
+    assert "network_mode: none" in block and "networks:" not in block and "ports:" not in block
+    assert "cap_drop: [ALL]" in block and "cap_add: [CHOWN, DAC_READ_SEARCH]" in block
+    assert 'security_opt: ["no-new-privileges:true"]' in block and "read_only: true" in block
+    # -h -P: a link that Caddy (or anyone with its rights) put in a volume is changed itself, never
+    # the file it points to.
+    assert 'entrypoint: ["chown", "-R", "-h", "-P", "65532:65532", "/data", "/config"]' in block
+    assert "caddy_data:/data" in block and "caddy_config:/config" in block
+    assert 'restart: "no"' in block
+
+
+def test_caddy_does_not_try_to_install_its_certificate_authority() -> None:
+    globals_block = (DEPLOY / "Caddyfile").read_text().split("\n}\n", 1)[0]
+    assert "skip_install_trust" in globals_block
+
+
+def test_the_dev_certificate_export_can_read_caddy_s_files_but_not_change_them() -> None:
+    overlay = (DEPLOY / "docker-compose.sso-dev.yml").read_text()
+    block = re.search(r"^  dev-ca-export:\n(.*?)(?=^  \S|\Z)", overlay, re.DOTALL | re.MULTILINE)
+    assert block
+    text = block.group(1)
+    assert "cap_drop: [ALL]" in text and "cap_add: [DAC_READ_SEARCH]" in text
+    assert "caddy_data:/data:ro" in text

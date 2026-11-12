@@ -136,7 +136,7 @@ Next.js App Router, TypeScript, Tailwind, shadcn/ui, `next-intl` (ADR-0008). The
 One `deploy/docker-compose.yml`, three networks and reserved profiles `dev` (Keycloak), `local-llm` (Ollama, M4-10) and `observability` (OpenTelemetry, Prometheus, Grafana, M5). The profile `local-llm-pull` downloads a model on request. The details, the variables and the known limits are in [DEPLOYMENT.md](DEPLOYMENT.md); the reasoning is in [ADR-0010](adr/0010-compose-network-topology-and-container-hardening.md).
 
 - `edge` carries the published ports and only `caddy`. `app` (caddy, web, api) and `data` (api, worker, beat, migrate, postgres, redis) are Docker `internal: true` networks with no route to the internet; `caddy` and `web` are not on `data`, so a compromised proxy or web app cannot open a connection to the database or Redis. `egress` is joined only by the services that must call out.
-- Every container drops all capabilities, forbids privilege escalation and has a read-only root file system. All but `caddy` run as non-root users.
+- Every container drops all capabilities, forbids privilege escalation and has a read-only root file system. All run as non-root users; Caddy (uid 65532, no capability) binds 80 and 443 through a sysctl of its own network namespace, and only two one-shot helpers that change the owner of a volume run as root (F-08).
 - TLS is automatic ACME for public domains, or `tls internal` / a custom certificate for private ones.
 
 | Service | Networks | Internet access |

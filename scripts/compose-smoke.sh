@@ -310,7 +310,7 @@ check_blocked "the worker role cannot create a table" sql pharos_worker "$WORKER
 check_blocked "the worker role cannot log in with the application password" sql pharos_worker "$APP_PASSWORD" 'select 1'
 
 echo "== hardening"
-for service in api worker beat web postgres redis; do
+for service in api worker beat web postgres redis caddy; do
   user=$(compose exec -T "$service" id -u 2>/dev/null | tr -d '\r')
   if [ -n "$user" ] && [ "$user" != "0" ]; then
     printf 'PASS  %-9s runs as uid %s (not root)\n' "$service" "$user"
@@ -318,6 +318,13 @@ for service in api worker beat web postgres redis; do
     fail "$service runs as uid ${user:-unknown}"
   fi
 done
+# Caddy binds 80 and 443 as an ordinary user (F-08): no capability at all, not even NET_BIND_SERVICE.
+check "caddy has no effective capability (F-08)" \
+  test "$(compose exec -T caddy sh -c "grep '^CapEff:' /proc/1/status" 2>/dev/null | tr -d '\r' | awk '{print $2}')" = 0000000000000000
+check "caddy's volumes were handed to its user before it started (caddy-volumes exited 0)" \
+  test "$(docker inspect --format '{{.State.ExitCode}}' "$(compose ps -a -q caddy-volumes)")" = 0
+check "caddy's certificate store belongs to its user" \
+  test "$(compose exec -T caddy stat -c %u /data/caddy 2>/dev/null | tr -d '\r')" = 65532
 for service in caddy web api worker beat migrate postgres redis; do
   container=$(compose ps -a -q "$service")
   settings=$(docker inspect --format '{{.HostConfig.ReadonlyRootfs}} {{.HostConfig.CapDrop}} {{.HostConfig.SecurityOpt}} {{.HostConfig.PidsLimit}}' "$container")

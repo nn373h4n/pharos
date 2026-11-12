@@ -142,11 +142,33 @@ x-backend-env: &backend-env
   PHAROS_INTERACTIONS_RETENTION_MONTHS: ${PHAROS_INTERACTIONS_RETENTION_MONTHS:-12}
 
 services:
+  # Gives Caddy's two volumes to the user Caddy runs as (F-08). Runs once before Caddy on every
+  # start, so a volume made by an older release (owned by root) is handed over too; changes nothing
+  # when the owner is already right. Root inside its container, with no network and only the two
+  # capabilities that changing the owner of files it does not own needs.
+  caddy-volumes:
+    image: caddy:2-alpine@sha256:78bd35025c7ba85961dd149ae670315129954e77abe2383ac47c89106b35ade9
+    restart: "no"
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_READ_SEARCH]
+    security_opt: ["no-new-privileges:true"]
+    network_mode: none
+    # -h -P: a link inside the volumes is changed itself, never what it points to.
+    entrypoint: ["chown", "-R", "-h", "-P", "65532:65532", "/data", "/config"]
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    mem_limit: 32m
+
   caddy:
     image: caddy:2-alpine@sha256:78bd35025c7ba85961dd149ae670315129954e77abe2383ac47c89106b35ade9
     <<: *hardening
-    # Root inside the container with every capability dropped except the one needed to bind 80/443.
-    cap_add: [NET_BIND_SERVICE]
+    # Not root, and no capability at all (F-08): the sysctl lets this container's own network
+    # namespace, which holds nothing but Caddy, bind ports below 1024. `no-new-privileges` stays on.
+    user: "65532:65532"
+    sysctls:
+      net.ipv4.ip_unprivileged_port_start: 0
     # The container listens on the same port numbers as the host (see the Caddyfile).
     ports:
       - "${PHAROS_HTTP_PORT:-80}:${PHAROS_HTTP_PORT:-80}"
@@ -167,6 +189,7 @@ services:
       app:
         ipv4_address: ${PHAROS_CADDY_IP:-172.28.20.254}
     depends_on:
+      caddy-volumes: { condition: service_completed_successfully }
       web: { condition: service_healthy }
       api: { condition: service_healthy }
     healthcheck:
