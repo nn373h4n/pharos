@@ -30,7 +30,7 @@ DEFAULTS = {
     "STUB_SERVICES": "web api worker beat migrate",
     "STUB_PS": "web|running|\\napi|running|healthy\\nworker|running|healthy\\n"
     "beat|running|\\nmigrate|exited|\\n",
-    "STUB_READY": "status=ok\\ndatabase=ok\\nredis=ok\\nworker=ok\\n",
+    "STUB_READY": "status=ok\\ndatabase=ok\\nredis=ok\\nworker=ok\\nheartbeat-age=12\\n",
 }
 DOCKER_STUB = """#!/usr/bin/env bash
 echo "docker $*" >> "$STUB_LOG"
@@ -81,11 +81,17 @@ def levels(result: subprocess.CompletedProcess[str]) -> dict[str, str]:
     return out
 
 
-def make_dump(base: Path, age_hours: float, where: str = "daily") -> None:
+def make_dump(
+    base: Path,
+    age_hours: float,
+    where: str = "daily",
+    size: int = 1,
+    name: str = "pharos-20261110T020000Z.dump",
+) -> None:
     folder = base / where
     folder.mkdir(parents=True, exist_ok=True)
-    dump = folder / "pharos-20261110T020000Z.dump"
-    dump.write_text("x")
+    dump = folder / name
+    dump.write_bytes(b"x" * size)
     when = time.time() - age_hours * 3600
     os.utime(dump, (when, when))
 
@@ -98,6 +104,7 @@ def test_a_healthy_installation_passes_and_changes_nothing(tmp_path: Path) -> No
     assert levels(result) == {
         "services": "PASS",
         "readyz": "PASS",
+        "worker": "PASS",
         "backup": "PASS",
         "disk": "PASS",
     }
@@ -376,3 +383,62 @@ def test_one_failure_among_passes_still_exits_one(tmp_path: Path) -> None:
     result, _ = run(tmp_path, env={"STUB_DISK": "99"})
     assert result.returncode == 1
     assert levels(result)["services"] == "PASS"
+
+
+# --- F-59: the worker's heartbeat and the size of the newest dump -------------------------------
+
+
+@pytest.mark.parametrize(
+    "line, level, text",
+    [
+        ("heartbeat-age=12", "PASS", "last heartbeat 12 s ago"),
+        ("heartbeat-age=90", "PASS", "last heartbeat 90 s ago"),
+        ("heartbeat-age=91", "WARN", "last heartbeat 91 s ago"),
+        ("heartbeat-age=200", "WARN", "readyz fails after 210 s"),
+        ("heartbeat-age=none", "WARN", "no heartbeat recorded"),
+        ("heartbeat-age=unknown", "NOT CHECKED", "could not be read"),
+        ("", "NOT CHECKED", "could not be read"),
+        ("heartbeat-age=-5", "NOT CHECKED", "could not be read"),
+        ("heartbeat-age=12\\033[2J", "NOT CHECKED", "could not be read"),
+    ],
+)
+def test_the_age_of_the_worker_s_heartbeat_is_shown_and_warned_about(
+    tmp_path: Path, line: str, level: str, text: str
+) -> None:
+    ready = "status=ok\\ndatabase=ok\\nredis=ok\\nworker=ok\\n" + (line + "\\n" if line else "")
+    result, _ = run(tmp_path, env={"STUB_READY": ready})
+    assert levels(result)["worker"] == level
+    assert text in result.stdout
+    # A warning about the heartbeat does not fail the run, and the line is not a readyz check.
+    assert levels(result)["readyz"] == "PASS"
+    assert result.returncode == 0
+    assert "\x1b" not in result.stdout
+
+
+def test_the_heartbeat_line_is_read_only_when_the_api_answered(tmp_path: Path) -> None:
+    result, _ = run(tmp_path, env={"STUB_EXEC_EXIT": "1"})
+    assert levels(result)["readyz"] == "FAIL"
+    assert levels(result)["worker"] == "NOT CHECKED"
+
+
+def test_an_empty_newest_dump_fails(tmp_path: Path) -> None:
+    make_dump(tmp_path / "dumps", 3, size=0)
+    result, _ = run(tmp_path, "--backups", str(tmp_path / "dumps"))
+    assert levels(result)["backup"] == "FAIL"
+    assert "empty" in result.stdout and result.returncode == 1
+
+
+@pytest.mark.parametrize(
+    "newest, previous, level",
+    [(4096, 4096, "PASS"), (2048, 4096, "PASS"), (2047, 4096, "WARN"), (8192, 4096, "PASS")],
+)
+def test_a_newest_dump_less_than_half_the_one_before_is_warned_about(
+    tmp_path: Path, newest: int, previous: int, level: str
+) -> None:
+    backups = tmp_path / "dumps"
+    make_dump(backups, 26, size=previous, name="pharos-20261109T020000Z.dump")
+    make_dump(backups, 2, size=newest, name="pharos-20261110T020000Z.dump")
+    result, _ = run(tmp_path, "--backups", str(backups))
+    assert levels(result)["backup"] == level
+    assert result.returncode == 0
+    assert "pharos-2026" not in result.stdout  # sizes and ages only, never a file name

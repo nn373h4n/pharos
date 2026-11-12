@@ -10,8 +10,11 @@
 #              local model of the local-llm profile, for example); every container of a service
 #   readyz     the API's own readiness report: database, database role, redis, worker, migrations,
 #              organization
-#   backup     the age of the newest dump under DIR (daily/, weekly/, monthly/); only with --backups.
-#              It looks at the file's date only, not its size or content: rehearse scripts/restore.sh
+#   worker     how long ago the worker's heartbeat was written (one is due every 60 seconds); readyz
+#              only fails after 210, so this line shows a stopped worker sooner (WARN)
+#   backup     the age and size of the newest dump under DIR (daily/, weekly/, monthly/); only with
+#              --backups. FAIL when it is empty, WARN when it is less than half the one before. Not
+#              its content: rehearse scripts/restore.sh
 #   disk       free space on the disk that holds Docker's data
 # It does NOT check: that the sources fetch, that the model answers, the budget, or that a dump can
 # be restored (rehearse scripts/restore.sh). Those are on the admin pages and in the runbook.
@@ -29,6 +32,7 @@ compose() { "${COMPOSE[@]}" "$@"; }
 # Services that run once and exit; every other service in the default profile, and every service
 # that has a container at all, must stay up.
 ONE_SHOT=" migrate operator ollama-init ollama-pull caddy-volumes dev-ca-export "
+HEARTBEAT_WARN_SECONDS=90 # a beat every 60 seconds (pharos.core.heartbeat), with slack
 BACKUP_WARN_HOURS=30
 BACKUP_FAIL_HOURS=54
 DISK_WARN_PERCENT=85
@@ -120,7 +124,16 @@ except urllib.error.HTTPError as e:
 d = json.loads(r.read().decode())
 print("status=" + str(d.get("status")))
 for k, v in sorted(d.get("checks", {}).items()):
-    print(k + "=" + str(v))'
+    print(k + "=" + str(v))
+# The heartbeat readyz reads, as an age in whole seconds; never the address or an error text.
+import os, time
+try:
+    import redis
+    c = redis.Redis.from_url(os.environ["PHAROS_REDIS_URL"], socket_timeout=3, socket_connect_timeout=3)
+    v = c.get("pharos:worker:heartbeat")
+    print("heartbeat-age=" + ("none" if v is None else str(max(0, int(time.time() - float(v))))))
+except Exception:
+    print("heartbeat-age=unknown")'
 if ready=$(compose exec -T api python -c "$probe" 2>/dev/null); then
   failing=
   overall=
@@ -141,22 +154,47 @@ else
   report FAIL readyz "the API container did not answer"
 fi
 
+# --- worker -----------------------------------------------------------------------------------
+# From the same answer of the API container: a line `heartbeat-age=` (the hyphen keeps it out of the
+# readyz checks above) with whole seconds, `none` or `unknown`; anything else is not trusted.
+heartbeat=
+if [ -n "${ready:-}" ]; then
+  heartbeat=$(grep -E '^heartbeat-age=([0-9]{1,9}|none|unknown)$' <<<"$ready" | head -n 1 || true)
+  heartbeat=${heartbeat#heartbeat-age=}
+fi
+case $heartbeat in
+  "" | unknown) report "NOT CHECKED" worker "the heartbeat could not be read" ;;
+  none) report WARN worker "no heartbeat recorded (is the worker or the scheduler stopped?)" ;;
+  *)
+    if [ "$heartbeat" -gt "$HEARTBEAT_WARN_SECONDS" ]; then
+      report WARN worker "last heartbeat ${heartbeat} s ago (one is due every 60 s; readyz fails after 210 s)"
+    else
+      report PASS worker "last heartbeat ${heartbeat} s ago"
+    fi
+    ;;
+esac
+
 # --- backup -----------------------------------------------------------------------------------
 if [ -z "$backups" ]; then
   report "NOT CHECKED" backup "no --backups DIR given"
 elif [ ! -d "$backups" ]; then
   report FAIL backup "no such directory"
 else
-  newest=$(find "$backups/daily" "$backups/weekly" "$backups/monthly" -maxdepth 1 -type f \
-    -name 'pharos-*.dump' -printf '%T@\n' 2>/dev/null | sort -rn | head -n 1 || true)
+  # Date and size of the two newest dumps: only numbers, never a file name.
+  dumps=$(find "$backups/daily" "$backups/weekly" "$backups/monthly" -maxdepth 1 -type f \
+    -name 'pharos-*.dump' -printf '%T@ %s\n' 2>/dev/null | sort -rn | head -n 2 || true)
+  newest=$(sed -n '1s/ .*//p' <<<"$dumps")
+  size=$(sed -n '1s/.* //p' <<<"$dumps")
+  previous=$(sed -n '2s/.* //p' <<<"$dumps")
   if [ -z "$newest" ]; then
     report FAIL backup "no dump found under daily/, weekly/ or monthly/"
-  elif ! [[ $newest =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
-    report FAIL backup "the date of the newest dump could not be read"
+  elif ! [[ $newest =~ ^[0-9]+(\.[0-9]+)?$ ]] || ! [[ $size =~ ^[0-9]+$ ]]; then
+    report FAIL backup "the date or size of the newest dump could not be read"
+  elif [ "$size" -eq 0 ]; then
+    report FAIL backup "the newest dump is empty (0 bytes)"
   else
-    # Only the file's date is checked: not its size, its content or whether it restores. In seconds
-    # first: a dump dated less than an hour ahead would round to 0 hours. A minute of clock skew is
-    # allowed.
+    # Its date and size are checked, not its content or whether it restores. In seconds first: a
+    # dump dated less than an hour ahead would round to 0 hours. A minute of clock skew is allowed.
     age=$((${EPOCHSECONDS:-$(date +%s)} - ${newest%.*}))
     hours=$((age / 3600))
     if [ "$age" -lt -60 ]; then
@@ -165,8 +203,10 @@ else
       report FAIL backup "newest dump is ${hours} hours old (limit ${BACKUP_FAIL_HOURS})"
     elif [ "$hours" -ge "$BACKUP_WARN_HOURS" ]; then
       report WARN backup "newest dump is ${hours} hours old (warning at ${BACKUP_WARN_HOURS})"
+    elif [[ $previous =~ ^[0-9]+$ ]] && [ $((size * 2)) -lt "$previous" ]; then
+      report WARN backup "newest dump is ${hours} hours old but $((size / 1024)) KiB, less than half the one before ($((previous / 1024)) KiB)"
     else
-      report PASS backup "newest dump is ${hours} hours old"
+      report PASS backup "newest dump is ${hours} hours old, $((size / 1024)) KiB"
     fi
   fi
 fi
