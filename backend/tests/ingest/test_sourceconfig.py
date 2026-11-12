@@ -237,3 +237,55 @@ def test_ascii_host_directly() -> None:
     assert ascii_host("2001:db8::1") == "2001:db8::1"
     assert ascii_host("a..b") is None
     assert ascii_host("") == ""
+
+
+# --- F-22: the same IDNA conversion as the HTTP client -------------------------------------------
+
+# Names whose IDNA 2003 spelling (the standard library's codec) differs from what httpx connects to,
+# and names on which both agree.
+HOSTS = [
+    "straße.example",
+    "strasse.example",
+    "xn--strae-oqa.example",
+    "faß.de",
+    "Bücher.Example",
+    "ΣΊΣΥΦΟΣ.gr",
+    "example。com",
+    "example．com",
+    "ex｡ample.com",
+    "a‍b.example",  # an invisible joiner: IDNA 2003 drops it, httpx refuses the name
+    "ＥＸＡＭＰＬＥ.com",  # full-width letters: IDNA 2003 converts them, httpx refuses the name
+    "news.example.org",
+    "News.Example.ORG",
+    "a_b.example",
+]
+
+
+@pytest.mark.parametrize("name", HOSTS)
+def test_the_host_is_the_one_the_http_client_connects_to(name: str) -> None:
+    import httpx  # only in the test: the API itself never loads an HTTP client
+
+    from pharos.ingest.sourceconfig import ascii_host
+
+    try:
+        connected: str | None = httpx.URL(f"https://{name}/").raw_host.decode("ascii")
+    except httpx.InvalidURL:
+        connected = None
+    assert ascii_host(name) == connected
+
+
+def test_a_sharp_s_is_another_machine_than_ss_and_one_with_its_ascii_spelling() -> None:
+    def key(host: str) -> str:
+        return validate("rss", {"url": f"https://{host}/feed"}).dedupe_key
+
+    assert key("straße.example") != key("strasse.example")
+    assert (
+        key("straße.example")
+        == key("xn--strae-oqa.example")
+        == key("STRASSE.example".replace("SS", "ß"))
+    )
+
+
+@pytest.mark.parametrize("host", ["a‍b.example", "ＥＸＡＭＰＬＥ.com"])
+def test_a_name_the_http_client_refuses_is_refused_as_a_source(host: str) -> None:
+    assert code_of("rss", {"url": f"https://{host}/feed"}) == "url_not_allowed"
