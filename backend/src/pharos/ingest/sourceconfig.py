@@ -18,6 +18,8 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
+import idna
+
 from pharos.ingest.links import safe_link
 from pharos.ingest.text import clean_text
 
@@ -87,18 +89,38 @@ def validate_rss(raw: Mapping[str, Any]) -> dict[str, Any]:
     return {"url": url}
 
 
+_ASCII_HOST = re.compile(r"[a-z0-9_.-]+")
+
+
 def ascii_host(name: str) -> str | None:
-    """The host as a connection will see it: lower case, ASCII (IDNA), no dot at the end. None if it
-    cannot be written that way. The IDNA codec reads the ideographic full stops (U+3002, U+FF0E,
-    U+FF61) as dots, as an HTTP client does, so an address followed by one is the same machine as
-    without it, and the rules below must see that."""
+    """The host as a connection will see it: lower case, ASCII, no dot at the end. None if it
+    cannot be written that way, or has an empty label or one longer than 63 characters.
+
+    The conversion is the one the HTTP client really connects with (httpx: an ASCII name in lower
+    case, any other through the `idna` package, IDNA 2008), so the duplicate key and the rules below
+    see the machine that is fetched. The standard library's IDNA 2003 codec differs: it turns `ß`
+    into `ss` (another machine) and drops or converts characters that httpx refuses (F-22). httpx
+    itself is not imported here: the API never loads an HTTP client. IDNA reads the ideographic
+    full stops (U+3002, U+FF0E, U+FF61) as dots, as the client does, so an address followed by one
+    is the same machine as without it, and the rules below must see that."""
     if ":" in name:  # an IPv6 address: it has no dots to fold and no letters to convert
         return name.lower()
-    try:
-        folded = name.lower().encode("idna").decode("ascii")
-    except UnicodeError:
+    if not name:
+        return ""
+    if name.isascii():
+        folded = name.lower()
+        if not _ASCII_HOST.fullmatch(folded):
+            return None  # httpx would percent-encode it into another name
+    else:
+        try:
+            folded = idna.encode(name.lower()).decode("ascii")
+        except (idna.IDNAError, UnicodeError):
+            return None
+    folded = folded.rstrip(".")
+    labels = folded.split(".")
+    if not folded or any(not 1 <= len(label) <= 63 for label in labels):
         return None
-    return folded.rstrip(".")
+    return folded
 
 
 def normalized_feed_url(url: str) -> str:

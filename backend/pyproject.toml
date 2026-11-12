@@ -14,6 +14,7 @@ dependencies = [
     "fastapi>=0.162.0",
     "feedparser>=6.0.14",
     "httpx>=0.28.1",
+    "idna>=3.10",
     "joserfc>=1.7.7",
     "litellm==1.105.1",
     "nh3>=0.3.7",
