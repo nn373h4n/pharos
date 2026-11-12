@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Literal, Self
 from urllib.parse import urlsplit
 
-from pydantic import Field, SecretStr, field_validator, model_validator
+from pydantic import Field, SecretStr, ValidationInfo, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # backend/alembic, resolved from src/pharos/core/config.py
@@ -34,6 +34,32 @@ _DEFAULT_PROVIDER_NAME = "Single sign-on"
 
 def _password(url: SecretStr) -> str:
     return urlsplit(url.get_secret_value()).password or ""
+
+
+# What a password in a database or Redis address may hold (the same set deploy/redis/start.sh and
+# deploy/postgres/init/01-roles.sh accept). Compose puts the passwords into the addresses as they
+# are, so `@ : / ? # %` would change how the address is read: `#` or `/` ends the host part early,
+# `%` starts an escape, and the process would use another password or another host (F-09).
+_URL_SAFE_PASSWORD = re.compile(r"[A-Za-z0-9_.-]+")
+_PLAIN_CHARACTERS_HINT = (
+    "may contain only letters, digits and _ . - (generate one with: openssl rand -hex 24)"
+)
+
+
+def _plain_password_url(value: SecretStr, name: str) -> SecretStr:
+    """Refuse an address whose password was not put in as it is. Never names the password."""
+    raw = value.get_secret_value()
+    parts = urlsplit(raw)
+    # A `#`, `?` or `/` in the password moves the rest of the address, with its `@`, out of the
+    # host part.
+    if "@" in parts.path or "@" in parts.query or "@" in parts.fragment:
+        raise ValueError(f"the password in {name} {_PLAIN_CHARACTERS_HINT}")
+    userinfo, at, _host = parts.netloc.rpartition("@")
+    if at:
+        _user, colon, password = userinfo.partition(":")
+        if colon and password and not _URL_SAFE_PASSWORD.fullmatch(password):
+            raise ValueError(f"the password in {name} {_PLAIN_CHARACTERS_HINT}")
+    return value
 
 
 def _is_placeholder(password: str) -> bool:
@@ -195,6 +221,11 @@ class Settings(BaseSettings):
     def _empty_means_unset(cls, value: object) -> object:
         """Compose passes unset variables as empty strings; they mean "not configured"."""
         return None if isinstance(value, str) and not value.strip() else value
+
+    @field_validator("database_url", "redis_url")
+    @classmethod
+    def _addresses_hold_plain_passwords(cls, value: SecretStr, info: ValidationInfo) -> SecretStr:
+        return _plain_password_url(value, str(info.field_name))
 
     @field_validator("github_token")
     @classmethod
@@ -449,6 +480,11 @@ class MigrationSettings(BaseSettings):
 
     migrations_database_url: SecretStr
 
+    @field_validator("migrations_database_url")
+    @classmethod
+    def _address_holds_a_plain_password(cls, value: SecretStr) -> SecretStr:
+        return _plain_password_url(value, "migrations_database_url")
+
 
 class OperatorSettings(BaseSettings):
     """What the operator commands that need the table owner use (M5-09, ADR-0025): the owner's
@@ -480,6 +516,11 @@ class OperatorSettings(BaseSettings):
         if not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", value):
             raise ValueError("org_slug may contain lower-case letters, digits and hyphens only")
         return value
+
+    @field_validator("migrations_database_url", "redis_url")
+    @classmethod
+    def _addresses_hold_plain_passwords(cls, value: SecretStr, info: ValidationInfo) -> SecretStr:
+        return _plain_password_url(value, str(info.field_name))
 
 
 @lru_cache
