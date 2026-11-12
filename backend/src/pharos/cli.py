@@ -152,8 +152,11 @@ async def _redis(settings: Settings | OperatorSettings) -> AsyncIterator[Redis]:
 
 
 def _hasher(settings: Settings) -> PasswordHasher:
+    # The commands only make hashes; they never verify a password, so they need no timing floor.
     return PasswordHasher(
-        memory_kib=settings.password_hash_memory_kib, time_cost=settings.password_hash_time_cost
+        memory_kib=settings.password_hash_memory_kib,
+        time_cost=settings.password_hash_time_cost,
+        floor_seconds=0.0,
     )
 
 

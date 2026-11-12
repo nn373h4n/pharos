@@ -1,10 +1,12 @@
 import asyncio
+import statistics
 import threading
 import time
 
 import pytest
 
 from pharos.identity.passwords import (
+    FLOOR_WINDOW,
     MAX_PASSWORD_LENGTH,
     MIN_PASSWORD_LENGTH,
     PasswordHasher,
@@ -107,7 +109,7 @@ async def test_a_missing_hash_does_the_work_and_always_fails() -> None:
     calls: list[str] = []
     original = hasher._check
 
-    def spy(target: str, password: str) -> bool:
+    def spy(target: str, password: str) -> tuple[bool, bool]:
         calls.append(target)
         return original(target, password)
 
@@ -147,7 +149,7 @@ async def test_only_a_few_hashes_run_at_once() -> None:
     lock = threading.Lock()
     original = hasher._check
 
-    def slow(target: str, password: str) -> bool:
+    def slow(target: str, password: str) -> tuple[bool, bool]:
         nonlocal running, peak
         with lock:
             running += 1
@@ -233,3 +235,134 @@ async def test_slots_are_released_even_when_hashing_fails() -> None:
         with pytest.raises(RuntimeError):
             await hasher.verify(None, GOOD)
     assert hasher._semaphore._value == 1
+
+
+# --- F-16: every check takes as long as one with today's parameters -----------------------------
+
+
+class RecordingSleep:
+    def __init__(self) -> None:
+        self.asked: list[float] = []
+
+    async def __call__(self, seconds: float) -> None:
+        self.asked.append(seconds)
+
+
+async def weak_hash(password: str = GOOD) -> str:
+    return await PasswordHasher(memory_kib=8, time_cost=1, floor_seconds=0.0).hash(password)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "kind",
+    ["weak", "damaged digest", "unparsable", "surrogate, account", "surrogate, no account"],
+)
+async def test_a_check_that_did_not_do_today_s_work_is_held_inside_the_slot(kind: str) -> None:
+    held: list[tuple[float, bool]] = []
+
+    async def sleep(seconds: float) -> None:
+        held.append((seconds, hasher._semaphore.locked()))
+
+    hasher = PasswordHasher(**CHEAP, concurrency=1, floor_seconds=0.5, sleep=sleep)
+    current = await hasher.hash(GOOD)
+    stored, password = {
+        "weak": (await weak_hash(), "wrong password!!"),
+        # Parameters that parse, a digest that does not: rejected in microseconds.
+        "damaged digest": (current.rsplit("$", 1)[0] + "$!!!!", "wrong password!!"),
+        "unparsable": ("not a hash", "wrong password!!"),
+        # A lone surrogate (valid JSON) cannot be encoded: a failure, not an error, and held.
+        "surrogate, account": (current, "bad \ud800 password"),
+        "surrogate, no account": (None, "bad \ud800 password"),
+    }[kind]
+    result = await hasher.verify(stored, password)
+    assert not result.ok
+    assert len(held) == 1
+    seconds, slot_taken = held[0]
+    assert 0.4 < seconds <= 0.5  # the one recent time (0.5) minus the short check itself
+    assert slot_taken  # parallel requests see the slot busy as long as for a real check
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("stored", ["current", None], ids=["account", "no account"])
+async def test_a_full_check_with_today_s_parameters_takes_its_natural_time(
+    stored: str | None,
+) -> None:
+    sleep = RecordingSleep()
+    hasher = PasswordHasher(**CHEAP, floor_seconds=5.0, sleep=sleep)
+    target = await hasher.hash(GOOD) if stored else None
+    await hasher.verify(target, "wrong password!!")
+    assert sleep.asked == []  # not held: its own time is what the others are held to
+
+
+@pytest.mark.anyio
+async def test_the_right_password_on_a_cheap_hash_is_held_too() -> None:
+    sleep = RecordingSleep()
+    hasher = PasswordHasher(**CHEAP, floor_seconds=0.5, sleep=sleep)
+    result = await hasher.verify(await weak_hash(), GOOD)
+    assert result.ok and result.needs_rehash
+    assert sleep.asked and sleep.asked[0] > 0.4
+
+
+@pytest.mark.anyio
+async def test_hold_times_follow_the_spread_of_recent_checks_not_one_value() -> None:
+    """A fixed hold (the median) has no tail, unlike real checks; the spread must match."""
+    sleep = RecordingSleep()
+    hasher = PasswordHasher(**CHEAP, floor_seconds=0.0, sleep=sleep)
+    recent = [0.2, 0.3, 0.4, 0.6, 0.9]
+    hasher._recent.clear()
+    hasher._recent.extend(recent)
+    weak = await weak_hash()
+    for _ in range(200):
+        await hasher.verify(weak, "wrong password!!")
+    holds = [round(asked, 1) for asked in sleep.asked]
+    assert len(holds) == 200
+    assert set(holds) <= set(recent)
+    assert set(holds) == set(recent)  # every recent time is drawn (all five, 200 draws)
+    assert max(holds) == 0.9  # the tail is there
+
+
+@pytest.mark.anyio
+async def test_cheap_hashes_checked_in_parallel_queue_like_dummy_checks() -> None:
+    weak = await weak_hash()
+    hasher = PasswordHasher(**CHEAP, concurrency=1, floor_seconds=0.2)
+    started = time.perf_counter()
+    await asyncio.gather(*(hasher.verify(weak, "wrong password!!") for _ in range(3)))
+    # One slot, three checks held to 0.2 s each, one after another (a lower bound only: a busy
+    # machine makes it longer, never shorter). Before the fix the waits overlapped.
+    assert time.perf_counter() - started >= 0.55
+
+
+@pytest.mark.anyio
+async def test_the_floor_follows_checks_with_today_s_parameters_only() -> None:
+    sleep = RecordingSleep()
+    hasher = PasswordHasher(**CHEAP, floor_seconds=5.0, sleep=sleep)
+    # Cheap or damaged hashes say nothing about today's cost: the floor stays.
+    weak = await weak_hash()
+    for _ in range(FLOOR_WINDOW):
+        await hasher.verify(weak, "wrong password!!")
+        await hasher.verify(weak, GOOD)  # right, and quick: still not today's cost
+        await hasher.verify("not a hash", "wrong password!!")
+    assert hasher.floor_seconds == 5.0
+    # Checks against the dummy and against hashes made today replace the first measurement.
+    current = await hasher.hash(GOOD)
+    for _ in range(FLOOR_WINDOW // 2 + 1):
+        await hasher.verify(None, "wrong password!!")
+        await hasher.verify(current, GOOD)
+    assert hasher.floor_seconds < 1.0
+
+
+@pytest.mark.anyio
+async def test_with_real_parameters_an_old_cheap_hash_is_not_faster_than_no_account() -> None:
+    old = await weak_hash()
+    hasher = PasswordHasher(memory_kib=16_384, time_cost=2)  # measures its own first floor
+    unknown = statistics.median([await timed(hasher, None) for _ in range(5)])
+    cheap = statistics.median([await timed(hasher, old) for _ in range(5)])
+    # Without F-16 the cheap hash took a small fraction of the dummy's time. The margin is wide on
+    # purpose: the dummy's own time varies with the machine's load.
+    assert cheap >= 0.5 * unknown, (cheap, unknown)
+
+
+async def timed(hasher: PasswordHasher, stored: str | None) -> float:
+    started = time.perf_counter()
+    await hasher.verify(stored, "wrong password!!")
+    return time.perf_counter() - started
