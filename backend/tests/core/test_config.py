@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from pharos.core.config import MigrationSettings, Settings
+from pharos.core.config import MigrationSettings, OperatorSettings, Settings
 
 from ..constants import FAKE_SECRET_KEY
 
@@ -85,6 +85,59 @@ def test_application_settings_never_hold_the_owner_credentials(
 ) -> None:
     monkeypatch.setenv("PHAROS_MIGRATIONS_DATABASE_URL", "postgresql+asyncpg://owner:x@db/pharos")
     assert not hasattr(production(), "migrations_database_url")
+
+
+# F-09: Compose puts the passwords into the addresses as they are.
+UNSAFE_PASSWORDS = [
+    "Unsafe#Sentinel42",  # `#` ends the host part: the rest becomes a fragment
+    "Unsafe/Sentinel42",  # `/` ends the host part: the rest becomes the path
+    "Unsafe?Sentinel42",  # `?` ends the host part: the rest becomes the query
+    "Unsafe%41Sentinel42",  # `%` starts an escape: another password is sent
+    "Unsafe@Sentinel42",  # `@` inside the password
+    "Unsafe:Sentinel42",  # a second `:`
+    "Unsafe Sentinel42",
+    "UnsafeéSentinel42",
+]
+
+
+@pytest.mark.parametrize("password", UNSAFE_PASSWORDS)
+@pytest.mark.parametrize("environment", ["development", "production"])
+def test_a_password_that_changes_how_the_address_is_read_is_refused(
+    password: str, environment: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    database = f"postgresql+asyncpg://pharos_app:{password}@db:5432/pharos"
+    redis = f"redis://pharos_api:{password}@cache:6379/0"
+    for field, url in (("database_url", database), ("redis_url", redis)):
+        with pytest.raises(ValidationError, match=f"the password in {field} may contain only") as e:
+            production(environment=environment, **{field: url})
+        # The message never shows the password, nor the part that a broken address split off.
+        assert "Sentinel42" not in str(e.value)
+    monkeypatch.setenv("PHAROS_MIGRATIONS_DATABASE_URL", database.replace("pharos_app", "owner"))
+    with pytest.raises(ValidationError, match="migrations_database_url may contain only") as e:
+        MigrationSettings()  # type: ignore[call-arg]
+    assert "Sentinel42" not in str(e.value)
+    for field, url in (("migrations_database_url", database), ("redis_url", redis)):
+        values = {"migrations_database_url": GOOD_DB, field: url}
+        with pytest.raises(ValidationError, match=f"the password in {field} may contain only") as e:
+            OperatorSettings(**values)  # type: ignore[arg-type]
+        assert "Sentinel42" not in str(e.value)
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        GOOD_DB,
+        "postgresql+asyncpg://pharos_app:ab_CD.ef-0123456789abcdef@db:5432/pharos",
+        "postgresql+asyncpg://pharos_app@db:5432/pharos",  # no password: the server decides
+        "redis://cache:6379/0",
+        GOOD_REDIS,
+    ],
+)
+def test_plain_passwords_and_addresses_without_one_are_accepted(url: str) -> None:
+    field = "redis_url" if url.startswith("redis") else "database_url"
+    settings = Settings(environment="development", **{field: url})  # type: ignore[arg-type]
+    assert getattr(settings, field).get_secret_value() == url
+    assert OperatorSettings(migrations_database_url=GOOD_DB, redis_url=GOOD_REDIS)  # type: ignore[arg-type]
 
 
 def test_migration_settings_require_the_migration_url(monkeypatch: pytest.MonkeyPatch) -> None:
