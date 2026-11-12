@@ -60,6 +60,17 @@ export async function handleLlm(
             cost_micro_usd: 31000,
           },
         ],
+        // F-52: how many more insights the day covers (null when the model is off); none once the
+        // limit is reached, so the pages with the warning also show that line.
+        insights_left:
+          options.llmProvider === "off"
+            ? null
+            : {
+                count: options.llmExhausted || options.llmWarned ? 0 : 4,
+                cost_per_insight_micro_usd: 112_000,
+                basis: "estimate",
+                ceiling_micro_usd: 1_000_000,
+              },
       },
     });
     return true;
