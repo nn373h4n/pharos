@@ -9,6 +9,20 @@
 # command line that `ps` could show, and psql quotes them itself (:'name').
 set -eu
 
+# The services put these passwords into their database addresses as they are, where `@ : / ? # %`
+# would change how the address is read (F-09): refuse them before any role exists, like
+# deploy/redis/start.sh. A refusal here leaves an initialized but empty data directory, so remove
+# the postgres volume after fixing deploy/.env.
+for name in PHAROS_OWNER_PASSWORD PHAROS_APP_PASSWORD PHAROS_WORKER_DB_PASSWORD; do
+  eval "value=\${$name:-}"
+  case "$value" in
+    "" | *[!A-Za-z0-9_.-]*)
+      echo "$name must be set and may contain only letters, digits and _ . - (openssl rand -hex 24); fix deploy/.env, then remove the postgres volume and start again" >&2
+      exit 1
+      ;;
+  esac
+done
+
 psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<'SQL'
 \getenv owner_password PHAROS_OWNER_PASSWORD
 \getenv app_password PHAROS_APP_PASSWORD
