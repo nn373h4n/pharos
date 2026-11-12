@@ -91,7 +91,12 @@ git-ignored and written with mode 600.
 | `PHAROS_DEFAULT_LOCALE` | Language for visitors whose browser language is not supported: `en`, `az`, `tr` or `ru`. |
 | `PHAROS_MIGRATE_ON_START` | `true` migrates before the API starts; see below. |
 
-Passwords go into connection URLs, so use URL-safe characters, for example `openssl rand -hex 24`.
+Passwords go into connection URLs, so they may contain only letters, digits and `_ . -`, for example
+`openssl rand -hex 24`. Anything else (`@ : / ? # %` would change how the address is read, so a
+process could send another password or reach another host) is refused at start-up: by the API, the
+worker, the migrations and the operator commands, by Redis, and by PostgreSQL's init script on a new
+volume. That refusal leaves an initialized but empty data directory: fix `deploy/.env`, remove the
+postgres volume and start again. The refusals never print the password.
 
 ## Single sign-on
 
