@@ -10,6 +10,7 @@ import json
 import os
 import re
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
@@ -20,12 +21,16 @@ RESERVED_PORTS = {"80", "443", "5432", "6379"}
 
 DOCKER_STUB = """#!/usr/bin/env bash
 echo "docker $*" >> "$STUB_LOG"
+for name in PHAROS_IMAGE_TAG PHAROS_GITHUB_TOKEN PHAROS_LLM_API_KEY COMPOSE_PROFILES; do
+  [ -z "${!name+set}" ] || echo "$name leaked" >> "$STUB_LOG.env"
+done
 case "$1" in
   inspect) echo healthy; exit 0 ;;
   compose)
     for arg in "$@"; do
       case "$arg" in
         ps) echo container-id; exit 0 ;;
+        up) exit "${STUB_UP_EXIT:-0}" ;;
         exec) cat > /dev/null; exit 0 ;;
       esac
     done
@@ -48,10 +53,12 @@ done
 case "$method $url" in
   "POST "*/api/auth/local/login)
     cp "$body" "$STUB_LOG.login"
-    printf '{"csrf_token": "token", "user": {}}' > "$out" ;;
+    [ "${STUB_LOGIN:-200}" = refused ] && { printf 000; exit 7; }
+    printf '{"csrf_token": "token", "user": {}}' > "$out"
+    printf '%s' "${STUB_LOGIN:-200}"; exit 0 ;;
   "GET "*/runs*) printf '%s' "$STUB_RUNS" > "$out" ;;
   "GET "*/api/sources*) printf '%s' "$STUB_SOURCES" > "$out" ;;
-  "PATCH "*/api/sources/*) printf '{}' > "$out" ;;
+  "PATCH "*/api/sources/*) printf '{}' > "$out"; printf '%s' "${STUB_PATCH:-200}"; exit 0 ;;
   *) exit 7 ;;
 esac
 printf 200
@@ -107,6 +114,7 @@ def run(
         "STUB_SOURCES": json.dumps({"items": sources, "total": len(sources)}),
         "STUB_RUNS": json.dumps(RUNS),
         "CATALOGUE_POLL_SECONDS": "0",
+        "CATALOGUE_LOCK": str(tmp_path / "catalogue.lock"),
         **(env or {}),
     }
     result = subprocess.run(  # noqa: S603
@@ -152,6 +160,34 @@ def compose_calls(log: list[str]) -> list[str]:
     return [line for line in log if line.startswith("docker compose")]
 
 
+def torn_down_after_up(log: list[str]) -> bool:
+    up = next(i for i, line in enumerate(log) if " up -d --build" in line)
+    after = log[up + 1 :]
+    return any(" down --volumes --remove-orphans" in line for line in after) and any(
+        line.startswith("docker rmi ") for line in after
+    )
+
+
+def assert_one_failing_source_exits_1(tmp_path: Path, script: Path = SCRIPT) -> None:
+    result, log, work = run(
+        tmp_path, [source("Alpha"), source("Broken", ok=False, failures=2)], script=script
+    )
+    assert result.returncode == 1
+    assert re.search(r"^Broken\s+rss\s+failed\s+7\s+bad_status \(HTTP 403\)$", result.stdout, re.M)
+    assert "2 source(s): 1 ok, 1 failed, 0 not fetched in time" in result.stdout
+    assert torn_down_after_up(log)
+    assert list(work.iterdir()) == []
+
+
+def sibling_settings(pattern: str) -> dict[str, set[str]]:
+    """Values matching `pattern` in each of the other scripts (ports, subnets)."""
+    found: dict[str, set[str]] = {}
+    for path in (ROOT / "scripts").glob("*.sh"):
+        if path != SCRIPT:
+            found[path.name] = set(re.findall(pattern, path.read_text()))
+    return found
+
+
 # --- the script as it is
 
 
@@ -194,17 +230,13 @@ def test_all_sources_ok_exits_0_and_prints_the_table(tmp_path: Path) -> None:
     # Torn down at the end, and its temporary directory is gone.
     up = next(i for i, line in enumerate(log) if " up -d --build" in line)
     assert any(" down --volumes --remove-orphans" in line for line in log[up:])
-    assert any(line.startswith("docker rmi pharos-web:catalogue") for line in log[up:])
+    removed = [line for line in log if line.startswith("docker rmi ")]
+    assert removed == ["docker rmi pharos-web:catalogue pharos-backend:catalogue"]
     assert list(work.iterdir()) == []
 
 
 def test_one_failing_source_exits_1_and_says_why(tmp_path: Path) -> None:
-    result, log, work = run(tmp_path, [source("Alpha"), source("Broken", ok=False, failures=2)])
-    assert result.returncode == 1
-    assert re.search(r"^Broken\s+rss\s+failed\s+7\s+bad_status \(HTTP 403\)$", result.stdout, re.M)
-    assert "2 source(s): 1 ok, 1 failed, 0 not fetched in time" in result.stdout
-    assert any(" down --volumes" in line for line in log[-3:])
-    assert list(work.iterdir()) == []
+    assert_one_failing_source_exits_1(tmp_path)
 
 
 def test_a_source_never_fetched_in_time_exits_1(tmp_path: Path) -> None:
@@ -230,6 +262,74 @@ def test_the_password_never_appears_on_a_command_line(tmp_path: Path) -> None:
     assert sent["password"] not in result.stdout + result.stderr
 
 
+@pytest.mark.parametrize(
+    ("env", "message"),
+    [
+        ({"STUB_UP_EXIT": "1"}, "the stack did not start"),
+        ({"STUB_LOGIN": "401"}, "sign-in answered 401"),
+        ({"STUB_LOGIN": "refused"}, "sign-in answered 000"),
+        ({"STUB_PATCH": "422"}, "answered 422"),
+    ],
+)
+def test_every_failure_on_the_way_still_tears_down(
+    tmp_path: Path, env: dict[str, str], message: str
+) -> None:
+    result, log, work = run(tmp_path, [source("Alpha")], env=env)
+    assert result.returncode == 1
+    assert message in result.stderr
+    assert torn_down_after_up(log)
+    assert list(work.iterdir()) == []
+
+
+def test_settings_exported_in_the_shell_never_reach_compose(tmp_path: Path) -> None:
+    exported = {
+        "PHAROS_IMAGE_TAG": "local",
+        "PHAROS_GITHUB_TOKEN": "fake-token",
+        "PHAROS_LLM_API_KEY": "fake-key",
+        "COMPOSE_PROFILES": "local-llm",
+    }
+    result, log, _ = run(tmp_path, [source("Alpha")], env=exported)
+    assert result.returncode == 0, result.stderr
+    assert compose_calls(log)
+    assert not (tmp_path / "calls.log.env").exists()
+    assert not any("local" in line.split() for line in log if line.startswith("docker rmi"))
+
+
+def test_a_second_run_at_the_same_time_is_refused_and_touches_nothing(tmp_path: Path) -> None:
+    lock = tmp_path / "catalogue.lock"
+    holder = subprocess.Popen(  # noqa: S603
+        ["flock", str(lock), "sleep", "30"],  # noqa: S607
+    )
+    try:
+        for _ in range(50):
+            busy = subprocess.run(  # noqa: S603
+                ["flock", "-n", str(lock), "true"],  # noqa: S607
+                check=False,
+            )
+            if busy.returncode != 0:
+                break
+            time.sleep(0.1)
+        result, log, _ = run(tmp_path, [source("Alpha")])
+    finally:
+        holder.kill()
+        holder.wait()
+    assert result.returncode == 1
+    assert "another starter catalogue check is running" in result.stderr
+    assert log == []
+
+
+def test_its_ports_and_subnets_are_used_by_no_other_script() -> None:
+    text = SCRIPT.read_text()
+    ports = set(re.findall(r"PORT:-(\d+)\}", text))
+    subnets = set(re.findall(r"172\.28\.\d+\.0/24", text))
+    assert ports == {"19880", "19843"}
+    assert subnets == {"172.28.36.0/24", "172.28.37.0/24"}
+    for name, used in sibling_settings(r"PORT:-(\d+)\}").items():
+        assert not ports & used, name
+    for name, used in sibling_settings(r"172\.28\.\d+\.0/24").items():
+        assert not subnets & used, name
+
+
 # --- broken copies: each check above would catch the break
 
 
@@ -251,10 +351,15 @@ def test_a_copy_that_ignores_a_failing_source_is_caught(tmp_path: Path) -> None:
     copy = broken_copy(
         tmp_path, 'sys.exit(0 if counts["ok"] == len(sources) and sources else 1)', "sys.exit(0)"
     )
-    result, _, _ = run(
-        tmp_path, [source("Alpha"), source("Broken", ok=False, failures=1)], script=copy
-    )
-    assert result.returncode == 0  # the broken copy passes; the real test above demands 1
+    with pytest.raises(AssertionError):
+        assert_one_failing_source_exits_1(tmp_path, script=copy)
+
+
+def test_a_copy_that_keeps_the_exported_settings_is_caught(tmp_path: Path) -> None:
+    copy = broken_copy(tmp_path, '  unset "$name"\n', "  :\n")
+    result, _, _ = run(tmp_path, [source("Alpha")], script=copy, env={"PHAROS_IMAGE_TAG": "local"})
+    assert result.returncode == 0
+    assert set((tmp_path / "calls.log.env").read_text().splitlines()) == {"PHAROS_IMAGE_TAG leaked"}
 
 
 def test_a_copy_without_the_project_name_is_caught(tmp_path: Path) -> None:

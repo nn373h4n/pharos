@@ -50,6 +50,20 @@ HTTPS_PORT=${PHAROS_CATALOGUE_HTTPS_PORT:-19843}
 ORG_SLUG=catalogue
 ADMIN=catalogue-admin
 BASE="https://localhost:$HTTPS_PORT"
+LOCK=${CATALOGUE_LOCK:-${XDG_RUNTIME_DIR:-$HOME}/.pharos-catalogue.lock}
+
+# Compose reads a variable from the shell before the env file. With a real installation's settings
+# exported, this run would re-tag that installation's images (PHAROS_IMAGE_TAG), hand its tokens to
+# the throwaway worker or load its profiles: the generated file must be the only source.
+while read -r name; do
+  unset "$name"
+done < <(compgen -e | grep -E '^(PHAROS_|POSTGRES_|COMPOSE_)' || true)
+
+# One run at a time: a second one would start by taking down the first one's project.
+if command -v flock >/dev/null; then
+  exec 9>>"$LOCK"
+  flock -n 9 || die "another starter catalogue check is running (lock $LOCK)"
+fi
 
 umask 077
 WORK=$(mktemp -d)
@@ -81,6 +95,8 @@ PHAROS_HTTPS_PORT=$HTTPS_PORT
 PHAROS_APP_SUBNET=172.28.36.0/24
 PHAROS_APP_DYNAMIC_RANGE=172.28.36.0/25
 PHAROS_CADDY_IP=172.28.36.254
+PHAROS_OLLAMA_SUBNET=172.28.37.0/24
+PHAROS_OLLAMA_IP=172.28.37.10
 PHAROS_ENVIRONMENT=production
 PHAROS_MIGRATE_ON_START=true
 PHAROS_IMAGE_TAG=$TAG
