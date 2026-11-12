@@ -16,6 +16,8 @@ WORK=$(mktemp -d)
 ENV_FILE="$WORK/env"
 
 secret() { openssl rand -hex 24; }
+# The development Keycloak's administrator, random for this run (F-54).
+KEYCLOAK_ADMIN_PASSWORD=$(secret)
 umask 077
 cat > "$ENV_FILE" <<EOF
 POSTGRES_PASSWORD=$(secret)
@@ -28,6 +30,8 @@ PHAROS_DOMAIN=localhost
 PHAROS_TLS=internal
 PHAROS_HTTP_PORT=$HTTP_PORT
 PHAROS_HTTPS_PORT=$HTTPS_PORT
+PHAROS_KEYCLOAK_ADMIN_PASSWORD=$KEYCLOAK_ADMIN_PASSWORD
+PHAROS_BIND_ADDRESS=127.0.0.1
 PHAROS_ENVIRONMENT=production
 PHAROS_MIGRATE_ON_START=true
 PHAROS_IMAGE_TAG=$TAG
@@ -127,8 +131,19 @@ else
 fi
 
 echo "== the realm"
-token=$(kc -d grant_type=password -d client_id=admin-cli -d username=admin -d password=dev-only-admin-password \
+# The password goes to curl from a private file, never on its command line.
+printf 'password=%s' "$KEYCLOAK_ADMIN_PASSWORD" >"$WORK/kc-admin"
+token=$(kc -d grant_type=password -d client_id=admin-cli -d username=admin -d @"$WORK/kc-admin" \
   "$KEYCLOAK/realms/master/protocol/openid-connect/token" | python3 -I -c "import json, sys; print(json.load(sys.stdin).get('access_token', ''))")
+check "the random administrator password of this run opens the admin API (positive control)" test -n "$token"
+# F-54: the password once published in this repository must not open the admin console any more.
+old_token=$(kc -d grant_type=password -d client_id=admin-cli -d username=admin -d password=dev-only-admin-password \
+  "$KEYCLOAK/realms/master/protocol/openid-connect/token" | python3 -I -c "import json, sys; print(json.load(sys.stdin).get('access_token', ''))")
+check "the old published development password no longer opens the admin API" test -z "$old_token"
+# And this throwaway stack publishes its ports on loopback only, not to the network.
+host_ips=$(docker inspect --format '{{range $port, $bindings := .NetworkSettings.Ports}}{{range $bindings}}{{.HostIp}} {{end}}{{end}}' "$(compose ps -q caddy)")
+not_loopback=$(tr ' ' '\n' <<<"$host_ips" | grep -v -e '^127\.0\.0\.1$' -e '^$' || true)
+check "Caddy's ports are published on 127.0.0.1 only (${host_ips% })" test -n "$host_ips" -a -z "$not_loopback"
 alice=$(kc -H "Authorization: Bearer $token" "$KEYCLOAK/admin/realms/pharos/users?username=alice&exact=true")
 check "the development user alice has her department and job title attributes" \
   bash -c "grep -q '\"department\":\\[\"Finance\"\\]' <<<'$alice' && grep -q '\"jobTitle\":\\[\"Accountant\"\\]' <<<'$alice'"

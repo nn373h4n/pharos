@@ -6,6 +6,7 @@
 # Needs in deploy/.env (besides the usual settings):
 #   PHAROS_PUBLIC_URL            where users open Pharos, for example https://localhost
 #   PHAROS_KEYCLOAK_PUBLIC_URL   https://auth.localhost, with :PORT if PHAROS_HTTPS_PORT is not 443
+#   PHAROS_KEYCLOAK_ADMIN_PASSWORD  a random password for Keycloak's `admin` (make env makes one)
 #
 # Why a host name and a mounted CA: the browser and the API container must see the same issuer URL.
 # Caddy serves Keycloak on auth.localhost (browsers resolve *.localhost to this machine) and the
@@ -26,7 +27,9 @@ services:
       KC_PROXY_HEADERS: xforwarded
       KC_HEALTH_ENABLED: "true"
       KC_BOOTSTRAP_ADMIN_USERNAME: admin
-      KC_BOOTSTRAP_ADMIN_PASSWORD: dev-only-admin-password
+      # Random per installation (`make env` makes one; the test scripts make their own), so the
+      # admin console is not open to anyone who knows a published development password (F-54).
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${PHAROS_KEYCLOAK_ADMIN_PASSWORD:?set PHAROS_KEYCLOAK_ADMIN_PASSWORD to a random value (make env makes one)}
       # Replaced inside the imported realm file (client redirect URIs).
       PHAROS_PUBLIC_URL: ${PHAROS_PUBLIC_URL:?set PHAROS_PUBLIC_URL}
     volumes:

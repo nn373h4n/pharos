@@ -48,6 +48,8 @@ chmod 755 "$WORK"
 mkdir -p "$OUT"
 
 secret() { openssl rand -hex 24; }
+# The development Keycloak's administrator, random for this run (F-54).
+KEYCLOAK_ADMIN_PASSWORD=$(secret)
 umask 077
 cat > "$ENV_FILE" <<EOF
 POSTGRES_PASSWORD=$(secret)
@@ -61,6 +63,8 @@ PHAROS_DOMAIN=localhost
 PHAROS_TLS=internal
 PHAROS_HTTP_PORT=$HTTP_PORT
 PHAROS_HTTPS_PORT=$HTTPS_PORT
+PHAROS_KEYCLOAK_ADMIN_PASSWORD=$KEYCLOAK_ADMIN_PASSWORD
+PHAROS_BIND_ADDRESS=127.0.0.1
 PHAROS_APP_SUBNET=172.28.34.0/24
 PHAROS_APP_DYNAMIC_RANGE=172.28.34.0/25
 PHAROS_CADDY_IP=172.28.34.254
@@ -137,8 +141,10 @@ if [ "$SCENARIO" = sso ]; then
   echo "== organization and $BURST synthetic Keycloak users"
   compose run --rm migrate python -m pharos.cli create-org --slug "$ORG_SLUG" --name "Load test" || exit 1
   kc() { curl -sk --max-time 20 --resolve "auth.localhost:$HTTPS_PORT:127.0.0.1" "$@"; }
+  # The password goes to curl from a private file, never on its command line.
+  printf 'password=%s' "$KEYCLOAK_ADMIN_PASSWORD" >"$WORK/kc-admin"
   admin_token() {
-    kc -d grant_type=password -d client_id=admin-cli -d username=admin -d password=dev-only-admin-password \
+    kc -d grant_type=password -d client_id=admin-cli -d username=admin -d @"$WORK/kc-admin" \
       "$KEYCLOAK/realms/master/protocol/openid-connect/token" |
       python3 -I -c "import json, sys; print(json.load(sys.stdin).get('access_token', ''))"
   }

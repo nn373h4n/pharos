@@ -592,3 +592,32 @@ def test_the_dev_certificate_export_can_read_caddy_s_files_but_not_change_them()
     text = block.group(1)
     assert "cap_drop: [ALL]" in text and "cap_add: [DAC_READ_SEARCH]" in text
     assert "caddy_data:/data:ro" in text
+
+
+# --- F-54: the development Keycloak's administrator and where the ports are published ----------
+
+
+def test_the_development_keycloak_admin_password_is_per_installation() -> None:
+    overlay = (DEPLOY / "docker-compose.sso-dev.yml").read_text()
+    assert "KC_BOOTSTRAP_ADMIN_PASSWORD: ${PHAROS_KEYCLOAK_ADMIN_PASSWORD:?" in overlay
+    assert "dev-only-admin-password" not in overlay
+    # make env fills every `change-me` line with a random value.
+    assert "\nPHAROS_KEYCLOAK_ADMIN_PASSWORD=change-me\n" in (DEPLOY / ".env.example").read_text()
+    scripts = DEPLOY.parent / "scripts"
+    for name in ("loadtest.sh", "sso-dev-check.sh", "stack-e2e.sh"):
+        text = (scripts / name).read_text()
+        assert "KEYCLOAK_ADMIN_PASSWORD=$(secret)" in text, name
+        assert "PHAROS_KEYCLOAK_ADMIN_PASSWORD=$KEYCLOAK_ADMIN_PASSWORD" in text, name
+    for name in ("loadtest.sh", "sso-dev-check.sh"):
+        text = (scripts / name).read_text()
+        assert "PHAROS_BIND_ADDRESS=127.0.0.1" in text, name
+        # The password reaches curl from a file, never on its command line.
+        assert '-d @"$WORK/kc-admin"' in text and "password=$KEYCLOAK" not in text, name
+
+
+def test_caddy_publishes_on_one_address_only_when_one_is_named() -> None:
+    block = service_block("caddy")
+    for port in ("PHAROS_HTTP_PORT:-80", "PHAROS_HTTPS_PORT:-443"):
+        assert (
+            f'"${{PHAROS_BIND_ADDRESS:+${{PHAROS_BIND_ADDRESS}}:}}${{{port}}}:${{{port}}}"' in block
+        ), port
