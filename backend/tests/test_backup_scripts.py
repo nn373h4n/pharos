@@ -28,10 +28,42 @@ LISTING = (
     "4; 0 0 COMMENT - EXTENSION vector\n"
 )
 
+# What scripts/restore/catalog.sql prints, in short (the real query runs in compose-smoke.sh).
+SHAPE = (
+    "acl|relation|public.items|pharos_app:SELECT/pharos_owner\n"
+    "policy|public.items.items_org|cmd=* permissive=true roles=PUBLIC using=x check=\n"
+    "relation|public.items|kind=r owner=pharos_owner rls=true force=false columns=abc\n"
+)
+
 FAKE_DOCKER = r"""#!/bin/bash
 cfg="$FAKE_DIR"
 echo "$*" >> "$cfg/calls.log"
 case "$*" in
+  *'--username="$POSTGRES_USER"'*pharos_roles_digest*)
+    # The superuser's digest of the roles: one line of roles_digest per call (before, after).
+    n=$(( $(cat "$cfg/roles_digest_calls" 2>/dev/null || echo 0) + 1 ))
+    echo "$n" > "$cfg/roles_digest_calls"
+    sed -n "${n}p" "$cfg/roles_digest" ;;
+  *'--username="$POSTGRES_USER"'*)
+    # The superuser: making or dropping the scratch databases of the reference.
+    if [[ "$*" != *"--command"* ]]; then cat >> "$cfg/super.sql"; fi
+    [ -f "$cfg/fail_super" ] && exit 1
+    : ;;
+  *"--entrypoint sh migrate"*)
+    [ -f "$cfg/fail_migrate" ] && { echo "alembic: Can't locate revision" >&2; exit 1; }
+    : ;;
+  *"pg_dump --username=pharos_owner --format=custom pharos_restore_build"*)
+    [ -f "$cfg/fail_reference" ] && exit 1
+    : ;;
+  *"--dbname=pharos_restore_reference --no-psqlrc --quiet --tuples-only"*)
+    cat > /dev/null
+    cat "$cfg/shape_reference" ;;
+  *"--dbname=pharos --no-psqlrc --quiet --tuples-only"*)
+    cat > /dev/null
+    cat "$cfg/shape_restored" ;;
+  *"FROM public.alembic_version"*) cat "$cfg/version" ;;
+  *"e.extowner"*) cat "$cfg/odd_extensions" ;;
+  *"pg_extension"*) cat "$cfg/extensions" ;;
   *"pg_dump"*)
     [ -f "$cfg/fail_dump" ] && exit 1
     cat "$cfg/dump" ;;
@@ -76,6 +108,12 @@ def fake(tmp_path: Path) -> Path:
     (state / "members").write_text("0\n")
     (state / "tables").write_text("0\n")
     (state / "strange").write_text("0\n")
+    (state / "version").write_text("0011_interaction_counts_monthly\n")
+    (state / "extensions").write_text("vector\n")
+    (state / "odd_extensions").write_text("0\n")
+    (state / "roles_digest").write_text(f"{'a' * 32}\n{'a' * 32}\n")
+    (state / "shape_restored").write_text(SHAPE)
+    (state / "shape_reference").write_text(SHAPE)
     return tmp_path
 
 
@@ -345,6 +383,18 @@ def test_a_restore_into_a_database_that_has_tables_is_refused(fake: Path, dump_f
     assert restore_calls(fake) == []
 
 
+def test_functions_and_default_privileges_count_as_not_empty(fake: Path, dump_file: Path) -> None:
+    """A failed hostile restore can leave a function or a default privilege and no table."""
+    (fake / "state" / "tables").write_text("1\n")
+    done = run(RESTORE, fake, str(dump_file))
+    assert done.returncode != 0
+    assert "tables, views, sequences, functions or default privileges" in done.stderr
+    assert restore_calls(fake) == []
+    query = next(line for line in calls(fake).splitlines() if "pg_catalog.pg_class" in line)
+    assert "pg_catalog.pg_proc" in query and "pg_catalog.pg_default_acl" in query
+    assert "deptype = 'e'" in query  # the extension's own functions do not count
+
+
 def test_a_file_that_is_not_a_pharos_dump_is_refused(fake: Path, dump_file: Path) -> None:
     (fake / "state" / "listing").write_text("216; 1259 16410 TABLE public items x\n")
     done = run(RESTORE, fake, str(dump_file))
@@ -361,7 +411,65 @@ def test_a_missing_file_or_no_argument_is_refused(fake: Path) -> None:
 def test_a_failing_pg_restore_makes_the_script_fail(fake: Path, dump_file: Path) -> None:
     (fake / "state" / "fail_restore").write_text("")
     done = run(RESTORE, fake, str(dump_file))
-    assert done.returncode != 0 and "nothing was restored" in done.stderr
+    # A hostile dump can end the restore's transaction itself: never say nothing was restored.
+    assert done.returncode != 0 and "nothing was restored" not in done.stderr
+    assert "may be partly changed" in done.stderr and "remove the postgres volume" in done.stderr
+
+
+def test_a_dump_that_changes_a_role_is_refused(fake: Path, dump_file: Path) -> None:
+    (fake / "state" / "roles_digest").write_text(f"{'a' * 32}\n{'b' * 32}\n")
+    done = run(RESTORE, fake, str(dump_file))
+    assert done.returncode != 0 and "the dump changed a role" in done.stderr
+    assert "a" * 32 not in done.stdout + done.stderr  # the digest is never printed
+    assert "migrate" not in calls(fake)  # refused before the reference is built
+
+
+@pytest.mark.parametrize(
+    "digests", ["", "not-a-digest\nnot-a-digest\n", f"{'a' * 32}\n"], ids=["none", "bad", "after"]
+)
+def test_roles_that_cannot_be_read_fail_closed(fake: Path, dump_file: Path, digests: str) -> None:
+    (fake / "state" / "roles_digest").write_text(digests)
+    done = run(RESTORE, fake, str(dump_file))
+    assert done.returncode != 0 and "cannot read the roles" in done.stderr
+    # Unreadable before the restore: refused before anything is restored.
+    restored = "--single-transaction --use-list" in calls(fake)
+    assert restored == (digests.count("\n") == 1)
+
+
+def test_the_roles_are_read_before_and_after_the_restore_as_the_superuser(
+    fake: Path, dump_file: Path
+) -> None:
+    done = run(RESTORE, fake, str(dump_file))
+    assert done.returncode == 0, done.stderr
+    lines = calls(fake).splitlines()
+    digests = [i for i, line in enumerate(lines) if "pharos_roles_digest" in line]
+    restore = next(i for i, line in enumerate(lines) if "--single-transaction --use-list" in line)
+    assert len(digests) == 2 and digests[0] < restore < digests[1]
+    for i in digests:
+        assert '--username="$POSTGRES_USER"' in lines[i]
+        for table in ("pg_catalog.pg_authid", "pg_catalog.pg_auth_members", "pg_db_role_setting"):
+            assert table in lines[i]
+
+
+@pytest.mark.parametrize("bad", [0o777, 0o772], ids=["open", "group-writable"])
+def test_a_scratch_directory_others_can_write_to_is_refused(
+    fake: Path, dump_file: Path, bad: int
+) -> None:
+    """Whoever may rename the private copy's directory could swap the dump after its hash."""
+    tmp = fake / "shared"
+    tmp.mkdir()
+    tmp.chmod(bad)
+    done = run(RESTORE, fake, str(dump_file), PHAROS_RESTORE_TMP=str(tmp))
+    assert done.returncode != 0 and "writable by others" in done.stderr
+    assert not list(tmp.iterdir()) and "pg_restore" not in calls(fake)
+    # Under a parent others can write to, too; with the sticky bit (like /tmp) it is fine.
+    inner = tmp / "inner"
+    inner.mkdir(mode=0o700)
+    done = run(RESTORE, fake, str(dump_file), PHAROS_RESTORE_TMP=str(inner))
+    assert done.returncode != 0 and "writable by others" in done.stderr
+    tmp.chmod(bad | 0o1000)
+    done = run(RESTORE, fake, str(dump_file), PHAROS_RESTORE_TMP=str(inner))
+    assert done.returncode == 0, done.stderr
 
 
 def test_the_scripts_keep_the_safety_settings_and_never_name_a_password() -> None:
@@ -759,7 +867,7 @@ def test_a_second_restore_check_counts_everything_not_only_public_tables(
 ) -> None:
     (fake / "state" / "tables").write_text("3\n")
     done = run(RESTORE, fake, str(dump_file))
-    assert done.returncode != 0 and "already has 3 tables, views or sequences" in done.stderr
+    assert done.returncode != 0 and "already has 3 tables, views, sequences" in done.stderr
     assert restore_calls(fake) == []
     # The query looks at pg_class across schemas, not at information_schema.
     assert "pg_catalog.pg_class" in calls(fake)
@@ -805,3 +913,193 @@ def test_a_name_with_control_characters_is_not_printed_raw(fake: Path, dump_file
     sidecar.write_text(f"{own}  \x1b[31mevil\x1b[0m.dump\n")
     done = run(RESTORE, fake, str(dump_file))
     assert done.returncode != 0 and "\x1b" not in done.stderr
+
+
+# --- the restored database against what the migrations make (F-44) ------------------------------
+
+
+def test_a_restore_is_compared_with_a_reference_built_at_the_dump_s_own_version(
+    fake: Path, dump_file: Path
+) -> None:
+    done = run(RESTORE, fake, str(dump_file))
+    assert done.returncode == 0, done.stderr
+    assert "matches the migrations at schema version 0011_interaction_counts_monthly" in done.stdout
+    log = calls(fake)
+    # Both scratch databases are made with the installation's extensions, as the superuser through
+    # the local socket only.
+    made = (fake / "state" / "super.sql").read_text()
+    for db in ("pharos_restore_build", "pharos_restore_reference"):
+        assert f"CREATE DATABASE {db} OWNER pharos_owner TEMPLATE template0" in made
+        assert f"\\connect {db}\nCREATE EXTENSION vector;" in made
+    # The migrations of this checkout build the dump's own version, in the migrate image, and the
+    # owner's password never reaches a command line.
+    assert "--entrypoint sh migrate -c" in log
+    assert "sh pharos_restore_build 0011_interaction_counts_monthly\n" in log
+    assert "PASSWORD" not in log.upper().replace("PHAROS_MIGRATIONS_DATABASE_URL", "")
+    # The reference goes through pg_dump and pg_restore like the real database did.
+    assert "pg_dump --username=pharos_owner --format=custom pharos_restore_build" in log
+    # The scratch databases are removed at the end.
+    last = log.splitlines()[-3:]
+    assert any("DROP DATABASE IF EXISTS pharos_restore_reference" in line for line in last)
+
+
+def test_a_dump_that_differs_from_the_migrations_is_refused_and_named(
+    fake: Path, dump_file: Path
+) -> None:
+    evil = "policy|public.users.evil|cmd=* permissive=true roles=PUBLIC using=true check=\n"
+    changed = SHAPE.replace("pharos_app:SELECT", "pharos_app:SELECT,pharos_worker:SELECT")
+    (fake / "state" / "shape_restored").write_text(changed + evil)
+    done = run(RESTORE, fake, str(dump_file))
+    assert done.returncode == 1
+    assert "only in the dump:       policy|public.users.evil|" in done.stderr
+    assert "only in the dump:       acl|relation|public.items" in done.stderr
+    assert "only in the reference:  acl|relation|public.items" in done.stderr
+    assert "Do NOT start the stack" in done.stderr
+    assert "DROP DATABASE IF EXISTS pharos_restore_reference" in calls(fake).splitlines()[-2]
+
+
+def test_text_from_the_dump_is_shown_without_control_characters(
+    fake: Path, dump_file: Path
+) -> None:
+    (fake / "state" / "shape_restored").write_text(SHAPE + "policy|public.x.\x1b[2Jp|cmd=*\n")
+    done = run(RESTORE, fake, str(dump_file))
+    assert done.returncode == 1
+    assert "\x1b" not in done.stderr and "public.x.?[2Jp" in done.stderr
+
+
+@pytest.mark.parametrize(
+    "version",
+    ["", "0010_ai_tools\n0011_interaction_counts_monthly\n", "0011; DROP TABLE x\n", "a-b\n"],
+)
+def test_a_schema_version_that_is_not_one_plain_revision_is_refused_before_any_reference(
+    fake: Path, dump_file: Path, version: str
+) -> None:
+    (fake / "state" / "version").write_text(version)
+    done = run(RESTORE, fake, str(dump_file))
+    assert done.returncode == 1 and "exactly one schema version" in done.stderr
+    assert "--entrypoint sh migrate" not in calls(fake)
+
+
+@pytest.mark.parametrize(
+    ("switch", "message"),
+    [
+        ("fail_super", "cannot make the scratch databases"),
+        ("fail_migrate", "could not build schema version 0011_interaction_counts_monthly"),
+        ("fail_reference", "cannot write the reference through pg_dump and pg_restore"),
+    ],
+)
+def test_a_reference_that_cannot_be_built_stops_the_restore_and_is_cleaned_up(
+    fake: Path, dump_file: Path, switch: str, message: str
+) -> None:
+    (fake / "state" / switch).write_text("")
+    done = run(RESTORE, fake, str(dump_file))
+    assert done.returncode == 1 and message in done.stderr
+    assert "matches the migrations" not in done.stdout
+    assert "DROP DATABASE IF EXISTS pharos_restore_build" in calls(fake)
+
+
+def test_an_empty_reference_is_never_called_a_match(fake: Path, dump_file: Path) -> None:
+    (fake / "state" / "shape_reference").write_text("")
+    (fake / "state" / "shape_restored").write_text("")
+    done = run(RESTORE, fake, str(dump_file))
+    assert done.returncode == 1 and "the reference is empty" in done.stderr
+
+
+def test_an_extension_with_an_odd_name_is_refused(fake: Path, dump_file: Path) -> None:
+    (fake / "state" / "extensions").write_text("vector\nx; DROP DATABASE pharos\n")
+    done = run(RESTORE, fake, str(dump_file))
+    assert done.returncode == 1 and "unexpected name" in done.stderr
+    assert not (fake / "state" / "super.sql").exists()
+
+
+# --- access lists and the directories above the dumps (F-44) -------------------------------------
+
+
+def _default_acl_for_nobody(path: Path) -> None:
+    """A default POSIX ACL that gives user 65534 everything (what `setfacl -d -m u:nobody:rwx`
+    makes), written as the kernel's extended attribute so the test needs no setfacl."""
+    import struct
+
+    entries = [(0x01, 7, 0xFFFFFFFF), (0x02, 7, 65534), (0x04, 0, 0xFFFFFFFF)]
+    entries += [(0x10, 7, 0xFFFFFFFF), (0x20, 0, 0xFFFFFFFF)]
+    blob = struct.pack("<I", 2) + b"".join(struct.pack("<HHI", *e) for e in entries)
+    try:
+        os.setxattr(path, "system.posix_acl_default", blob)
+    except OSError as error:  # pragma: no cover - a file system without POSIX ACLs
+        pytest.skip(f"this file system has no POSIX ACLs: {error}")
+
+
+def test_a_directory_with_a_default_access_list_is_refused_although_its_mode_is_700(
+    fake: Path,
+) -> None:
+    out = fake / "acl"
+    out.mkdir()
+    out.chmod(0o700)
+    _default_acl_for_nobody(out)
+    assert mode(out) == 0o700  # the mode alone says nothing is wrong
+    done = run(BACKUP, fake, "run", "--dir", str(out), now="20261104T020000Z")
+    assert done.returncode != 0 and "access control list" in done.stderr
+    assert calls(fake) == "" and not list(out.iterdir())
+
+
+@pytest.mark.parametrize("parent_mode", [0o777, 0o775, 0o757])
+def test_a_directory_under_a_parent_others_can_write_to_is_refused(
+    fake: Path, parent_mode: int
+) -> None:
+    parent = fake / "shared-parent"
+    parent.mkdir()
+    parent.chmod(parent_mode)
+    done = run(BACKUP, fake, "run", "--dir", str(parent / "dumps"), now="20261104T020000Z")
+    assert done.returncode != 0 and "is writable by others" in done.stderr
+    assert calls(fake) == ""
+
+
+def test_a_parent_with_the_sticky_bit_is_accepted_like_tmp(fake: Path) -> None:
+    """The positive control of the test above: /tmp is 1777, and so may a parent be."""
+    parent = fake / "sticky-parent"
+    parent.mkdir()
+    parent.chmod(0o1777)
+    done = run(BACKUP, fake, "run", "--dir", str(parent / "dumps"), now="20261104T020000Z")
+    assert done.returncode == 0, done.stderr
+
+
+def test_every_query_on_the_restored_database_resolves_names_in_pg_catalog_only(
+    fake: Path, dump_file: Path
+) -> None:
+    """A dump can make a schema named after the owner (first in its default search_path) with an
+    operator that changes what the checks say; the checks must never look there (F-44 review)."""
+    assert run(RESTORE, fake, str(dump_file)).returncode == 0
+    owner_queries = [line for line in calls(fake).splitlines() if "--username=pharos_owner" in line]
+    owner_queries = [line for line in owner_queries if "psql" in line]
+    assert len(owner_queries) >= 8
+    assert all("-e PGOPTIONS=-csearch_path=pg_catalog,pg_temp" in q for q in owner_queries)
+    catalog = (ROOT / "scripts" / "restore" / "catalog.sql").read_text()
+    first = next(line for line in catalog.splitlines() if line and not line.startswith("--"))
+    assert first == "SET search_path = pg_catalog, pg_temp;"
+
+
+def test_an_extension_pharos_does_not_make_or_one_the_owner_made_is_refused(
+    fake: Path, dump_file: Path
+) -> None:
+    (fake / "state" / "odd_extensions").write_text("1\n")
+    done = run(RESTORE, fake, str(dump_file))
+    assert done.returncode == 1 and "an extension that Pharos does not make" in done.stderr
+    assert not (fake / "state" / "super.sql").exists()
+
+
+def test_the_scratch_databases_get_the_grants_of_the_real_one_and_are_dropped_by_force(
+    fake: Path, dump_file: Path
+) -> None:
+    assert run(RESTORE, fake, str(dump_file)).returncode == 0
+    made = (fake / "state" / "super.sql").read_text()
+    for db in ("pharos_restore_build", "pharos_restore_reference"):
+        assert f"REVOKE ALL ON DATABASE {db} FROM PUBLIC;" in made
+        assert f"GRANT CONNECT ON DATABASE {db} TO pharos_app;" in made
+        assert f"GRANT CONNECT ON DATABASE {db} TO pharos_worker;" in made
+    assert "DROP DATABASE IF EXISTS pharos_restore_reference WITH (FORCE)" in calls(fake)
+
+
+def test_why_the_migrations_failed_is_shown(fake: Path, dump_file: Path) -> None:
+    (fake / "state" / "fail_migrate").write_text("")
+    done = run(RESTORE, fake, str(dump_file))
+    assert done.returncode == 1 and "  alembic: Can't locate revision" in done.stderr
