@@ -31,6 +31,14 @@ export type UsageDay = {
   cost_micro_usd: number;
 };
 
+/** An estimate of how many more insights today's budget covers (F-52); null when the model is off. */
+export type InsightsLeft = {
+  count: number | null;
+  cost_per_insight_micro_usd: number;
+  basis: "measured" | "estimate" | "free";
+  ceiling_micro_usd: number;
+};
+
 export type LlmStatus = {
   provider: Provider;
   models: { filter: string; enrichment: string; insight: string };
@@ -40,6 +48,7 @@ export type LlmStatus = {
   exhausted: boolean;
   key_check: { outcome: Outcome; checked_at: string } | null;
   usage: UsageDay[];
+  insights_left: InsightsLeft | null;
 };
 
 export type KeyTestStarted = { test_id: string; retry_after_seconds: number };
@@ -80,6 +89,19 @@ function isUsageDay(value: unknown): value is UsageDay {
   );
 }
 
+function isInsightsLeft(value: unknown): value is InsightsLeft {
+  if (!record(value) || !oneOf(["measured", "estimate", "free"] as const, value.basis)) {
+    return false;
+  }
+  // "free" is the one case without a number: a model with no price per token.
+  const free = value.basis === "free";
+  return (
+    (free ? value.count === null : count(value.count)) &&
+    count(value.cost_per_insight_micro_usd) &&
+    count(value.ceiling_micro_usd)
+  );
+}
+
 export function isStatus(value: unknown): value is LlmStatus {
   if (!record(value) || !record(value.models)) return false;
   const check = value.key_check;
@@ -95,7 +117,8 @@ export function isStatus(value: unknown): value is LlmStatus {
     (check === null ||
       (record(check) && oneOf(OUTCOMES, check.outcome) && text(check.checked_at))) &&
     Array.isArray(value.usage) &&
-    value.usage.every(isUsageDay)
+    value.usage.every(isUsageDay) &&
+    (value.insights_left === null || isInsightsLeft(value.insights_left))
   );
 }
 

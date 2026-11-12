@@ -550,7 +550,13 @@
       "title": "Bugünkü harcama",
       "spent": "{cap} sınırının {spent} kadarı kullanıldı (%{percent}).",
       "warned": "Bugünkü sınırın yüzde sekseni kullanıldı.",
-      "exhausted": "Bugünkü sınıra ulaşıldı. Yarına kadar yeni özet üretilmez; mevcut olanlar gösterilmeye devam eder."
+      "exhausted": "Bugünkü sınıra ulaşıldı. Yarına kadar yeni özet üretilmez; mevcut olanlar gösterilmeye devam eder.",
+      "insightsLeft": "Bugün yaklaşık {count, plural, one {# içgörü} other {# içgörü}} daha üretilebilir, her biri yaklaşık {cost}.",
+      "insightsNone": "Bugün başka içgörü üretilmeyecek: bugünkü harcama, sınırın içgörülere ayrılan kısmına ({ceiling}) ulaştı. Yeni makaleler sınırın tamamı kullanılana kadar okunmaya devam eder.",
+      "insightsFree": "Bu modelin token başına fiyatı yok, bu yüzden sınır içgörüleri durdurmaz.",
+      "basisMeasured": "Maliyet, son yedi günün içgörülerinin ortalamasıdır.",
+      "basisEstimate": "Son yedi günde içgörü üretilmedi, bu yüzden her biri ayarlanan fiyatlarla olabilecek en yüksek maliyetle sayılır.",
+      "insightsNote": "Bu bir tahmindir: yeni makalelerin okunması da aynı sınırdan harcar ve içgörüler bunun en fazla {ceiling} kadarını kullanabilir."
     },
     "key": {
       "title": "Anahtar",

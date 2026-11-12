@@ -31,6 +31,15 @@ class KeyCheckOut(BaseModel):
     checked_at: datetime
 
 
+class InsightsLeftOut(BaseModel):
+    """An estimate of how many more insights today's budget covers (F-52)."""
+
+    count: int | None  # null: a model without a price per token; the budget does not limit them
+    cost_per_insight_micro_usd: int
+    basis: Literal["measured", "estimate", "free"]
+    ceiling_micro_usd: int  # the part of the cap insights may reach
+
+
 class StatusOut(BaseModel):
     provider: Literal["off", "fake", "anthropic", "openai", "azure", "ollama"]
     models: ModelsOut
@@ -40,6 +49,7 @@ class StatusOut(BaseModel):
     exhausted: bool  # the cap was reached today: new summaries are not made
     key_check: KeyCheckOut | None
     usage: list[UsageDayOut]
+    insights_left: InsightsLeftOut | None  # null when the model is off
 
 
 class KeyTestStartedOut(BaseModel):

@@ -37,6 +37,7 @@ const base: LlmStatus = {
   exhausted: false,
   key_check: null,
   usage: [],
+  insights_left: null,
 };
 
 function show() {
@@ -91,6 +92,72 @@ describe("the model page", () => {
     show();
     await tick(0);
     expect(screen.getByRole("alert").textContent).toBe(en.Llm.budget.exhausted);
+  });
+
+  it("says how many more insights today's budget covers, and on what it is based", async () => {
+    getStatus.mockResolvedValue({
+      ...base,
+      insights_left: {
+        count: 23,
+        cost_per_insight_micro_usd: 40_000,
+        basis: "measured",
+        ceiling_micro_usd: 1_000_000,
+      },
+    });
+    show();
+    await tick(0);
+    expect(
+      screen.getByText("About 23 more insights can be made today, at about $0.04 each."),
+    ).toBeDefined();
+    expect(screen.getByText(/^The cost is the average of the insights/).textContent).toContain(
+      "insights may use at most $1.00 of it.",
+    );
+    cleanup();
+    getStatus.mockResolvedValue({
+      ...base,
+      insights_left: {
+        count: 1,
+        cost_per_insight_micro_usd: 112_000,
+        basis: "estimate",
+        ceiling_micro_usd: 1_000_000,
+      },
+    });
+    show();
+    await tick(0);
+    expect(
+      screen.getByText("About 1 more insight can be made today, at about $0.112 each."),
+    ).toBeDefined();
+    expect(screen.getByText(/^No insight was made in the last seven days/)).toBeDefined();
+  });
+
+  it("says plainly when no insight is left, and when the model has no price", async () => {
+    getStatus.mockResolvedValue({
+      ...base,
+      insights_left: {
+        count: 0,
+        cost_per_insight_micro_usd: 112_000,
+        basis: "estimate",
+        ceiling_micro_usd: 1_000_000,
+      },
+    });
+    show();
+    await tick(0);
+    expect(screen.getByText(/^No more insights today/).textContent).toContain("($1.00)");
+    cleanup();
+    getStatus.mockResolvedValue({
+      ...base,
+      provider: "ollama",
+      insights_left: {
+        count: null,
+        cost_per_insight_micro_usd: 0,
+        basis: "free",
+        ceiling_micro_usd: 1_000_000,
+      },
+    });
+    show();
+    await tick(0);
+    expect(screen.getByText(en.Llm.budget.insightsFree)).toBeDefined();
+    expect(screen.queryByText(/more insights? can be made/)).toBeNull();
   });
 
   it("says when no model is switched on", async () => {

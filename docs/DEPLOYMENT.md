@@ -473,10 +473,11 @@ people got their insight in five minutes). With the default limit a burst of 300
 expected to take ten minutes or more; it was not run.
 
 Two facts for whoever runs a pilot: the limit of 30 calls a minute is shared by every stage (the
-filter, the enrichment and the insights), and the **default budget of two dollars a day covers only
-about 62 insights**, because the insights stop at half of it and every call is booked at the
-conservative price of a model without a known price. Set the budget and the price of the model you
-use before the pilot (F-52).
+filter, the enrichment and the insights), and the **default budget of two dollars a day is too small
+for a pilot**: the insights stop when the day's total spending reaches half of it, and at the
+default (conservative) prices one insight costs $0.05 to $0.11. Set the real prices of your model and
+a budget from the table in the pilot runbook ("How many insights a day"); the Model page then shows
+how many more insights the day still covers (F-52).
 
 ### The single sign-on burst (`LOAD_SCENARIO=sso make loadtest`)
 

@@ -4,6 +4,11 @@ All notable changes are listed here, newest first. The format follows [Keep a Ch
 
 ## [Unreleased]
 
+### Added
+
+- The Model page shows how many more insights today's budget covers, at the average cost of the last seven days' insights or, before the first one, at the worst case at the set prices (F-52); `GET /api/llm/status` has `insights_left`. The pilot runbook sizes the budget with the numbers ("How many insights a day"): the default of two dollars a day covers at most a handful of insights at the default prices.
+- `make check-catalogue` (`scripts/starter-catalogue-check.sh`): every starter source fetched once from the real internet on a throwaway stack, manual and never in CI (M5-08). First run: 25 of 25 sources ok.
+
 ## [0.1.0] - 2026-11-10
 
 First release. Upgrade notes: none, there is no earlier release to upgrade from. (Two entries under Changed below describe steps for installs made during development; a new install via `make env` needs neither.)

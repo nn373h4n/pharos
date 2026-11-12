@@ -22,13 +22,24 @@ const status = {
       cost_micro_usd: 5,
     },
   ],
+  insights_left: {
+    count: 8,
+    cost_per_insight_micro_usd: 112_000,
+    basis: "estimate",
+    ceiling_micro_usd: 1_000_000,
+  },
 };
+const left = status.insights_left;
 
 describe("the shape of the model page", () => {
   it("accepts what the backend sends", () => {
     expect(isStatus(status)).toBe(true);
     expect(isStatus({ ...status, key_check: null })).toBe(true);
     expect(isStatus({ ...status, provider: "ollama" })).toBe(true); // the local model
+    expect(isStatus({ ...status, insights_left: null })).toBe(true); // the model is off
+    expect(isStatus({ ...status, insights_left: { ...left, count: null, basis: "free" } })).toBe(
+      true,
+    );
   });
 
   it.each([
@@ -38,6 +49,13 @@ describe("the shape of the model page", () => {
     ["an unknown outcome", { key_check: { outcome: "<script>", checked_at: "x" } }],
     ["a usage row of an unknown stage", { usage: [{ ...status.usage[0], stage: "x" }] }],
     ["no usage list", { usage: null }],
+    ["no estimate of insights at all", { insights_left: undefined }],
+    ["a negative number of insights", { insights_left: { ...left, count: -1 } }],
+    ["a fraction of an insight", { insights_left: { ...left, count: 1.5 } }],
+    ["no number although the model has a price", { insights_left: { ...left, count: null } }],
+    ["a number although the model is free", { insights_left: { ...left, basis: "free" } }],
+    ["an unknown basis", { insights_left: { ...left, basis: "guess" } }],
+    ["a cost that is text", { insights_left: { ...left, cost_per_insight_micro_usd: "1" } }],
   ])("refuses %s", (_name, change) => {
     expect(isStatus({ ...status, ...change })).toBe(false);
   });

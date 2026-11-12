@@ -87,8 +87,9 @@ PHAROS_LLM_PROVIDER=anthropic
 PHAROS_LLM_MODEL_FILTER=stack-filter
 PHAROS_LLM_MODEL_ENRICHMENT=stack-enrichment
 PHAROS_LLM_MODEL_INSIGHT=stack-insight
-# The burst measures how fast the calls are let through, not the day's budget (which, at the default
-# of two dollars, covers about 62 insights; the stop at the limit is tested in the stack tests).
+# The burst measures how fast the calls are let through, not the day's budget (the default of two
+# dollars covers only a few insights, see the pilot runbook; the stop at the limit is tested in the
+# stack tests).
 PHAROS_LLM_DAILY_BUDGET_MICRO_USD=1000000000
 EOF
   # The worker needs the test provider (no model, no key, no cost): the test-only overlay of the

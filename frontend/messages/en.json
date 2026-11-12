@@ -550,7 +550,13 @@
       "title": "Today's spending",
       "spent": "{spent} of {cap} used ({percent}%).",
       "warned": "Eighty percent of today's limit is used.",
-      "exhausted": "Today's limit is reached. No new summaries are made until tomorrow; the ones that exist keep showing."
+      "exhausted": "Today's limit is reached. No new summaries are made until tomorrow; the ones that exist keep showing.",
+      "insightsLeft": "About {count, plural, one {# more insight} other {# more insights}} can be made today, at about {cost} each.",
+      "insightsNone": "No more insights today: today's spending has reached the part of the limit insights may use ({ceiling}). New articles are still read until the whole limit is used.",
+      "insightsFree": "This model has no price per token, so the limit does not stop insights.",
+      "basisMeasured": "The cost is the average of the insights of the last seven days.",
+      "basisEstimate": "No insight was made in the last seven days, so each one is counted at the most it can cost at the set prices.",
+      "insightsNote": "This is an estimate: reading new articles spends from the same limit, and insights may use at most {ceiling} of it."
     },
     "key": {
       "title": "Key",

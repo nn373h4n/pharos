@@ -2,7 +2,9 @@
   // Tables and ADR prose use long lines on purpose; the pull request template starts at level 2.
   "config": {
     "MD013": false,
-    "MD041": false
+    "MD041": false,
+    // The changelog repeats "Added", "Fixed" and so on under every version (Keep a Changelog).
+    "MD024": { "siblings_only": true }
   },
   // Planning documents keep their original languages and format; CLAUDE.md is maintainer-owned.
   "ignores": [

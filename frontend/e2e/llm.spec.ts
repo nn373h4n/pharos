@@ -32,6 +32,10 @@ for (const locale of locales) {
           await page.goto(`/${locale}/llm`);
           await loaded(page, locale);
           await expect(page.getByRole("heading", { level: 1 })).toHaveText(m.title);
+          // F-52: the estimate of the insights left is part of what is checked.
+          await expect(
+            main(page).getByText(m.budget.basisEstimate, { exact: false }),
+          ).toBeVisible();
           expect(await violations(page)).toEqual([]);
         });
 
@@ -40,6 +44,12 @@ for (const locale of locales) {
           await page.goto(`/${locale}/llm`);
           await loaded(page, locale);
           await expect(main(page).getByRole("alert")).toHaveText(m.budget.exhausted);
+          await expect(
+            main(page).getByText(
+              m.budget.insightsNone.slice(0, m.budget.insightsNone.indexOf("(")).trim(),
+              { exact: false },
+            ),
+          ).toBeVisible();
           expect(await violations(page)).toEqual([]);
         });
       });
