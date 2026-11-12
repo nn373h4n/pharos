@@ -163,6 +163,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             queue=queue,
         )
         app.state.ai_tools = AiToolService(audit=app.state.audit)
+        local_model = settings.llm_provider == "ollama"
         app.state.llm_admin = ModelAdminService(
             audit=app.state.audit,
             clock=SystemClock(),
@@ -172,6 +173,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 model_enrichment=settings.llm_model_enrichment,
                 model_insight=settings.llm_model_insight,
                 daily_cap_micro_usd=settings.llm_daily_budget_micro_usd,
+                # As the gateway books them (pharos.llm.factory): a local model costs nothing.
+                price_in_micro_usd=0 if local_model else settings.llm_price_in_micro_usd,
+                price_out_micro_usd=0 if local_model else settings.llm_price_out_micro_usd,
             ),
             redis=redis,
             queue=queue,

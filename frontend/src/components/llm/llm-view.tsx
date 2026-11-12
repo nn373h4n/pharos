@@ -14,6 +14,7 @@ import {
   readKeyTest,
   spentPercent,
   startKeyTest,
+  type InsightsLeft,
   type KeyTestAnswer,
   type LlmStatus,
 } from "@/lib/llm";
@@ -190,6 +191,7 @@ export function LlmView() {
         >
           <div className="h-full bg-primary" style={{ width: `${percent}%` }} />
         </div>
+        {status.insights_left && <InsightsLeftNote left={status.insights_left} locale={locale} />}
         {status.exhausted ? (
           <p role="alert" className="mt-3 text-sm font-medium">
             {t("budget.exhausted")}
@@ -282,6 +284,31 @@ export function LlmView() {
           </div>
         )}
       </section>
+    </div>
+  );
+}
+
+/** How many more insights today's budget covers: an estimate, said as one (F-52). */
+function InsightsLeftNote({ left, locale }: { left: InsightsLeft; locale: string }) {
+  const t = useTranslations("Llm.budget");
+  const ceiling = dollars(left.ceiling_micro_usd, locale);
+  if (left.count === null) {
+    return <p className="mt-3 text-sm">{t("insightsFree")}</p>;
+  }
+  return (
+    <div className="mt-3 space-y-1 text-sm">
+      <p>
+        {left.count === 0
+          ? t("insightsNone", { ceiling })
+          : t("insightsLeft", {
+              count: left.count,
+              cost: dollars(left.cost_per_insight_micro_usd, locale),
+            })}
+      </p>
+      <p className="text-muted-foreground">
+        {t(left.basis === "measured" ? "basisMeasured" : "basisEstimate")}{" "}
+        {t("insightsNote", { ceiling })}
+      </p>
     </div>
   );
 }

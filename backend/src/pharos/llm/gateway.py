@@ -32,7 +32,7 @@ from pydantic import BaseModel, ValidationError
 
 from pharos.core.clock import Clock
 from pharos.llm import prompt
-from pharos.llm.budget import Budget, Refusal, Reservation
+from pharos.llm.budget import INSIGHT_SHARE_PERCENT, Budget, Refusal, Reservation
 from pharos.llm.embedding import (
     Embedded,
     EmbeddingProvider,
@@ -96,9 +96,8 @@ class GatewayConfig:
     price_in: int = DEFAULT_PRICE[0]
     price_out: int = DEFAULT_PRICE[1]
     prices: dict[str, tuple[int, int]] = field(default_factory=lambda: dict(PRICES))
-    #: The share of the day's cap that insights may use: the rest is kept for reading new articles,
-    #: so people asking for insights cannot stop the enrichment for the day (M4-11 review).
-    insight_share_percent: int = 50
+    #: The share of the day's cap that insights may use (see `budget.INSIGHT_SHARE_PERCENT`).
+    insight_share_percent: int = INSIGHT_SHARE_PERCENT
     #: What an embedding costs, in millionths of a dollar per token (zero for a local model).
     embedding_price: int = 1
     #: Embeddings have a count of their own, so a backlog cannot use up the text calls' minute.

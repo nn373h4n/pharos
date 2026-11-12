@@ -160,8 +160,8 @@ Skip this step to run without a model; people still get the cards.
    the first call**, the real prices of your models (`PHAROS_LLM_PRICE_IN_MICRO_USD` and the one
    for output). The defaults are high on purpose: with them the cap is reached early.
 2. `PHAROS_LLM_DAILY_BUDGET_MICRO_USD` is the cap in millionths of a US dollar (`2000000` is two
-   dollars a day). With the default settings the cap covers roughly 62 insights a day (measured
-   while building M5; your prices change the number).
+   dollars a day, the default). Size it with "How many insights a day" below; the default is too
+   small for a pilot of 50 to 100 people.
 3. `pharos up -d` recreates the services whose settings changed.
 4. Open the Model page as an administrator and press **Test the key**. Only the worker holds the
    key; the answer says whether the key works, was refused, or the provider did not answer.
@@ -170,6 +170,33 @@ Only public article text goes to a cloud model: the title, an excerpt of at most
 the host of the link, the language and the profession the example is written for ([ADR-0015](../adr/0015-what-may-reach-a-model.md)). Nothing a
 person typed, no name, e-mail address, department or personal-feed article is sent. The gateway also
 masks e-mail addresses, phone numbers and similar patterns as a second line of defence.
+
+### How many insights a day
+
+Two rules decide it. Insights stop when the day's **total** spending reaches **half** of the cap: the
+other half is kept for reading new articles (the filter and the enrichment), and their spending
+counts against the insights' half too. And every insight is first booked at its worst case (1,100
+input and 900 output tokens), then charged what it really cost.
+
+Cost of one insight (input tokens x input price + output tokens x output price):
+
+| Prices (per million tokens, in / out) | Worst case (1,100 / 900) | Long answer (800 / 600) | Short answer (800 / 300) |
+| --- | --- | --- | --- |
+| Default: $20 / $100 | $0.112 | $0.076 | $0.046 |
+| Example: $3 / $15 | $0.0168 | $0.0114 | $0.0069 |
+
+Insights a day are about (cap / 2 - what the filter and the enrichment spent) / cost of one. With
+the default cap of $2 and the default prices that is at most 8 insights at the worst case and
+about 12 with long answers, before the articles' own share is taken off; the figure of "about 62"
+in earlier notes was never tied to a real model's answers. For 100 people making one insight each
+on a working day with long answers at the default prices: 100 x $0.076 = $7.60, so a cap of at
+least $16 plus what the articles cost. With the real (lower) prices of your model the same people
+cost a fraction of that. Set the real prices first, then the cap.
+
+After the first day, the Model page tells you the real numbers: "Today's spending" shows how many
+more insights the day still covers, at the average cost of the last seven days' insights (or at
+the worst case until the first one is made), and the usage table shows what the filter and the
+enrichment spent. Raise the cap if the insights' half runs out before the working day ends.
 
 **Raising the budget:** change the number in `deploy/.env`, run `pharos up -d`, and look at the
 Model page: "Today's spending" shows the new cap. When the cap is reached, new summaries stop until

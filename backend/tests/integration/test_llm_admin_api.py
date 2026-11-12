@@ -160,6 +160,14 @@ async def test_the_page_shows_the_settings_the_spending_and_the_record(
         None,
         [],
     )
+    # No insight yet: each one is counted at its worst-case booking at the default prices
+    # (1,100 * 20 + 900 * 100 = 112,000); half of 5,000,000 holds 22 of them.
+    assert first["insights_left"] == {
+        "count": 22,
+        "cost_per_insight_micro_usd": 112_000,
+        "basis": "estimate",
+        "ceiling_micro_usd": 2_500_000,
+    }
 
     key = spent_key(stack.org_a, datetime.now(UTC).strftime("%Y%m%d"))
     await worker_redis.set(key, "4200000", ex=600)
@@ -180,6 +188,19 @@ async def test_the_page_shows_the_settings_the_spending_and_the_record(
         "tokens_in": 300, "tokens_out": 50, "cost_micro_usd": 2000,
     }  # fmt: skip
     assert (by_stage["insight"]["calls"], by_stage["insight"]["failed"]) == (0, 1)
+    # 4,200,000 spent today is past the insights' half: none is left, whatever they cost.
+    assert page["insights_left"]["count"] == 0
+    await worker_redis.set(key, "1000000", ex=600)
+    await usage_row(stack, stack.org_a, "insight", "ok", 30_000, tin=700, tout=300)
+    await usage_row(stack, stack.org_a, "insight", "ok", 50_000, tin=700, tout=500)
+    left = (await admin.client.get("/api/llm/status")).json()["insights_left"]
+    # Measured: (70 + 30,000 + 50,000) // 2 ok insights = 40,035 each (a failed call's cost counts).
+    # Room 1,500,000: one booking of 112,000, then 1,388,000 // 40,035 = 34 more.
+    assert (left["basis"], left["cost_per_insight_micro_usd"], left["count"]) == (
+        "measured",
+        40_035,
+        35,
+    )
     await worker_redis.set(f"{key}:exhausted", "1", ex=600)
     assert (await admin.client.get("/api/llm/status")).json()["exhausted"] is True
 

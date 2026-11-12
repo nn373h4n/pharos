@@ -20,6 +20,13 @@ from pharos.llm.errors import BudgetUnavailable
 KEY_PREFIX = "pharos:worker:llm:"
 DAY_SECONDS = 2 * 24 * 3600  # a day's keys outlive the day a little, so a late settle still lands
 WARN_PERCENT = 80
+#: The share of the day's cap that insights may use: the rest is kept for reading new articles, so
+#: people asking for insights cannot stop the enrichment for the day (M4-11 review). The gateway
+#: refuses an insight when the day's total spending (every stage) would pass this share.
+INSIGHT_SHARE_PERCENT = 50
+#: The most input tokens an insight call is booked for: the gateway's pessimistic count of the
+#: longest prompt (title and excerpt at their limits). A test keeps it above what the prompt needs.
+INSIGHT_INPUT_TOKENS = 1100
 
 # KEYS: spent, warned-today marker, exhausted-today marker. ARGV: estimate, cap, ttl seconds,
 # ceiling (0 = none). A ceiling below the cap keeps the rest of the day for other stages: a call
@@ -152,3 +159,43 @@ class Budget:
         except RedisError as error:
             raise BudgetUnavailable() from error
         return int(allowed) == 1
+
+
+@dataclass(frozen=True, slots=True)
+class InsightsLeft:
+    """How many more insights today's budget covers, for the administrator's page (F-52)."""
+
+    count: int | None  # None: the model costs nothing per token, so the budget does not limit them
+    cost_per_insight: int  # micro-dollars
+    basis: str  # "measured" (recent insights), "estimate" (the booking at the set prices), "free"
+    ceiling: int  # the part of the cap insights may reach, micro-dollars
+
+
+def insights_left(
+    *,
+    cap: int,
+    spent: int,
+    price_in: int,
+    price_out: int,
+    answer_tokens: int,
+    measured_calls: int = 0,
+    measured_cost: int = 0,
+    share_percent: int = INSIGHT_SHARE_PERCENT,
+) -> InsightsLeft:
+    """An estimate, never a promise: the other stages keep spending from the same counter.
+
+    Each insight is booked at its worst case before the call (`booking`), so the last one needs
+    that much room even though it then costs less; after that, each one is counted at what recent
+    insights really cost (`measured_cost / measured_calls`), or at the booking when there are none.
+    """
+    ceiling = cap * share_percent // 100
+    booking = INSIGHT_INPUT_TOKENS * price_in + answer_tokens * price_out
+    if booking <= 0:
+        return InsightsLeft(count=None, cost_per_insight=0, basis="free", ceiling=ceiling)
+    if measured_calls > 0 and measured_cost > 0:
+        cost, basis = max(1, measured_cost // measured_calls), "measured"
+    else:
+        cost, basis = booking, "estimate"
+    room = ceiling - max(0, spent)
+    count = 0 if room < booking else 1 + (room - booking) // cost
+    return InsightsLeft(count=count, cost_per_insight=cost, basis=basis, ceiling=ceiling)

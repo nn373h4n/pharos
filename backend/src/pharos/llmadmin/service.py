@@ -23,9 +23,11 @@ from pharos.core.errors import ApiError, DependencyUnavailable, ErrorCode, not_f
 from pharos.core.principal import Principal
 from pharos.core.unit_of_work import UnitOfWork
 from pharos.llm import keytest
-from pharos.llm.budget import spent_key
+from pharos.llm.budget import insights_left, spent_key
+from pharos.llm.types import MAX_ANSWER_TOKENS, Stage
 from pharos.llmadmin import repository
 from pharos.llmadmin.schemas import (
+    InsightsLeftOut,
     KeyCheckOut,
     KeyTestOut,
     KeyTestStartedOut,
@@ -49,6 +51,9 @@ class ModelSettings:
     model_enrichment: str
     model_insight: str
     daily_cap_micro_usd: int
+    # What the gateway books a token at, in micro-dollars (zero for a local model).
+    price_in_micro_usd: int
+    price_out_micro_usd: int
 
 
 class TaskQueue(Protocol):
@@ -100,6 +105,25 @@ class ModelAdminService:
         last = await self._redis_call(self._redis.get(keytest.last_key(uow.org_id)))
         checked = keytest.parse_result(last, test_id=None)
         settings = self._settings
+        spent = _whole_number(raw_spent)
+        left = None
+        if settings.provider != "off":
+            insight_rows = [u for u in usage if u.stage == Stage.INSIGHT.value]
+            estimate = insights_left(
+                cap=settings.daily_cap_micro_usd,
+                spent=spent,
+                price_in=settings.price_in_micro_usd,
+                price_out=settings.price_out_micro_usd,
+                answer_tokens=MAX_ANSWER_TOKENS[Stage.INSIGHT],
+                measured_calls=sum(u.calls for u in insight_rows),
+                measured_cost=sum(u.cost_micro_usd for u in insight_rows),
+            )
+            left = InsightsLeftOut(
+                count=estimate.count,
+                cost_per_insight_micro_usd=estimate.cost_per_insight,
+                basis=estimate.basis,  # type: ignore[arg-type]
+                ceiling_micro_usd=estimate.ceiling,
+            )
         return StatusOut(
             provider=settings.provider,  # type: ignore[arg-type]
             models=ModelsOut(
@@ -108,7 +132,7 @@ class ModelAdminService:
                 insight=settings.model_insight,
             ),
             daily_cap_micro_usd=settings.daily_cap_micro_usd,
-            spent_micro_usd=_whole_number(raw_spent),
+            spent_micro_usd=spent,
             warned=bool(warned),
             exhausted=bool(exhausted),
             key_check=None
@@ -127,6 +151,7 @@ class ModelAdminService:
                 )
                 for u in usage
             ],
+            insights_left=left,
         )
 
     # --- "test the key" ---

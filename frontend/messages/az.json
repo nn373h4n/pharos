@@ -550,7 +550,13 @@
       "title": "Bugünkü xərc",
       "spent": "{cap} həddindən {spent} istifadə olunub ({percent}%).",
       "warned": "Bugünkü həddin səksən faizi istifadə olunub.",
-      "exhausted": "Bugünkü hədd çatıb. Sabaha qədər yeni xülasə hazırlanmır; mövcud olanlar göstərilməyə davam edir."
+      "exhausted": "Bugünkü hədd çatıb. Sabaha qədər yeni xülasə hazırlanmır; mövcud olanlar göstərilməyə davam edir.",
+      "insightsLeft": "Bu gün təxminən daha {count, plural, one {# təhlil} other {# təhlil}} hazırlana bilər, hər biri təxminən {cost}.",
+      "insightsNone": "Bu gün daha təhlil hazırlanmayacaq: bugünkü xərc həddin təhlillərə ayrılan hissəsinə ({ceiling}) çatıb. Yeni məqalələr bütün hədd istifadə olunana qədər oxunmağa davam edir.",
+      "insightsFree": "Bu modelin token başına qiyməti yoxdur, ona görə hədd təhlilləri dayandırmır.",
+      "basisMeasured": "Qiymət son yeddi gündə hazırlanan təhlillərin orta xərcidir.",
+      "basisEstimate": "Son yeddi gündə təhlil hazırlanmayıb, ona görə hər biri təyin olunmuş qiymətlərlə ola biləcək ən yüksək xərclə hesablanır.",
+      "insightsNote": "Bu, təxmindir: yeni məqalələrin oxunması da eyni həddən xərcləyir, təhlillər isə ondan ən çox {ceiling} istifadə edə bilər."
     },
     "key": {
       "title": "Açar",
