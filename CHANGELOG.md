@@ -6,6 +6,7 @@ All notable changes are listed here, newest first. The format follows [Keep a Ch
 
 ### Added
 
+- `python -m pharos.cli list-people` (read-only, as the application role): the organization's people with the identifier that `delete-person --user-id` takes, how they sign in, role, status, last sign-in, name and e-mail, 100 at a time; characters that could drive the terminal are escaped (F-57).
 - The Model page shows how many more insights today's budget covers, at the average cost of the last seven days' insights or, before the first one, at the worst case at the set prices (F-52); `GET /api/llm/status` has `insights_left`. The pilot runbook sizes the budget with the numbers ("How many insights a day"): the default of two dollars a day covers at most a handful of insights at the default prices.
 - `make check-catalogue` (`scripts/starter-catalogue-check.sh`): every starter source fetched once from the real internet on a throwaway stack, manual and never in CI (M5-08). First run: 25 of 25 sources ok.
 

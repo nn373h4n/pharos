@@ -396,6 +396,9 @@ cron) or run them by hand; the first dry run shows what would happen.
   months were recent (administrators), and must not put a month next to days of the same month, or
   any two periods that overlap; the application itself never shows the monthly counts, and the
   months that are folded are no longer in the daily summary's 30-day window.
+- To find the person, `docker compose ... exec api python -m pharos.cli list-people` prints the
+  organization's people with their identifiers (read-only, as the application role, 100 at a time
+  with `--limit` and `--offset`); `--user-id` takes the first column.
 - `delete-person` removes the person's profile, password, interactions, personal feeds and the
   articles of those feeds; clears their username from the target of earlier audit entries and the
   address hash from their own entries and from refused sign-ins that named them; clears the `created_by` marks on sources and tools; writes

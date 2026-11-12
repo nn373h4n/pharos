@@ -5,6 +5,7 @@
     docker compose exec api python -m pharos.cli set-password --username admin
     docker compose exec api python -m pharos.cli unlock --username admin
     docker compose exec api python -m pharos.cli import-sources [--file PATH] [--dry-run]
+    docker compose exec api python -m pharos.cli list-people [--limit N] [--offset N]
 
 `create-org` needs the table owner's credentials (the application role may not create
 organizations), so it runs in the `migrate` service. The others run as the application role inside a
@@ -19,6 +20,7 @@ import asyncio
 import getpass
 import re
 import sys
+import unicodedata
 import uuid
 from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
@@ -246,6 +248,67 @@ async def unlock(settings: Settings, *, username: str) -> int:
     return removed
 
 
+MAX_LIST_PEOPLE = 1000
+
+
+def _printable(value: str) -> str:
+    """Escape control, format and line-separator characters, so a name from the identity provider
+    cannot move the cursor, recolour the terminal or reorder the line it is printed on. A backslash
+    is doubled, so an escape cannot be faked."""
+    return "".join(
+        "\\\\"
+        if char == "\\"
+        else f"\\u{ord(char):04x}"
+        if unicodedata.category(char).startswith("C") or unicodedata.category(char) in {"Zl", "Zp"}
+        else char
+        for char in value
+    )
+
+
+async def list_people(settings: Settings, *, limit: int, offset: int) -> str:
+    """The organization's people, one per line, with the identifier `delete-person` takes.
+
+    Read-only, as the application role inside a tenant transaction (row-level security applies).
+    Like the people list of the API, it is not written to the audit log."""
+    if not 1 <= limit <= MAX_LIST_PEOPLE:
+        raise CliError(f"--limit must be between 1 and {MAX_LIST_PEOPLE}")
+    if offset < 0:
+        raise CliError("--offset must be 0 or more")
+    context = _Context(settings)
+    try:
+        org_id = await context.org_id()
+        async with tenant_session(context.factory, org_id) as session:
+            people, total = await repository.list_people(
+                session, org_id, limit=limit, offset=offset
+            )
+    finally:
+        await context.close()
+    lines = ["id\tsign-in\trole\tstatus\tlast sign-in\tname\temail"]
+    for person in people:
+        sign_in = f"local:{person.username}" if person.username is not None else "sso"
+        last = f"{person.last_login_at:%Y-%m-%d}" if person.last_login_at else "never"
+        lines.append(
+            "\t".join(
+                (
+                    str(person.id),
+                    _printable(sign_in),
+                    person.role,
+                    person.status,
+                    last,
+                    _printable(person.display_name),
+                    _printable(person.email or "-"),
+                )
+            )
+        )
+    if not people:
+        lines.append("(nobody here)" if total == 0 else f"(nobody after the first {offset})")
+    shown = f"{offset + 1}-{offset + len(people)}" if people else "none"
+    lines.append(f"{total} person(s) in all; shown: {shown}")
+    if offset + len(people) < total:
+        lines.append(f"more: run it again with --offset {offset + len(people)}")
+    return "\n".join(lines)
+
+
 async def import_sources(
     settings: Settings, *, file: Path | None, dry_run: bool
 ) -> catalogue.Result:
@@ -423,6 +486,18 @@ def build_parser() -> argparse.ArgumentParser:
     fold.add_argument("--months", type=int, help="default: PHAROS_INTERACTIONS_RETENTION_MONTHS")
     fold.add_argument("--confirm", action="store_true", help="really fold (default: count)")
 
+    people = commands.add_parser(
+        "list-people",
+        help="list the organization's people with their identifiers (read-only; for delete-person)",
+    )
+    people.add_argument(
+        "--limit",
+        type=int,
+        default=100,
+        help=f"at most this many (1-{MAX_LIST_PEOPLE}, default 100)",
+    )
+    people.add_argument("--offset", type=int, default=0, help="skip this many first")
+
     sources = commands.add_parser(
         "import-sources",
         help="add the starter catalogue of sources to the organization, switched off",
@@ -468,6 +543,8 @@ async def run(args: argparse.Namespace) -> str:
     if args.command == "unlock":
         removed = await unlock(settings, username=args.username)
         return f"cleared {removed} delay record(s) for {_username(args.username)!r}"
+    if args.command == "list-people":
+        return await list_people(settings, limit=args.limit, offset=args.offset)
     if args.command == "import-sources":
         result = await import_sources(settings, file=args.file, dry_run=args.dry_run)
         verb = "would add" if args.dry_run else "added"

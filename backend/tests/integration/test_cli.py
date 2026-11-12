@@ -202,6 +202,125 @@ async def test_unlock_clears_the_delays_of_one_account(
     assert ("operator_cli", "auth.login_unlocked") in await audit_actions(owner_engine, org_slug)
 
 
+# --- list-people -------------------------------------------------------------------------------
+
+
+async def add_sso_person(
+    owner: AsyncEngine, slug: str, *, subject: str, display_name: str, email: str | None
+) -> uuid.UUID:
+    async with owner.begin() as connection:
+        found: uuid.UUID = (
+            await connection.execute(
+                text(
+                    "INSERT INTO users (org_id, issuer, subject, display_name, email) "
+                    "VALUES ((SELECT id FROM organizations WHERE slug = :s), "
+                    "'https://idp.example.test', :subject, :name, :email) RETURNING id"
+                ),
+                {"s": slug, "subject": subject, "name": display_name, "email": email},
+            )
+        ).scalar_one()
+    return found
+
+
+@pytest.mark.anyio
+async def test_list_people_shows_the_identifiers_of_this_organization_only(
+    database: TestDatabase, redis_url: str, owner_engine: AsyncEngine, org_slug: str
+) -> None:
+    await cli.create_organization(database.owner_url, slug=org_slug, name="Acme")
+    other_slug = f"{org_slug}-other"
+    await cli.create_organization(database.owner_url, slug=other_slug, name="Other")
+    try:
+        settings = settings_for(database, redis_url, org_slug)
+        admin_id = await cli.create_admin(settings, username="Admin", password=PASSWORD)
+        sso_id = await add_sso_person(
+            owner_engine,
+            org_slug,
+            subject="sub-1",
+            display_name="Bea \x1b[2J\u202eevil\nnext\\u001b",
+            email="bea@example.test",
+        )
+        stranger = await add_sso_person(
+            owner_engine, other_slug, subject="sub-2", display_name="Stranger", email=None
+        )
+        before = await audit_actions(owner_engine, org_slug)
+
+        output = await cli.list_people(settings, limit=100, offset=0)
+
+        lines = output.splitlines()
+        assert lines[0] == "id\tsign-in\trole\tstatus\tlast sign-in\tname\temail"
+        rows = {line.split("\t")[0]: line.split("\t") for line in lines[1:3]}
+        assert rows[str(admin_id)][1:6] == ["local:admin", "admin", "active", "never", "admin"]
+        assert rows[str(admin_id)][6] == "-"
+        bea = rows[str(sso_id)]
+        assert bea[1:5] == ["sso", "member", "active", "never"]
+        # A name from the identity provider cannot drive the terminal or fake an escape.
+        assert bea[5] == "Bea \\u001b[2J\\u202eevil\\u000anext\\\\u001b"
+        assert bea[6] == "bea@example.test"
+        assert "\x1b" not in output and "\u202e" not in output
+        assert str(stranger) not in output and "Stranger" not in output
+        assert lines[3:] == ["2 person(s) in all; shown: 1-2"]
+        # Read-only: nothing is written to the audit log.
+        assert await audit_actions(owner_engine, org_slug) == before
+    finally:
+        async with owner_engine.begin() as connection:
+            await connection.execute(
+                text(
+                    "DELETE FROM users WHERE org_id = "
+                    "(SELECT id FROM organizations WHERE slug = :s)"
+                ),
+                {"s": other_slug},
+            )
+            await connection.execute(
+                text(
+                    "DELETE FROM audit_logs WHERE org_id = "
+                    "(SELECT id FROM organizations WHERE slug = :s)"
+                ),
+                {"s": other_slug},
+            )
+            await connection.execute(
+                text("DELETE FROM organizations WHERE slug = :s"), {"s": other_slug}
+            )
+
+
+@pytest.mark.anyio
+async def test_list_people_pages_and_refuses_bad_bounds(
+    database: TestDatabase, redis_url: str, owner_engine: AsyncEngine, org_slug: str
+) -> None:
+    settings = settings_for(database, redis_url, org_slug)
+    with pytest.raises(cli.CliError, match="does not exist; run create-org"):
+        await cli.list_people(settings, limit=10, offset=0)
+    await cli.create_organization(database.owner_url, slug=org_slug, name="Acme")
+    assert (await cli.list_people(settings, limit=10, offset=0)).splitlines()[1:] == [
+        "(nobody here)",
+        "0 person(s) in all; shown: none",
+    ]
+    for name in ("Cem", "Ada", "Bob"):
+        await add_sso_person(
+            owner_engine, org_slug, subject=f"s-{name}", display_name=name, email=None
+        )
+
+    first = (await cli.list_people(settings, limit=2, offset=0)).splitlines()
+    assert [line.split("\t")[5] for line in first[1:3]] == ["Ada", "Bob"]
+    assert first[3:] == ["3 person(s) in all; shown: 1-2", "more: run it again with --offset 2"]
+    second = (await cli.list_people(settings, limit=2, offset=2)).splitlines()
+    assert [line.split("\t")[5] for line in second[1:2]] == ["Cem"]
+    assert second[2:] == ["3 person(s) in all; shown: 3-3"]
+    assert (await cli.list_people(settings, limit=2, offset=9)).splitlines()[1:] == [
+        "(nobody after the first 9)",
+        "3 person(s) in all; shown: none",
+    ]
+    for limit, offset in ((0, 0), (cli.MAX_LIST_PEOPLE + 1, 0), (10, -1)):
+        with pytest.raises(cli.CliError, match=r"--limit|--offset"):
+            await cli.list_people(settings, limit=limit, offset=offset)
+
+
+def test_list_people_is_on_the_command_line_with_defaults() -> None:
+    args = cli.build_parser().parse_args(["list-people"])
+    assert (args.command, args.limit, args.offset) == ("list-people", 100, 0)
+    args = cli.build_parser().parse_args(["list-people", "--limit", "5", "--offset", "10"])
+    assert (args.limit, args.offset) == (5, 10)
+
+
 # --- passwords and the command line ------------------------------------------------------------
 
 

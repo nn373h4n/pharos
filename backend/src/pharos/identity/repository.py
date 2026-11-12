@@ -302,6 +302,52 @@ async def list_users(
     return [_admin_view(r) for r in rows], int(total)
 
 
+@dataclass(frozen=True, slots=True)
+class OperatorUserView:
+    """One person as the operator's `list-people` shows them."""
+
+    id: uuid.UUID
+    username: str | None  # local accounts only; people who use single sign-on have none here
+    display_name: str
+    email: str | None
+    role: str
+    status: str
+    last_login_at: datetime | None
+
+
+async def list_people(
+    session: AsyncSession, org_id: uuid.UUID, *, limit: int, offset: int
+) -> tuple[list[OperatorUserView], int]:
+    rows = (
+        await session.execute(
+            text(
+                "SELECT id, CASE WHEN issuer = :local THEN subject END AS username, display_name, "
+                "email, role, status, last_login_at FROM users WHERE org_id = :org "
+                "ORDER BY lower(display_name), id LIMIT :limit OFFSET :offset"
+            ),
+            {"org": org_id, "local": LOCAL_ISSUER, "limit": limit, "offset": offset},
+        )
+    ).all()
+    total = (
+        await session.execute(
+            text("SELECT count(*) FROM users WHERE org_id = :org"), {"org": org_id}
+        )
+    ).scalar_one()
+    people = [
+        OperatorUserView(
+            uuid.UUID(str(r.id)),
+            r.username,
+            r.display_name,
+            r.email,
+            r.role,
+            r.status,
+            r.last_login_at,
+        )
+        for r in rows
+    ]
+    return people, int(total)
+
+
 async def lock_active_admins(session: AsyncSession, org_id: uuid.UUID) -> set[uuid.UUID]:
     """Lock every active administrator row, always in the same order, and return their ids.
 
