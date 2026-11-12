@@ -190,6 +190,20 @@ def test_the_local_model_s_one_shot_services_are_not_required_to_run(tmp_path: P
     assert levels(result)["services"] == "PASS"
 
 
+def test_caddy_s_volume_helper_has_exited_and_that_is_fine(tmp_path: Path) -> None:
+    """It hands Caddy's volumes to Caddy's user and exits (F-08); Caddy itself must still run."""
+    ps = (
+        "web|running|\\napi|running|healthy\\nworker|running|healthy\\nbeat|running|\\n"
+        "caddy-volumes|exited|\\ncaddy|running|healthy\\n"
+    )
+    services = "web api worker beat caddy-volumes caddy"
+    result, _ = run(tmp_path, env={"STUB_SERVICES": services, "STUB_PS": ps})
+    assert levels(result)["services"] == "PASS"
+    stopped = ps.replace("caddy|running|healthy", "caddy|exited|")
+    result, _ = run(tmp_path, env={"STUB_SERVICES": services, "STUB_PS": stopped})
+    assert levels(result)["services"] == "FAIL" and "caddy(exited)" in result.stdout
+
+
 def test_a_stopped_service_of_a_profile_fails_although_the_configuration_does_not_list_it(
     tmp_path: Path,
 ) -> None:

@@ -28,7 +28,7 @@ compose() { "${COMPOSE[@]}" "$@"; }
 
 # Services that run once and exit; every other service in the default profile, and every service
 # that has a container at all, must stay up.
-ONE_SHOT=" migrate operator ollama-init ollama-pull "
+ONE_SHOT=" migrate operator ollama-init ollama-pull caddy-volumes dev-ca-export "
 BACKUP_WARN_HOURS=30
 BACKUP_FAIL_HOURS=54
 DISK_WARN_PERCENT=85

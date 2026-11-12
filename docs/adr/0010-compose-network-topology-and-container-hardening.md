@@ -73,6 +73,27 @@ Option 2, with option 3 documented as the next step.
   It runs in its own project with its own image tag, so it never replaces the images of a real
   installation.
 
+## Amendment (2026-11-12, F-08): `caddy` is not root
+
+`caddy` now runs as uid and gid 65532 with **no capability at all** (`NET_BIND_SERVICE` is gone)
+and `no-new-privileges` still on. It binds ports 80 and 443 through the sysctl
+`net.ipv4.ip_unprivileged_port_start=0`, which applies only inside its own network namespace, where
+nothing but Caddy listens. Its volumes `caddy_data` and `caddy_config` are handed to that user by a
+one-shot `caddy-volumes` service before Caddy starts, on every start, so volumes made by an older
+release (owned by root) are converted without a manual step. That service uses the same pinned
+image, has no network, runs as root with only `CHOWN` and `DAC_READ_SEARCH`, and does not follow
+links (`chown -R -h -P`): a link placed in a volume is changed itself, never what it points to.
+Caddy's attempt to add its local certificate authority to the container's trust store is switched
+off (`skip_install_trust`). In the development single sign-on overlay, `dev-ca-export` (root, read
+only) gets `DAC_READ_SEARCH` to read the public root certificate that now belongs to Caddy's user.
+
+This supersedes "`caddy` runs as root ... except `NET_BIND_SERVICE`" above and the matching
+negative consequence and follow-up. No long-running service of the base stack runs as root any
+more; only two one-shot helpers (`caddy-volumes`, `ollama-init`) do, to change the owner of a volume,
+and exit. The development single sign-on overlay adds one more, `dev-ca-export`, which only reads.
+`make test-compose` checks that Caddy's uid is not 0, that its effective capabilities are zero,
+that the helper exited 0 and that the certificate store belongs to Caddy's user.
+
 ## References
 
 - `docs/ARCHITECTURE_PROPOSAL.md` sections 3 (principles 4 and 5), 7, 9, 13 (M1-08)

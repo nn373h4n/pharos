@@ -54,12 +54,14 @@ services:
 
   # Copies Caddy's PUBLIC root certificate into a volume of its own. The caddy_data volume also
   # holds the CA's private keys (readable by root only) and must never be mounted into another
-  # service. Runs once, waits for Caddy to create the certificate, then exits.
+  # service. Runs once, waits for Caddy to create the certificate, then exits. Caddy's files belong
+  # to its own user (F-08), so this root process may read them (DAC_READ_SEARCH) but not change them.
   dev-ca-export:
     image: caddy:2-alpine@sha256:78bd35025c7ba85961dd149ae670315129954e77abe2383ac47c89106b35ade9
     restart: "no"
     read_only: true
     cap_drop: [ALL]
+    cap_add: [DAC_READ_SEARCH]
     security_opt: ["no-new-privileges:true"]
     network_mode: none
     command:

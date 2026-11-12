@@ -778,8 +778,12 @@ What the repository must provide, because the workflow cannot enforce it:
   (for example `ufw`). Choose `PHAROS_HTTP_PORT`/`PHAROS_HTTPS_PORT` and your firewall deliberately.
 - Behind the proxy the API does not yet trust `X-Forwarded-*` headers; client addresses and the
   scheme in redirects matter from M2 on.
-- `caddy` is the only process that runs as root inside its container, with all capabilities
-  dropped except `NET_BIND_SERVICE`. A container escape would therefore give root on the host.
+- `caddy` runs as an ordinary user (uid 65532) with no capability at all and binds 80 and 443
+  through a sysctl of its own network namespace (F-08). Its volumes are handed to that user by the
+  one-shot `caddy-volumes` service before it starts, on every start; on an installation made with
+  an older release this happens on the first `up` after the upgrade, with no manual step. No
+  long-running service runs as root; only that helper and `ollama-init` do, for the moment it takes
+  to change the owner of a volume.
 - Caddy sends `Strict-Transport-Security` (see `PHAROS_HSTS_MAX_AGE`) and refuses request bodies over 1 MiB; the API refuses the same size too. The web application sets a strict Content-Security-Policy with a nonce on every page (ADR-0019); leave it to the application and do not add a second policy in a proxy, since the browser would apply both. `style-src` still allows inline styles.
 - Redis and database passwords are environment variables, so a user who can run `docker inspect`
   on the host can read them. Treat access to the Docker socket as root access.
