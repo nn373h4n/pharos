@@ -10,8 +10,9 @@
 # socket, so no password is on any command line. It holds every person's data: the directory must be
 # yours and private (mode 700, files 600); an existing directory that is not is refused. Each dump
 # gets a SHA-256 file beside it (scripts/restore.sh checks it). The roles are not in a dump (restore
-# needs them first) and neither is deploy/.env, which holds the root secret that the restored data
-# needs (the audit chain, the tokens): `env` copies it apart, and it must not travel with the dumps.
+# needs them first) and neither is deploy/.env, which holds every password and the root secret (a
+# restore should use the same one, or the address hashes in the audit log no longer match new ones):
+# `env` copies it apart, and it must not travel with the dumps.
 #
 # Relative paths are read from the directory you run the script in, and a path inside this
 # repository is refused, so a dump or the secret can never be committed by `git add -A`.

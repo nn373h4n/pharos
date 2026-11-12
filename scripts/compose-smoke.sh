@@ -285,7 +285,9 @@ check_blocked "postgres is not published on the host (no port mapping)" bash -c 
 check_blocked "redis is not published on the host (no port mapping)" bash -c "docker port $(compose ps -q redis) | grep -q ."
 
 echo "== database access"
-sql() { compose exec -T -e "PGPASSWORD=$2" postgres psql -h postgres -U "$1" -d pharos -tAc "$3"; }
+# The password goes to the container through the environment (`-e NAME` takes the value from the
+# caller's), never on a command line that `ps` would show (F-45).
+sql() { PGPASSWORD="$2" compose exec -T -e PGPASSWORD postgres psql -h postgres -U "$1" -d pharos -tAc "$3"; }
 check "the application role can log in over the network" test "$(sql pharos_app "$APP_PASSWORD" 'select 1' 2>&1)" = 1
 check_blocked "the superuser cannot log in over the network, even with its password" sql postgres "$POSTGRES_PASSWORD" 'select 1'
 check "the application role is neither superuser nor allowed to bypass row-level security" \
@@ -524,6 +526,36 @@ refusal=$(scripts/restore.sh "$unlogged" 2>&1)
 refused=$?
 check "restore.sh refuses the dump whose audit log is unlogged (exit 1)" test "$refused" = 1
 check "and names the audit log" grep -q 'only in the dump: *relation|public.audit_logs' <<<"$refusal"
+
+# (E) A real dump cut short (F-45; until now shown only with a stand-in for Docker). Its checksum
+# file is made anew, as by someone who copied the broken file with its checksum, so the hash check
+# passes and pg_restore itself must stop it. Cut in half, the table of contents itself may be broken
+# (it is large next to the smoke test's few rows), so any of the two refusals will do; with only the
+# last bytes missing (a full disk, an interrupted copy) the contents are whole and the restore stops
+# partway. A failed restore may have written part of the dump, so the volume is thrown away
+# afterwards, as the message says.
+mkdir -p "$WORK/truncated"
+size=$(stat -c %s "$dump")
+cut_dump() { # name bytes
+  head -c "$2" "$dump" >"$WORK/truncated/$1"
+  (cd "$WORK/truncated" && sha256sum "$1" >"$1.sha256")
+}
+cut_dump pharos-half.dump $((size / 2))
+cut_dump pharos-tail.dump $((size - 64))
+check "a new postgres volume for the dump cut in half is healthy" fresh_volume
+refusal=$(scripts/restore.sh "$WORK/truncated/pharos-half.dump" 2>&1)
+refused=$?
+echo "      $(tail -n 1 <<<"$refusal" | cut -c1-160)"
+check "restore.sh refuses a real dump cut in half (exit 1)" test "$refused" = 1
+check "and says it is not a whole dump, or that the restore failed" \
+  grep -qE 'not a dump pg_restore understands|pg_restore failed' <<<"$refusal"
+check "a new postgres volume for the dump missing its last bytes is healthy" fresh_volume
+refusal=$(scripts/restore.sh "$WORK/truncated/pharos-tail.dump" 2>&1)
+refused=$?
+echo "      $(tail -n 1 <<<"$refusal" | cut -c1-160)"
+check "restore.sh refuses a real dump missing its last 64 bytes (exit 1)" test "$refused" = 1
+check "and says the database may be partly changed and the volume must go" \
+  grep -q 'may be partly changed.*remove the postgres volume' <<<"$refusal"
 
 check "a last postgres volume is healthy" fresh_volume
 check "the good dump is restored again for the rest of these checks" scripts/restore.sh "$dump"

@@ -250,9 +250,9 @@ scripts/backup.sh env --dir /home/operator/pharos-env --dumps /srv/pharos-backup
 ```
 
 - Schedule `run` nightly with the host's scheduler (the crontab below). Copy the dumps off the
-  server, encrypted. Keep
-  the `.env` copy somewhere else than the dumps: without the root secret in it, a restored audit
-  chain and the tokens cannot be read.
+  server, encrypted. Keep the `.env` copy somewhere else than the dumps: it holds every password
+  and the root secret, so a dump together with it is the whole installation. Restore with the same
+  root secret, or the address hashes in the restored audit log no longer match new ones.
 - **Restore once on a spare machine before you rely on it** (gate G8). A dump that has never been
   restored is not a backup.
 - Schedule the two retention commands, for example monthly. Without `--confirm` each only reports
