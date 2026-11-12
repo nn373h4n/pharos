@@ -35,11 +35,17 @@ function show() {
   );
 }
 
-function open() {
+/** Opens or closes the section as a person does, by its summary, and waits for the one `toggle`
+ * event the browser fires. (Setting `open` and firing `toggle` by hand gave two events, since jsdom
+ * fires its own: the second could ask for the fetches again once the first had failed, F-53.) */
+async function toggle() {
   const details = document.querySelector("details")!;
-  details.open = true;
-  act(() => {
-    fireEvent(details, new Event("toggle"));
+  const fired = new Promise<void>((resolve) =>
+    details.addEventListener("toggle", () => resolve(), { once: true }),
+  );
+  await act(async () => {
+    fireEvent.click(details.querySelector("summary")!);
+    await fired;
   });
 }
 
@@ -67,7 +73,7 @@ describe("the latest fetches", () => {
       run(1),
     ]);
     show();
-    open();
+    await toggle();
     await waitFor(() => expect(screen.getByRole("table")).toBeDefined());
     expect(listRuns).toHaveBeenCalledWith(source.id);
     expect(screen.getAllByRole("columnheader").map((cell) => cell.textContent)).toEqual([
@@ -91,22 +97,24 @@ describe("the latest fetches", () => {
   it("say so when there are none", async () => {
     listRuns.mockResolvedValue([]);
     show();
-    open();
+    await toggle();
     await waitFor(() => expect(screen.getByText(en.Sources.runs.empty)).toBeDefined());
   });
 
   it("say so when they could not be loaded, and are asked for again next time", async () => {
     listRuns.mockRejectedValueOnce(new Error("boom"));
     show();
-    open();
+    await toggle();
     await waitFor(() => expect(screen.getByText(en.Sources.runs.failed)).toBeDefined());
-    listRuns.mockResolvedValue([run(1)]);
-    const details = document.querySelector("details")!;
-    details.open = false;
-    act(() => {
-      fireEvent(details, new Event("toggle"));
+    // One opening is one request, also after the browser's own events have all run (F-53).
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
     });
-    open();
+    expect(listRuns).toHaveBeenCalledTimes(1);
+    expect(screen.getByText(en.Sources.runs.failed)).toBeDefined();
+    listRuns.mockResolvedValue([run(1)]);
+    await toggle(); // closed
+    await toggle(); // and opened again
     await waitFor(() => expect(screen.getByRole("table")).toBeDefined());
     expect(listRuns).toHaveBeenCalledTimes(2);
   });
@@ -114,9 +122,10 @@ describe("the latest fetches", () => {
   it("are loaded once", async () => {
     listRuns.mockResolvedValue([run(1)]);
     show();
-    open();
+    await toggle();
     await waitFor(() => expect(screen.getByRole("table")).toBeDefined());
-    open();
+    await toggle(); // closed
+    await toggle(); // and opened again
     expect(listRuns).toHaveBeenCalledTimes(1);
   });
 
@@ -124,7 +133,7 @@ describe("the latest fetches", () => {
     let finish: (value: Run[]) => void = () => {};
     listRuns.mockReturnValue(new Promise((resolve) => (finish = resolve)));
     const { unmount } = show();
-    open();
+    await toggle();
     unmount();
     await act(async () => finish([run(1)]));
     expect(document.body.textContent).toBe("");
@@ -139,7 +148,7 @@ describe("fetches of another place", () => {
         <RunsPanel source={source} load={own} />
       </NextIntlClientProvider>,
     );
-    open();
+    await toggle();
     await waitFor(() => expect(screen.getByRole("table")).toBeDefined());
     expect(own).toHaveBeenCalledWith(source.id);
     expect(listRuns).not.toHaveBeenCalled();
