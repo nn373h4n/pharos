@@ -449,6 +449,71 @@ check "version, rows of every table, row-level security, policies and grants are
   test "$before" = "$after"
 if [ "$before" != "$after" ]; then diff <(echo "$before") <(echo "$after") | head -20 | sed 's/^/      /'; fi
 check "the marker row is back" test "$(SU -c "select count(*) from departments where name = 'Backup marker'" 2>&1)" = 1
+check "restore.sh compared the restored database with the migrations and removed its scratch databases" \
+  test "$(SU -c "select count(*) from pg_database where datname like 'pharos\_restore\_%'" 2>&1)" = 0
+
+# F-44: a dump with one extra policy and one extra grant (what a hostile dump could add) is made
+# from the restored database, which is then put back as it was.
+SU -c "CREATE POLICY smoke_hostile ON users USING (true)" -c "GRANT SELECT ON users TO pharos_worker" >/dev/null
+check "backup.sh writes the changed dump" scripts/backup.sh run --dir "$WORK/hostile-backups"
+hostile=$(ls -1 "$WORK"/hostile-backups/daily/pharos-*.dump 2>/dev/null | head -1)
+compose down --volumes --remove-orphans >/dev/null 2>&1
+compose up -d postgres >/dev/null 2>&1
+check "a new postgres volume for the changed dump is healthy" wait_healthy postgres
+refusal=$(scripts/restore.sh "$hostile" 2>&1)
+refused=$?
+check "restore.sh refuses the dump with an extra policy and grant (exit 1)" test "$refused" = 1
+check "and names the extra policy" grep -q 'only in the dump: *policy|public.users.smoke_hostile' <<<"$refusal"
+check "and names the changed grants of the table" grep -q 'only in the dump: *acl|relation|public.users' <<<"$refusal"
+check "and removed its scratch databases" \
+  test "$(SU -c "select count(*) from pg_database where datname like 'pharos\_restore\_%'" 2>&1)" = 0
+
+# The attacks of the F-44 review. (A) A schema named after the owner (first in its default
+# search_path) with an operator that hides the schema from any check that resolves names there, and
+# a view over every person in it.
+OWNER() { compose exec -T postgres psql -q -v ON_ERROR_STOP=1 -U pharos_owner -d pharos "$@"; }
+fresh_volume() {
+  compose down --volumes --remove-orphans >/dev/null 2>&1
+  compose up -d postgres >/dev/null 2>&1
+  wait_healthy postgres
+}
+fresh_volume >/dev/null
+check "the good dump is restored to make the next changed dump" scripts/restore.sh "$dump"
+OWNER >/dev/null <<'SQL'
+CREATE SCHEMA pharos_owner;
+CREATE FUNCTION pharos_owner.hide(name, name) RETURNS boolean LANGUAGE sql IMMUTABLE AS
+  $$ SELECT CASE WHEN $1 IN ('pharos_owner') THEN false ELSE NOT pg_catalog.textlike($1::text, $2::text) END $$;
+CREATE OPERATOR pharos_owner.!~~ (LEFTARG = name, RIGHTARG = name, FUNCTION = pharos_owner.hide);
+CREATE VIEW pharos_owner.all_users AS SELECT * FROM public.users;
+SQL
+check "backup.sh writes the dump with the hiding schema" scripts/backup.sh run --dir "$WORK/hidden-backups"
+hidden=$(ls -1 "$WORK"/hidden-backups/daily/pharos-*.dump 2>/dev/null | head -1)
+check "a new postgres volume for the hiding dump is healthy" fresh_volume
+refusal=$(scripts/restore.sh "$hidden" 2>&1)
+refused=$?
+check "restore.sh refuses the dump whose schema hides itself from a search_path check (exit 1)" test "$refused" = 1
+check "and says why: a schema a Pharos dump never makes" grep -q 'made schemas that a Pharos dump never makes' <<<"$refusal"
+
+# (B) The owner makes a trusted extension of its own (a hand-made dump could do it in any entry);
+# objects in an extension are not compared, so the extension itself must be refused.
+check "a new postgres volume for the extension case is healthy" fresh_volume
+OWNER -c "CREATE EXTENSION pgcrypto" >/dev/null
+refusal=$(scripts/restore.sh "$dump" 2>&1)
+refused=$?
+check "restore.sh refuses a database with an extension the owner made (exit 1)" test "$refused" = 1
+check "and says why: an extension Pharos does not make" grep -q 'an extension that Pharos does not make' <<<"$refusal"
+
+# (C) Grants on the database itself (pg_dump writes none, a hand-made dump could): CREATE would let
+# the application role make a schema that shadows the worker's tables.
+check "a new postgres volume for the database grant case is healthy" fresh_volume
+SU -c "GRANT CREATE, TEMP ON DATABASE pharos TO pharos_app" >/dev/null
+refusal=$(scripts/restore.sh "$dump" 2>&1)
+refused=$?
+check "restore.sh refuses a database with extra database grants (exit 1)" test "$refused" = 1
+check "and names the database's grants" grep -q 'only in the dump: *acl|database|current' <<<"$refusal"
+
+check "a last postgres volume is healthy" fresh_volume
+check "the good dump is restored again for the rest of these checks" scripts/restore.sh "$dump"
 
 compose up -d >/dev/null 2>&1
 check "every service is healthy again on the restored database" wait_healthy postgres redis web api worker caddy

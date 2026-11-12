@@ -43,12 +43,17 @@ Option 1.
   `restore.sh` copies the dump once into a private directory, refuses a checksum file that is
   missing, has more than one line, names another file or does not match, and reads only the copy.
   After the restore it looks for two things a good dump never makes (settings on the database or a
-  role, and schemas other than `public`) and for nothing else: it does **not** compare policies,
-  grants, default privileges, row-level security or functions with what Pharos ships, so a hostile
-  dump can pass it. The checksum file protects against damage and against a change made by someone
-  who cannot rewrite it too; keeping it, or authenticated encryption, out of the dump keepers' reach
-  is the operator's part, and restoring only a dump whose origin is trusted is the rule. A stronger
-  check (a reference list of what the migrations create) is left as a follow-up (F-44).
+  role, and schemas other than `public`) and refuses extensions it does not know or that a
+  superuser does not own, reading with names resolved in `pg_catalog` only. Then it compares the
+  restored database with a reference that the `migrate` image's migrations build at the dump's own
+  schema version in scratch databases on the same server, written through `pg_dump` and
+  `pg_restore` like the dump (F-44): the database's grants, owners, grants, row-level security and
+  policies, functions and their rights, triggers and the other objects in
+  `scripts/restore/catalog.sql`. Any difference stops the restore. Rows are not compared, so hostile
+  data can still pass. The checksum file protects against damage and against a change made by
+  someone who cannot rewrite it too; keeping it, or authenticated encryption, out of the dump
+  keepers' reach is the operator's part, and restoring only a dump whose origin is trusted stays
+  the rule.
 - The off-host copy and its encryption belong to the operator. The runbook says so and gives an
   example, but Pharos does not ship a destination.
 - `deploy/.env` is backed up separately from the dump, because the root secret is needed to read

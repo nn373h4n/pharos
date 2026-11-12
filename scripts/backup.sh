@@ -74,7 +74,32 @@ private_dir() {
   [ -d "$real" ] || die "$path is not a directory"
   [ "$(stat -c %u "$real")" = "$(id -u)" ] || die "$path is not owned by you"
   [ $(( 0$(stat -c %a "$real") & 077 )) -eq 0 ] || die "$path is open to others (mode $(stat -c %a "$real"); use chmod 700)"
+  # The mode is not the whole answer: a POSIX access list can open the directory, and a DEFAULT list
+  # is inherited by every dump made in it whatever the umask, although the directory still says 700.
+  ! has_acl "$real" ||
+    die "$path has a POSIX access control list (see getfacl); remove it (setfacl -b -k) or use another directory"
+  # Whoever may rename or replace a directory above it can swap the dumps: every parent must belong to
+  # root or to you, and must not be writable by others unless its sticky bit is set (like /tmp).
+  local parent=$real mode
+  while [ "$parent" != / ]; do
+    parent=$(dirname -- "$parent")
+    mode=0$(stat -c %a -- "$parent") || die "cannot read the mode of $parent"
+    case "$(stat -c %u -- "$parent")" in 0 | "$(id -u)") ;; *) die "$parent (above $path) is owned by someone else; use a directory under one that only root or you control" ;; esac
+    if [ $((mode & 022)) -ne 0 ] && [ $((mode & 01000)) -eq 0 ]; then
+      die "$parent (above $path) is writable by others (mode ${mode#0}); use a directory under one that only root or you control"
+    fi
+  done
   printf '%s' "$real"
+}
+
+# Whether a file has a POSIX access control list (an access list or a default one): `ls` marks it
+# with "+" after the mode, also where getfacl is not installed. NFSv4 and SMB access lists are not
+# POSIX lists and get no "+": on such a share, check them yourself.
+has_acl() {
+  local listing
+  # Fail closed: a directory whose permissions cannot be read is not called private.
+  listing=$(ls -ld -- "$1") || die "cannot read the permissions of $1"
+  [ "${listing:10:1}" = "+" ]
 }
 
 # Remove a dump with its checksum file.
