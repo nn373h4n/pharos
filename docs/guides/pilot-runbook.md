@@ -290,7 +290,10 @@ PHAROS_COMPOSE=docker compose -f deploy/docker-compose.yml -f deploy/docker-comp
 - Check that the jobs ran: `scripts/status.sh --backups /srv/pharos-backups/dumps` shows the age of
   the newest dump each day; after the first of the month the retention log ends with `deleted ...`
   and `folded ...` lines, and the audit log has an `audit.pruned` and an `interactions.folded`
-  entry. Nothing alerts you when a job stops running, so look.
+  entry. `status.sh` also has a `retention` line: how many days ago each job last ran with
+  `--confirm` (`pharos exec api python -m pharos.cli retention-status` prints the same numbers),
+  with a WARN after 40 days, or when a job never ran on an installation whose oldest audit entry is
+  older than that. It is a check you run, not an alert that comes to you, so run it.
 
 - Deleting one person: find them with `list-people`, run a dry run first, then the same command
   with `--confirm`. Backups made before the deletion still hold the person until they expire.
