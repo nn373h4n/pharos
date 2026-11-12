@@ -40,7 +40,7 @@ Run the server with `uvicorn --factory pharos.main:create_app`. There is no modu
 | `migrations` | the revision in `alembic_version` equals the head of `backend/alembic/versions` |
 | `organization` | an organization with the slug `PHAROS_ORG_SLUG` exists (looked up through the `pharos_org_id_for_slug` function) |
 
-Each call opens database connections and pings Redis, and it is unauthenticated. Use it for the container healthcheck and the internal network; do not proxy it to the internet. A worker writes its first heartbeat as soon as it starts, but until one has, `worker` fails, so use `/healthz` for container restarts and `/readyz` for monitoring.
+A round of checks opens database connections and pings Redis, and the endpoint is unauthenticated, so the API runs at most one round every 2 seconds: calls within that window get the last report, and calls during a round wait for it (F-10). A change (a stopped worker, a recovered database) therefore shows within 2 seconds. Use it for the container healthcheck and the internal network; do not proxy it to the internet. A worker writes its first heartbeat as soon as it starts, but until one has, `worker` fails, so use `/healthz` for container restarts and `/readyz` for monitoring.
 
 ## Errors
 

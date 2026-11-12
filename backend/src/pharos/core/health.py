@@ -5,8 +5,10 @@ application role, Redis, the worker heartbeat and the migration version. Failure
 response only says which check failed.
 """
 
+import asyncio
 import logging
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Literal, Protocol
 
@@ -149,6 +151,41 @@ class Readiness:
         }
         ok = all(result == "ok" for result in checks.values())
         return ReadinessResponse(status="ok" if ok else "unavailable", checks=checks)
+
+
+READINESS_CACHE_SECONDS = 2.0
+
+
+class CachedReadiness:
+    """At most one round of readiness checks every `ttl_seconds` (F-10).
+
+    `/readyz` opens database and Redis connections and needs no login. It is not served through the
+    proxy, but anything on the internal network could call it in a loop; with this, a burst of calls
+    costs one round of checks. Callers within the window get the last report, and callers that come
+    while a round runs wait for it instead of starting their own. A failure is cached as briefly as
+    a success, so a recovered dependency shows within the window."""
+
+    def __init__(
+        self,
+        inner: ReadinessChecker,
+        *,
+        ttl_seconds: float = READINESS_CACHE_SECONDS,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self._inner = inner
+        self._ttl = ttl_seconds
+        self._clock = clock
+        self._lock = asyncio.Lock()
+        self._report: ReadinessResponse | None = None
+        self._taken_at = 0.0
+
+    async def check(self) -> ReadinessResponse:
+        async with self._lock:
+            if self._report is not None and self._clock() - self._taken_at < self._ttl:
+                return self._report
+            report = await self._inner.check()
+            self._report, self._taken_at = report, self._clock()
+            return report
 
 
 router = APIRouter(tags=["health"])

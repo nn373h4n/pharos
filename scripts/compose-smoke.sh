@@ -155,7 +155,13 @@ check_blocked "no other check fails before the organization exists" \
   grep -qE '"(database|database_role|redis|worker|migrations)":"fail"' <<<"$before"
 compose exec -T postgres psql -q -U postgres -d pharos \
   -c "INSERT INTO organizations (name, slug) VALUES ('Smoke', 'smoke')" >/dev/null
-ready=$(readyz)
+# The API runs a round of checks at most every 2 seconds (F-10), so the new organization shows
+# within that window, not on the very next call.
+for _ in $(seq 1 10); do
+  ready=$(readyz)
+  grep -q '"status":"ok"' <<<"$ready" && break
+  sleep 1
+done
 echo "      $ready"
 check "readyz reports database, application role, redis, worker, migrations and organization all ok" grep -q '"status":"ok"' <<<"$ready"
 
