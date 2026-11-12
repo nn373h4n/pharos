@@ -225,7 +225,11 @@ scripts/status.sh --backups /srv/pharos-backups/dumps
 
 Name the directory you gave to `backup.sh run --dir`, not its `daily/` folder. The output has PASS,
 WARN, FAIL or NOT CHECKED per line; the exit status is 1 if anything fails. The readiness line lags
-behind a stopped worker (its heartbeat has to expire first), so trust the `services` line for that.
+behind a stopped worker (its heartbeat has to expire first, after 210 seconds), so trust the
+`services` line for that; the `worker` line shows how many seconds ago the last heartbeat was
+written (one is due every minute) and warns after 90. The `backup` line gives the newest dump's age
+and size; it fails for an empty dump and warns when the dump is less than half the one before (a
+sudden drop is worth a look: a table emptied, or a dump cut short).
 In the admin pages:
 
 - **Sources:** rows marked Failing, and how many failed in a row.
@@ -313,6 +317,7 @@ pharos --profile operator run --rm operator python -m pharos.cli delete-person -
 | Model misbehaves, costs too much, or the provider is down | In `deploy/.env` set `PHAROS_LLM_PROVIDER=off`, then `pharos up -d`. Existing summaries keep showing; no new model call is made. |
 | A personal feed is abused | Set `PHAROS_PERSONAL_FEEDS=off`, then `pharos up -d`. The feature answers 404 and the worker stops fetching those feeds; the feeds are kept. |
 | Identity provider is down | Administrators sign in with a password (`break-glass`). Others wait. |
+| `worker` warns about an old heartbeat, or `no heartbeat recorded` | The worker or the scheduler (`beat`) has stopped or is stuck: `pharos ps -a worker beat`, then `pharos logs --tail 100 worker beat`. |
 | `status.sh` says a service is not healthy | `pharos ps -a`, then `pharos logs --tail 100 <service>`. [DEPLOYMENT.md, "Troubleshooting"](../DEPLOYMENT.md#troubleshooting) lists the common causes. |
 | `readyz` fails on `worker` just after start | Wait a few seconds for the first heartbeat. |
 | `services` fails but `readyz` still passes | The worker's heartbeat has not expired yet and `readyz` will follow. Trust `services`. |

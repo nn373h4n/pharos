@@ -585,6 +585,20 @@ for _ in $(seq 1 30); do
 done
 echo "      $ready"
 check "readyz is ok on the restored installation" grep -q '"status":"ok"' <<<"$ready"
+# The operator's one look (scripts/status.sh, M5-11 and F-59) on the real stack: its probe runs in
+# the API container, so only here is its heartbeat line read from the real Redis.
+status_out=$(scripts/status.sh --backups "$backups" 2>&1)
+status_rc=$?
+echo "$status_out" | sed 's/^/      /'
+check "status.sh passes on the restored installation (exit 0)" test "$status_rc" = 0
+check "status.sh shows a recent worker heartbeat in seconds" \
+  grep -qE '^PASS +worker +last heartbeat [0-9]+ s ago$' <<<"$status_out"
+check "status.sh shows the size of the newest dump" \
+  grep -qE '^PASS +backup +newest dump is [0-9]+ hours old, [0-9]+ KiB$' <<<"$status_out"
+redis_api_password=$(sed -n 's/^PHAROS_REDIS_PASSWORD=//p' "$ENV_FILE")
+check "the Redis password the probe uses was found (control for the next check)" test -n "$redis_api_password"
+check_blocked "status.sh prints no password of this installation" \
+  grep -qF -e "$APP_PASSWORD" -e "$POSTGRES_PASSWORD" -e "$redis_api_password" <<<"$status_out"
 check "the administrator signs in with the same password (200)" \
   test "$(post_json "$login_json" -H "Origin: $base" -c "$jar" -o /dev/null -w '%{http_code}')" = 200
 check "the new session works (200)" test "$(https -b "$jar" -o /dev/null -w '%{http_code}' "$base/api/me")" = 200
