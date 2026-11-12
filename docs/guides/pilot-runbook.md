@@ -270,20 +270,23 @@ pharos --profile operator run --rm operator python -m pharos.cli prune-audit --c
 pharos --profile operator run --rm operator python -m pharos.cli fold-interactions --confirm
 ```
 
-- Deleting one person: run a dry run first, then the same command with `--confirm`. Backups made
-  before the deletion still hold the person until they expire.
+- Deleting one person: find them with `list-people`, run a dry run first, then the same command
+  with `--confirm`. Backups made before the deletion still hold the person until they expire.
 
 ```bash
+pharos exec api python -m pharos.cli list-people
 pharos --profile operator run --rm operator python -m pharos.cli delete-person --username NAME
 ```
 
-  `--username` finds only local accounts. People who sign in through single sign-on are found with
-  `--user-id <uuid>`, and the command refuses them unless you add `--allow-reprovision`: their
-  account is made again, empty, at their next sign-in, so **remove or disable them at the identity
-  provider first**. This release has no page that lists people, so you take the identifier from the
-  `users` table as the database owner (columns in [DATA_MODEL.md](../DATA_MODEL.md)); that gap is
-  logged in `TASKS.md`. What deletion leaves behind (audit entries, older backups, container logs
-  until they rotate) is listed in DEPLOYMENT.md, "Retention and deleting a person".
+  `list-people` is read-only. It prints one person per line, sorted by name, tab-separated: the
+  identifier, how they sign in (`local:<username>` or `sso`), role, status, last sign-in, name and
+  e-mail. It shows 100 at a time; the last line says how many there are and which `--offset` shows
+  the next ones. `--username` finds only local accounts. People who sign in through single sign-on
+  are found with `--user-id <uuid>` (the first column), and the command refuses them unless you add
+  `--allow-reprovision`: their account is made again, empty, at their next sign-in, so **remove or
+  disable them at the identity provider first**. What deletion leaves behind (audit entries, older
+  backups, container logs until they rotate) is listed in DEPLOYMENT.md, "Retention and deleting a
+  person".
 
 ## 9. When something goes wrong
 
