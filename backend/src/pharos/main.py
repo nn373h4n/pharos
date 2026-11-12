@@ -27,7 +27,7 @@ from pharos.core.config import Settings, get_settings
 from pharos.core.csrf import CsrfMiddleware, SessionCookie
 from pharos.core.db import create_engine, create_session_factory
 from pharos.core.errors import REQUEST_ID_STATE_KEY, install_error_handlers
-from pharos.core.health import Readiness, expected_migration_heads
+from pharos.core.health import CachedReadiness, Readiness, expected_migration_heads
 from pharos.core.health import router as health_router
 from pharos.core.logging import configure_logging, request_id_var
 from pharos.core.organization import OrganizationResolver
@@ -218,11 +218,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             sessions=app.state.session_store,
             mode=LocalLoginMode(settings.local_login),
         )
-        app.state.readiness = Readiness(
-            engine,
-            redis,
-            expected_migration_heads(settings.alembic_dir),
-            app.state.organization,
+        app.state.readiness = CachedReadiness(
+            Readiness(
+                engine,
+                redis,
+                expected_migration_heads(settings.alembic_dir),
+                app.state.organization,
+            )
         )
         logger.info("started", extra={"environment": settings.environment})
         try:

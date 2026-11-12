@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import re
 from collections.abc import AsyncIterator
@@ -8,7 +9,7 @@ from redis.asyncio import Redis
 
 from pharos.core.config import Settings
 from pharos.core.db import create_engine
-from pharos.core.health import Readiness, ReadinessResponse
+from pharos.core.health import CachedReadiness, Readiness, ReadinessResponse
 from pharos.core.organization import OrganizationResolver
 from pharos.main import create_app
 
@@ -152,3 +153,76 @@ async def test_real_readiness_fails_closed_and_does_not_leak_details(
         "readiness: migration check failed",
         "readiness: organization check failed",
     }
+
+
+# --- F-10: one round of checks per short window -------------------------------------------------
+
+
+class CountingReadiness:
+    def __init__(self, checks: dict[str, str] = ALL_OK, delay: float = 0.0) -> None:
+        self.calls = 0
+        self.checks = dict(checks)
+        self.delay = delay
+
+    async def check(self) -> ReadinessResponse:
+        self.calls += 1
+        if self.delay:
+            await asyncio.sleep(self.delay)
+        status = "ok" if all(v == "ok" for v in self.checks.values()) else "unavailable"
+        return ReadinessResponse.model_validate({"status": status, "checks": self.checks})
+
+
+class Clock:
+    def __init__(self) -> None:
+        self.now = 100.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+@pytest.mark.anyio
+async def test_calls_within_the_window_share_one_round_of_checks() -> None:
+    inner, clock = CountingReadiness(), Clock()
+    cached = CachedReadiness(inner, ttl_seconds=2.0, clock=clock)
+    for _ in range(50):
+        assert (await cached.check()).status == "ok"
+    assert inner.calls == 1
+    clock.now += 1.9
+    await cached.check()
+    assert inner.calls == 1
+    clock.now += 0.2  # the window has passed
+    await cached.check()
+    assert inner.calls == 2
+
+
+@pytest.mark.anyio
+async def test_callers_during_a_round_wait_for_it_instead_of_starting_their_own() -> None:
+    inner = CountingReadiness(delay=0.05)
+    cached = CachedReadiness(inner, ttl_seconds=2.0)
+    reports = await asyncio.gather(*(cached.check() for _ in range(20)))
+    assert inner.calls == 1
+    assert {report.status for report in reports} == {"ok"}
+
+
+@pytest.mark.anyio
+async def test_a_failure_is_cached_as_briefly_and_a_recovery_shows_after_the_window() -> None:
+    inner, clock = CountingReadiness({**ALL_OK, "redis": "fail"}), Clock()
+    cached = CachedReadiness(inner, ttl_seconds=2.0, clock=clock)
+    assert (await cached.check()).checks["redis"] == "fail"
+    inner.checks["redis"] = "ok"
+    assert (await cached.check()).status == "unavailable"  # still the cached report
+    clock.now += 2.0
+    assert (await cached.check()).status == "ok"
+
+
+@pytest.mark.anyio
+async def test_the_app_puts_the_cache_in_front_of_the_checks() -> None:
+    settings = Settings(
+        environment="test",
+        database_url=UNREACHABLE_DB,  # type: ignore[arg-type]
+        redis_url=UNREACHABLE_REDIS,  # type: ignore[arg-type]
+        secret_key=FAKE_SECRET_KEY,  # type: ignore[arg-type]
+    )
+    app = create_app(settings)
+    async with app.router.lifespan_context(app):
+        assert isinstance(app.state.readiness, CachedReadiness)
