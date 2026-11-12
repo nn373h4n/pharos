@@ -19,7 +19,7 @@ dependencies = [
     "litellm==1.105.1",
     "nh3>=0.3.7",
     "pydantic>=2.14.1",
-    "pydantic-settings>=2.16.1",
+    "pydantic-settings>=2.16.2",
     "redis>=8.1.0",
     "sqlalchemy[asyncio]>=2.1.6",
     "uvicorn[standard]>=0.54.0",
