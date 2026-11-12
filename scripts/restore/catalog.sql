@@ -84,23 +84,30 @@ lines AS (
   ), '') AS line
   FROM acl_lists l
   UNION ALL
-  -- The database itself (its grants are above): who owns it.
+  -- The database itself (its grants are above): who owns it, whether it is a template others may
+  -- copy, whether it takes connections and how many.
   SELECT 'database|current|owner=' || pg_catalog.pg_get_userbyid(d.datdba)
+    || ' template=' || d.datistemplate::text || ' connect=' || d.datallowconn::text
+    || ' limit=' || d.datconnlimit::text
   FROM pg_catalog.pg_database d WHERE d.datname = pg_catalog.current_database()
   UNION ALL
   -- Schemas and their owners.
   SELECT 'schema|' || n.nspname || '|owner=' || pg_catalog.pg_get_userbyid(s.nspowner)
   FROM nsp n JOIN pg_catalog.pg_namespace s ON s.oid = n.oid
   UNION ALL
-  -- Relations: kind, owner, row-level security, and their columns.
+  -- Relations: kind, owner, row-level security, and their columns. Persistence too: an UNLOGGED
+  -- table (the audit log, say) is emptied by PostgreSQL after any crash.
   SELECT 'relation|' || n.nspname || '.' || c.relname || '|kind=' || c.relkind::text
     || ' owner=' || pg_catalog.pg_get_userbyid(c.relowner)
+    || ' persistence=' || c.relpersistence::text || ' replica=' || c.relreplident::text
     || ' rls=' || c.relrowsecurity::text || ' force=' || c.relforcerowsecurity::text
     || ' partition=' || c.relispartition::text
     || ' options=' || coalesce(c.reloptions::text, '')
     || ' columns=' || coalesce(pg_catalog.md5((
       SELECT string_agg(a.attname || ':' || pg_catalog.format_type(a.atttypid, a.atttypmod)
                         || ':' || a.attnotnull::text || ':' || a.attidentity::text || ':' || a.attgenerated::text
+                        || ':' || coalesce(nullif(a.attcollation, 0)::regcollation::text, '-')
+                        || ':' || a.attstorage::text || ':' || a.attcompression::text
                         || ':' || coalesce(pg_catalog.pg_get_expr(ad.adbin, ad.adrelid), ''),
                         ',' ORDER BY a.attnum)
       FROM pg_catalog.pg_attribute a
@@ -218,6 +225,16 @@ lines AS (
   UNION ALL
   SELECT 'text-search|' || n.nspname || '.' || ts.cfgname || '|'
   FROM pg_catalog.pg_ts_config ts JOIN nsp n ON n.oid = ts.cfgnamespace
+  UNION ALL
+  SELECT 'text-search-dictionary|' || n.nspname || '.' || td.dictname || '|'
+  FROM pg_catalog.pg_ts_dict td JOIN nsp n ON n.oid = td.dictnamespace
+  UNION ALL
+  -- Comments carry nothing a check depends on, but a dump has no reason to change them.
+  SELECT 'comment|' || pg_catalog.pg_describe_object(ds.classoid, ds.objoid, ds.objsubid) || '|'
+    || pg_catalog.md5(ds.description)
+  FROM pg_catalog.pg_description ds
+  WHERE ds.objoid >= 16384
+    AND ds.objoid NOT IN (SELECT objid FROM ext_member WHERE classid = ds.classoid)
   UNION ALL
   SELECT 'statistics|' || n.nspname || '.' || st.stxname || '|'
   FROM pg_catalog.pg_statistic_ext st JOIN nsp n ON n.oid = st.stxnamespace

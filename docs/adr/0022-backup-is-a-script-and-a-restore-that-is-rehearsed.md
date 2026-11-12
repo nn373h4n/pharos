@@ -49,7 +49,10 @@ Option 1.
   schema version in scratch databases on the same server, written through `pg_dump` and
   `pg_restore` like the dump (F-44): the database's grants, owners, grants, row-level security and
   policies, functions and their rights, triggers and the other objects in
-  `scripts/restore/catalog.sql`. Any difference stops the restore. Rows are not compared, so hostile
+  `scripts/restore/catalog.sql`. Any difference stops the restore, and so does any change to a
+  role, a membership or a role setting between before and after `pg_restore`. A failed restore is
+  not proof that nothing was written (a hostile dump can end its own transaction), so the script
+  says to remove the volume. Rows are not compared, so hostile
   data can still pass. The checksum file protects against damage and against a change made by
   someone who cannot rewrite it too; keeping it, or authenticated encryption, out of the dump
   keepers' reach is the operator's part, and restoring only a dump whose origin is trusted stays

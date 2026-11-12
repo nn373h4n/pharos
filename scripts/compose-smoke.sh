@@ -512,6 +512,19 @@ refused=$?
 check "restore.sh refuses a database with extra database grants (exit 1)" test "$refused" = 1
 check "and names the database's grants" grep -q 'only in the dump: *acl|database|current' <<<"$refusal"
 
+# (D) From the second review: an UNLOGGED audit log is emptied by PostgreSQL after any crash, so a
+# dump that makes it so must be refused although no grant or policy changed.
+check "a new postgres volume for the unlogged case is healthy" fresh_volume
+check "the good dump is restored to make the unlogged dump" scripts/restore.sh "$dump"
+OWNER -c "ALTER TABLE public.audit_logs SET UNLOGGED" >/dev/null
+check "backup.sh writes the dump with an unlogged audit log" scripts/backup.sh run --dir "$WORK/unlogged-backups"
+unlogged=$(ls -1 "$WORK"/unlogged-backups/daily/pharos-*.dump 2>/dev/null | head -1)
+check "a new postgres volume for the unlogged dump is healthy" fresh_volume
+refusal=$(scripts/restore.sh "$unlogged" 2>&1)
+refused=$?
+check "restore.sh refuses the dump whose audit log is unlogged (exit 1)" test "$refused" = 1
+check "and names the audit log" grep -q 'only in the dump: *relation|public.audit_logs' <<<"$refusal"
+
 check "a last postgres volume is healthy" fresh_volume
 check "the good dump is restored again for the rest of these checks" scripts/restore.sh "$dump"
 

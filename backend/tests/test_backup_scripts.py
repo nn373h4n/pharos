@@ -39,6 +39,11 @@ FAKE_DOCKER = r"""#!/bin/bash
 cfg="$FAKE_DIR"
 echo "$*" >> "$cfg/calls.log"
 case "$*" in
+  *'--username="$POSTGRES_USER"'*pharos_roles_digest*)
+    # The superuser's digest of the roles: one line of roles_digest per call (before, after).
+    n=$(( $(cat "$cfg/roles_digest_calls" 2>/dev/null || echo 0) + 1 ))
+    echo "$n" > "$cfg/roles_digest_calls"
+    sed -n "${n}p" "$cfg/roles_digest" ;;
   *'--username="$POSTGRES_USER"'*)
     # The superuser: making or dropping the scratch databases of the reference.
     if [[ "$*" != *"--command"* ]]; then cat >> "$cfg/super.sql"; fi
@@ -106,6 +111,7 @@ def fake(tmp_path: Path) -> Path:
     (state / "version").write_text("0011_interaction_counts_monthly\n")
     (state / "extensions").write_text("vector\n")
     (state / "odd_extensions").write_text("0\n")
+    (state / "roles_digest").write_text(f"{'a' * 32}\n{'a' * 32}\n")
     (state / "shape_restored").write_text(SHAPE)
     (state / "shape_reference").write_text(SHAPE)
     return tmp_path
@@ -377,6 +383,18 @@ def test_a_restore_into_a_database_that_has_tables_is_refused(fake: Path, dump_f
     assert restore_calls(fake) == []
 
 
+def test_functions_and_default_privileges_count_as_not_empty(fake: Path, dump_file: Path) -> None:
+    """A failed hostile restore can leave a function or a default privilege and no table."""
+    (fake / "state" / "tables").write_text("1\n")
+    done = run(RESTORE, fake, str(dump_file))
+    assert done.returncode != 0
+    assert "tables, views, sequences, functions or default privileges" in done.stderr
+    assert restore_calls(fake) == []
+    query = next(line for line in calls(fake).splitlines() if "pg_catalog.pg_class" in line)
+    assert "pg_catalog.pg_proc" in query and "pg_catalog.pg_default_acl" in query
+    assert "deptype = 'e'" in query  # the extension's own functions do not count
+
+
 def test_a_file_that_is_not_a_pharos_dump_is_refused(fake: Path, dump_file: Path) -> None:
     (fake / "state" / "listing").write_text("216; 1259 16410 TABLE public items x\n")
     done = run(RESTORE, fake, str(dump_file))
@@ -393,7 +411,65 @@ def test_a_missing_file_or_no_argument_is_refused(fake: Path) -> None:
 def test_a_failing_pg_restore_makes_the_script_fail(fake: Path, dump_file: Path) -> None:
     (fake / "state" / "fail_restore").write_text("")
     done = run(RESTORE, fake, str(dump_file))
-    assert done.returncode != 0 and "nothing was restored" in done.stderr
+    # A hostile dump can end the restore's transaction itself: never say nothing was restored.
+    assert done.returncode != 0 and "nothing was restored" not in done.stderr
+    assert "may be partly changed" in done.stderr and "remove the postgres volume" in done.stderr
+
+
+def test_a_dump_that_changes_a_role_is_refused(fake: Path, dump_file: Path) -> None:
+    (fake / "state" / "roles_digest").write_text(f"{'a' * 32}\n{'b' * 32}\n")
+    done = run(RESTORE, fake, str(dump_file))
+    assert done.returncode != 0 and "the dump changed a role" in done.stderr
+    assert "a" * 32 not in done.stdout + done.stderr  # the digest is never printed
+    assert "migrate" not in calls(fake)  # refused before the reference is built
+
+
+@pytest.mark.parametrize(
+    "digests", ["", "not-a-digest\nnot-a-digest\n", f"{'a' * 32}\n"], ids=["none", "bad", "after"]
+)
+def test_roles_that_cannot_be_read_fail_closed(fake: Path, dump_file: Path, digests: str) -> None:
+    (fake / "state" / "roles_digest").write_text(digests)
+    done = run(RESTORE, fake, str(dump_file))
+    assert done.returncode != 0 and "cannot read the roles" in done.stderr
+    # Unreadable before the restore: refused before anything is restored.
+    restored = "--single-transaction --use-list" in calls(fake)
+    assert restored == (digests.count("\n") == 1)
+
+
+def test_the_roles_are_read_before_and_after_the_restore_as_the_superuser(
+    fake: Path, dump_file: Path
+) -> None:
+    done = run(RESTORE, fake, str(dump_file))
+    assert done.returncode == 0, done.stderr
+    lines = calls(fake).splitlines()
+    digests = [i for i, line in enumerate(lines) if "pharos_roles_digest" in line]
+    restore = next(i for i, line in enumerate(lines) if "--single-transaction --use-list" in line)
+    assert len(digests) == 2 and digests[0] < restore < digests[1]
+    for i in digests:
+        assert '--username="$POSTGRES_USER"' in lines[i]
+        for table in ("pg_catalog.pg_authid", "pg_catalog.pg_auth_members", "pg_db_role_setting"):
+            assert table in lines[i]
+
+
+@pytest.mark.parametrize("bad", [0o777, 0o772], ids=["open", "group-writable"])
+def test_a_scratch_directory_others_can_write_to_is_refused(
+    fake: Path, dump_file: Path, bad: int
+) -> None:
+    """Whoever may rename the private copy's directory could swap the dump after its hash."""
+    tmp = fake / "shared"
+    tmp.mkdir()
+    tmp.chmod(bad)
+    done = run(RESTORE, fake, str(dump_file), PHAROS_RESTORE_TMP=str(tmp))
+    assert done.returncode != 0 and "writable by others" in done.stderr
+    assert not list(tmp.iterdir()) and "pg_restore" not in calls(fake)
+    # Under a parent others can write to, too; with the sticky bit (like /tmp) it is fine.
+    inner = tmp / "inner"
+    inner.mkdir(mode=0o700)
+    done = run(RESTORE, fake, str(dump_file), PHAROS_RESTORE_TMP=str(inner))
+    assert done.returncode != 0 and "writable by others" in done.stderr
+    tmp.chmod(bad | 0o1000)
+    done = run(RESTORE, fake, str(dump_file), PHAROS_RESTORE_TMP=str(inner))
+    assert done.returncode == 0, done.stderr
 
 
 def test_the_scripts_keep_the_safety_settings_and_never_name_a_password() -> None:
@@ -791,7 +867,7 @@ def test_a_second_restore_check_counts_everything_not_only_public_tables(
 ) -> None:
     (fake / "state" / "tables").write_text("3\n")
     done = run(RESTORE, fake, str(dump_file))
-    assert done.returncode != 0 and "already has 3 tables, views or sequences" in done.stderr
+    assert done.returncode != 0 and "already has 3 tables, views, sequences" in done.stderr
     assert restore_calls(fake) == []
     # The query looks at pg_class across schemas, not at information_schema.
     assert "pg_catalog.pg_class" in calls(fake)

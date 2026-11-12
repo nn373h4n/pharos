@@ -332,7 +332,10 @@ database or on a role, and schemas other than `public`, and it refuses any exten
 database, so a changed dump could make a trusted extension of its own and hide objects in it. Every
 query on the restored database resolves names in `pg_catalog` only, because a dump can make a schema
 named after the owner, which is first in the owner's default `search_path`, with operators that
-change what an unguarded query says.
+change what an unguarded query says. The roles live outside the database, so the script also takes
+a digest of every role (attributes and password hash), membership and setting as the superuser
+before and after `pg_restore`, and refuses any difference: the owner may change its own password,
+and a dump can make it do so.
 
 Then it **compares the restored database with what the migrations make** (F-44). It reads the
 dump's schema version and builds a reference at that version in two scratch databases on the same
@@ -340,13 +343,15 @@ server, with the database grants the init script gives: the migrations of the `m
 in the first (the image of the stack you restore into, so restore with the release that made the
 dump or a newer one), and the result goes through `pg_dump` and `pg_restore` like the real dump, so
 both are written the way PostgreSQL writes a restored database. `scripts/restore/catalog.sql` then
-compares, by name: the database's owner and grants; schemas; relations with their owner, kind,
-row-level security flags, options and columns; the grants on relations, columns, functions,
+compares, by name: the database's owner and grants, whether it is a template, takes connections and
+how many; schemas; relations with their owner, kind, persistence (an `UNLOGGED` table, such as an
+audit log made so, is emptied after any crash), replica identity, row-level security flags, options
+and columns (type, collation, storage and compression, defaults); the grants on relations, columns, functions,
 schemas, types, languages, large objects, foreign servers and wrappers, and default privileges;
 policies in full; functions (owner, whether they run with the owner's rights, settings, the whole
 definition); aggregates; triggers, rules, views, constraints and indexes; inheritance; types and
-domains; operators, casts, collations, conversions, text search configurations, statistics,
-publications, user mappings and event triggers; extensions and settings. Objects inside an extension
+domains; operators, casts, collations, conversions, text search configurations and dictionaries,
+statistics, publications, user mappings and event triggers; comments; extensions and settings. Objects inside an extension
 are not compared (only a superuser can have made them, see above). Any difference stops it with the
 names of what differs (`only in the dump: policy|public.users.…`); then do not start the stack,
 remove the postgres volume and find out where the dump came from. The scratch databases are removed
@@ -364,11 +369,17 @@ matters: keep the checksums out of reach of whoever keeps the dumps, as above.
 3. `scripts/restore.sh /srv/pharos-backups/dumps/daily/pharos-YYYYMMDDTHHMMSSZ.dump` (a relative
    path is read from where you run it). It refuses a dump whose checksum file is missing or does not
    match, a file that is not a Pharos dump, a database whose two roles do not both exist, are not
-   plain login roles or are members of other roles, and a database that already has tables, views
-   or sequences; it restores in one transaction, so a failure leaves nothing half-restored. The
-   script first copies the dump once into a private directory (`PHAROS_RESTORE_TMP`, else `TMPDIR`,
-   else `/tmp`, which is memory on many hosts): for a large dump name a directory on a real disk with
-   room for it. The free space is checked before the copy, and the copy is removed on every way out.
+   plain login roles or are members of other roles, and a database that already has tables, views,
+   sequences, functions or default privileges. It restores in one transaction, but **a failed
+   restore is not proof that nothing was written**: a hostile dump can end that transaction itself
+   and keep what came before the failure (a default privilege, a function, a role's setting or
+   password). After any failure, remove the postgres volume and start on a new one; do not start the
+   stack on it. The script first copies the dump once into a private directory
+   (`PHAROS_RESTORE_TMP`, else `TMPDIR`, else `/tmp`, which is memory on many hosts): for a large dump
+   name a directory on a real disk with room for it. That directory and every directory above it
+   must belong to root or to you and must not be writable by others unless the sticky bit is set
+   (like `/tmp`), or someone could swap the copy after its checksum was checked. The free space is
+   checked before the copy, and the copy is removed on every way out.
 4. Start the rest: `docker compose ... up -d`. The migration step finds the schema at its latest
    version. People sign in again.
 

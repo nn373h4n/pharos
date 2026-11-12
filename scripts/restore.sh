@@ -22,11 +22,15 @@
 # authenticated encryption, where the keepers of the dumps cannot rewrite them. There is no way to
 # skip the check: a dump you made by hand needs its checksum file made by hand (sha256sum).
 #
-# It refuses to touch a database that already has tables, one whose roles are missing (a dump holds
-# the GRANTs to pharos_app and pharos_worker but not the roles) and one whose roles are not plain
-# login roles without memberships. The extension entry is left out of the restore (the init script
-# made it as a superuser; the owner cannot make it again). After the restore it looks for two things
-# a good dump never makes: settings on the database or on a role, and schemas other than public.
+# It refuses to touch a database that already has tables, functions or default privileges, one whose
+# roles are missing (a dump holds the GRANTs to pharos_app and pharos_worker but not the roles) and
+# one whose roles are not plain login roles without memberships. The extension entry is left out of
+# the restore (the init script made it as a superuser; the owner cannot make it again). pg_restore
+# runs in one transaction, but a hostile dump can end that transaction itself, so a failed restore
+# may have written part of it: after a failure, remove the postgres volume. Every role, membership
+# and role setting must be the same after the restore as before (a digest taken as the superuser).
+# After the restore it looks for two things a good dump never makes: settings on the database or on
+# a role, and schemas other than public.
 #
 # Then it compares the restored database with what the migrations make (F-44): it builds
 # a reference at the dump's own schema version in two scratch databases on the same server (the
@@ -69,6 +73,19 @@ case $dump in /*) ;; *) dump="$CALLER/$dump" ;; esac
 # dump name a directory on a real disk. The free space is checked first.
 base=${PHAROS_RESTORE_TMP:-${TMPDIR:-/tmp}}
 [ -d "$base" ] || die "$base (PHAROS_RESTORE_TMP or TMPDIR) is not a directory"
+# Whoever may rename or replace the private copy's directory could hand the restore another dump
+# after its hash was checked: the directory and every parent must belong to root or to you and must
+# not be writable by others unless the sticky bit is set (like /tmp), as backup.sh asks of its own.
+parent=$(cd -- "$base" && pwd -P) || die "cannot enter $base"
+while :; do
+  mode=0$(stat -c %a -- "$parent") || die "cannot read the mode of $parent"
+  case "$(stat -c %u -- "$parent")" in 0 | "$(id -u)") ;; *) die "$parent (PHAROS_RESTORE_TMP or TMPDIR, or above it) is owned by someone else; use a directory that only root or you control" ;; esac
+  if [ $((mode & 022)) -ne 0 ] && [ $((mode & 01000)) -eq 0 ]; then
+    die "$parent (PHAROS_RESTORE_TMP or TMPDIR, or above it) is writable by others (mode ${mode#0}); use a directory that only root or you control"
+  fi
+  [ "$parent" != / ] || break
+  parent=$(dirname -- "$parent")
+done
 need=$(stat -c %s -- "$dump")
 free=$(df -P -B1 -- "$base" | awk 'NR == 2 { print $4 }')
 [[ $free =~ ^[0-9]+$ ]] || die "cannot tell how much space $base has"
@@ -81,6 +98,12 @@ BUILD_DB=pharos_restore_build
 REFERENCE_DB=pharos_restore_reference
 # As the superuser, through the container's local socket only (pg_hba refuses it over the network).
 psql_super() { compose exec -T postgres sh -c 'exec psql --username="$POSTGRES_USER" --dbname=postgres --no-psqlrc --quiet -v ON_ERROR_STOP=1 "$@"' sh "$@"; }
+# Everything about the roles that a dump might change (the owner may change its own password, for
+# example): every role with its attributes and password hash, every membership and every setting,
+# reduced to one digest that is never printed. Taken before and after the restore, as the superuser.
+roles_digest() {
+  psql_super --tuples-only --no-align --command "SET search_path = pg_catalog, pg_temp; SELECT md5(coalesce((SELECT string_agg(a::text, ',' ORDER BY a::text) FROM pg_catalog.pg_authid a), '') || '|' || coalesce((SELECT string_agg(m::text, ',' ORDER BY m::text) FROM pg_catalog.pg_auth_members m), '') || '|' || coalesce((SELECT string_agg(s::text, ',' ORDER BY s::text) FROM pg_catalog.pg_db_role_setting s), '')) AS pharos_roles_digest"
+}
 drop_reference() {
   psql_super --command "DROP DATABASE IF EXISTS $BUILD_DB WITH (FORCE)" --command "DROP DATABASE IF EXISTS $REFERENCE_DB WITH (FORCE)" >/dev/null 2>&1 ||
     echo "restore: could not remove the scratch databases $BUILD_DB and $REFERENCE_DB; drop them by hand" >&2
@@ -122,18 +145,29 @@ members=$(psql_owner --command "SELECT count(*) FROM pg_catalog.pg_auth_members 
 [ "$members" = 0 ] || die "pharos_app and pharos_worker must not be members of any role"
 
 # Everything that is not the system's: any schema, whoever owns it (information_schema.tables would
-# show only what the owner may read, and only in public).
-tables=$(psql_owner --command "SELECT count(*) FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE c.relkind IN ('r', 'p', 'v', 'm', 'S', 'f') AND n.nspname NOT IN ('pg_catalog', 'information_schema') AND n.nspname NOT LIKE 'pg\_toast%' AND n.nspname NOT LIKE 'pg\_temp%'") ||
+# show only what the owner may read, and only in public). Functions and default privileges too: a
+# hostile dump can end the restore's transaction itself, so a failed restore may have left them in a
+# database that still has no table (F-44 review).
+tables=$(psql_owner --command "SELECT (SELECT count(*) FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE c.relkind IN ('r', 'p', 'v', 'm', 'S', 'f') AND n.nspname NOT IN ('pg_catalog', 'information_schema') AND n.nspname NOT LIKE 'pg\_toast%' AND n.nspname NOT LIKE 'pg\_temp%') + (SELECT count(*) FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname NOT IN ('pg_catalog', 'information_schema') AND p.oid NOT IN (SELECT d.objid FROM pg_catalog.pg_depend d WHERE d.deptype = 'e' AND d.classid = 'pg_catalog.pg_proc'::pg_catalog.regclass)) + (SELECT count(*) FROM pg_catalog.pg_default_acl)") ||
   die "cannot ask the database for its tables"
-[ "$tables" = 0 ] || die "the database already has $tables tables, views or sequences; restore only into a new, empty database"
+[ "$tables" = 0 ] || die "the database already has $tables tables, views, sequences, functions or default privileges; restore only into a new, empty database (a new postgres volume)"
 
 # The list of what to restore, without the extension entries, kept in the container's tmpfs.
 list_made=1
 grep -v ' EXTENSION ' <<<"$listing" | compose exec -T postgres sh -c 'cat > /tmp/pharos-restore.list'
 
+roles_before=$(roles_digest) && [[ $roles_before =~ ^[0-9a-f]{32}$ ]] ||
+  die "cannot read the roles as the superuser"
+
 compose exec -T postgres pg_restore --username=pharos_owner --dbname=pharos \
   --exit-on-error --single-transaction --use-list=/tmp/pharos-restore.list <"$work/dump" ||
-  die "pg_restore failed; nothing was restored (it ran in one transaction)"
+  die "pg_restore failed. It runs in one transaction, but a hostile dump can end that transaction itself, so the database and the roles may be partly changed. Do NOT start the stack on this volume: remove the postgres volume, start postgres on a new one, and investigate where the dump came from before you try again"
+
+# A role the dump changed (the owner's password, for example) is not in the database's catalogs.
+roles_after=$(roles_digest) && [[ $roles_after =~ ^[0-9a-f]{32}$ ]] ||
+  die "cannot read the roles as the superuser after the restore. Do NOT start the stack: remove the postgres volume and investigate where the dump came from"
+[ "$roles_after" = "$roles_before" ] ||
+  die "the dump changed a role (a password, an attribute, a membership or a setting). Do NOT start the stack: remove the postgres volume, set the roles' passwords again and investigate where the dump came from"
 
 # What a good dump never makes. If the dump did, the database is not to be trusted: remove its volume.
 strange=$(psql_owner --command "SELECT (SELECT count(*) FROM pg_catalog.pg_db_role_setting WHERE setdatabase IN (0, (SELECT oid FROM pg_catalog.pg_database WHERE datname = current_database()))) + (SELECT count(*) FROM pg_catalog.pg_namespace WHERE nspname NOT IN ('public', 'information_schema') AND nspname NOT LIKE 'pg\_%')") ||
