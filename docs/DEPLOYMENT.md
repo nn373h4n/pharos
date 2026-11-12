@@ -276,8 +276,11 @@ backup, so restore it once on a spare machine before you rely on it.
 **What is backed up, and what is not.** The dump holds the PostgreSQL database (articles, people,
 settings, the audit log, stored model usage). It does **not** hold the roles (they are made by
 `deploy/postgres/init/01-roles.sh` on a new volume), Redis (sessions and queues; people sign in
-again after a restore) or `deploy/.env`. Keep `deploy/.env` separately: its root secret is needed to
-read the restored audit chain and tokens, and it must not be stored beside the dumps.
+again after a restore) or `deploy/.env`. Keep `deploy/.env` separately, and never beside the dumps:
+it holds every password and the root secret, so a dump together with it is the whole installation.
+Restore with the same root secret: nothing in the database is encrypted with it, so a dump is
+readable without it, but the address hashes in the audit log are keyed with it, and with another
+secret old and new entries can no longer be matched by address.
 
 **Backing up.** From the repository directory, as a user who may run Docker:
 

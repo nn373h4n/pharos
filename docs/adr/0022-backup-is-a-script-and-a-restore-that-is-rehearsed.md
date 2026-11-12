@@ -59,8 +59,12 @@ Option 1.
   the rule.
 - The off-host copy and its encryption belong to the operator. The runbook says so and gives an
   example, but Pharos does not ship a destination.
-- `deploy/.env` is backed up separately from the dump, because the root secret is needed to read
-  the restored data (audit chain, tokens) and must not travel in the same place as the dump.
+- `deploy/.env` is backed up separately from the dump and must not travel in the same place: it
+  holds every password and the root secret. The restored data does not need the root secret to be
+  read (nothing in the database is encrypted with it), but the audit log's address hashes are
+  keyed with it, so the same secret keeps old and new entries comparable. (An earlier text spoke of
+  an "audit chain" and "tokens" that need it; there is no chain, and no stored token depends on
+  it. Corrected under F-45.)
 - The restore is **rehearsed**, not assumed: a throwaway stack is backed up, destroyed and restored;
   the schema version, the row counts of every table, row-level security, the policies, the exact
   grants of the two login roles, the functions, the triggers, the owners and grants of every

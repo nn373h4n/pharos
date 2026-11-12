@@ -4,7 +4,8 @@
 #   scripts/restore.sh DUMPFILE
 #
 # Use it on a NEW installation, before anything else is started:
-#   1. Put deploy/.env back (the same root secret, or the audit chain and the tokens cannot be read).
+#   1. Put deploy/.env back (the same root secret: with another one, the address hashes in the
+#      restored audit log can no longer be matched with new ones).
 #   2. docker compose ... up -d postgres        (a new volume: deploy/postgres/init/01-roles.sh runs
 #                                                once and creates the roles and the vector extension)
 #   3. scripts/restore.sh DUMPFILE
