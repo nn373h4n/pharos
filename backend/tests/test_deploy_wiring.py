@@ -512,9 +512,9 @@ def run_roles_script(tmp_path: Path, **passwords: str) -> subprocess.CompletedPr
         "PATH": f"{bin_dir}:{os.environ.get('PATH', '/usr/bin:/bin')}",
         "POSTGRES_USER": "postgres",
         "POSTGRES_DB": "pharos",
-        "PHAROS_OWNER_PASSWORD": "owner-0123abcd",
-        "PHAROS_APP_PASSWORD": "app-0123abcd",
-        "PHAROS_WORKER_DB_PASSWORD": "worker-0123abcd",
+        "PHAROS_OWNER_PASSWORD": "owner-test-only",
+        "PHAROS_APP_PASSWORD": "app-test-only",
+        "PHAROS_WORKER_DB_PASSWORD": "worker-test-only",
         **passwords,
     }
     return subprocess.run(  # noqa: S603
