@@ -4,7 +4,10 @@ A setting that exists in `Settings` but is not passed by Compose cannot be set b
 all; one that is not in `.env.example` cannot be found. Both are bugs, so this test fails for them.
 """
 
+import os
 import re
+import stat
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -489,3 +492,61 @@ def test_the_hsts_setting_reaches_caddy_and_is_documented() -> None:
     assert re.search(r"^PHAROS_HSTS_MAX_AGE=\d+$", (DEPLOY / ".env.example").read_text(), re.M)
     doc = (DEPLOY.parent / "docs" / "DEPLOYMENT.md").read_text()
     assert "`PHAROS_HSTS_MAX_AGE`" in doc
+
+
+ROLES_SCRIPT = DEPLOY / "postgres" / "init" / "01-roles.sh"
+
+
+def run_roles_script(tmp_path: Path, **passwords: str) -> subprocess.CompletedProcess[str]:
+    """01-roles.sh with a stand-in psql that only says it ran."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir(exist_ok=True)
+    psql = bin_dir / "psql"
+    psql.write_text("#!/bin/sh\ncat >/dev/null\necho PSQL-RAN\n")
+    psql.chmod(psql.stat().st_mode | stat.S_IEXEC)
+    data = tmp_path / "data"
+    data.mkdir(exist_ok=True)
+    (data / "pg_hba.conf").write_text("local all all trust\n")
+    env = {
+        "PGDATA": str(data),
+        "PATH": f"{bin_dir}:{os.environ.get('PATH', '/usr/bin:/bin')}",
+        "POSTGRES_USER": "postgres",
+        "POSTGRES_DB": "pharos",
+        "PHAROS_OWNER_PASSWORD": "owner-test-only",
+        "PHAROS_APP_PASSWORD": "app-test-only",
+        "PHAROS_WORKER_DB_PASSWORD": "worker-test-only",
+        **passwords,
+    }
+    return subprocess.run(  # noqa: S603
+        ["sh", str(ROLES_SCRIPT)],  # noqa: S607
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def test_the_roles_script_makes_the_roles_with_plain_passwords(tmp_path: Path) -> None:
+    done = run_roles_script(tmp_path)
+    assert done.returncode == 0, done.stderr
+    assert "PSQL-RAN" in done.stdout
+    assert "host all postgres all reject" in (tmp_path / "data" / "pg_hba.conf").read_text()
+
+
+@pytest.mark.parametrize(
+    "name", ["PHAROS_OWNER_PASSWORD", "PHAROS_APP_PASSWORD", "PHAROS_WORKER_DB_PASSWORD"]
+)
+@pytest.mark.parametrize(
+    "password", ["", "ab#Sentinel", "a/b", "a%41b", "a@b", "a b", "a$(touch x)b"]
+)
+def test_the_roles_script_refuses_a_password_unsafe_in_an_address_before_any_role(
+    tmp_path: Path, name: str, password: str
+) -> None:
+    """F-09: the services put these passwords into their addresses as they are."""
+    done = run_roles_script(tmp_path, **{name: password})
+    assert done.returncode != 0
+    assert f"{name} must be set and may contain only" in done.stderr
+    assert "PSQL-RAN" not in done.stdout  # nothing was made
+    assert "reject" not in (tmp_path / "data" / "pg_hba.conf").read_text()
+    assert "Sentinel" not in done.stderr
+    assert not (tmp_path / "x").exists()  # never run as a command

@@ -1,0 +1,6 @@
+# Findings gitleaks reports that are not secrets, by exact fingerprint (commit:file:rule:line).
+# Add a line only after checking the value by hand, and say why.
+#
+# A fake role password in a unit test of deploy/postgres/init/01-roles.sh (F-09); the next commit
+# replaced it with an obviously fake value. The commit stays in the history, so it is listed here.
+b0764ad4f41cef43c67ec6fc77b3353940bab484:backend/tests/test_deploy_wiring.py:generic-api-key:515
