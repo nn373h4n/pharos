@@ -41,17 +41,21 @@ work, ask `<contact>` first.
 ### What Pharos stores about you
 
 - Who you are: your account from `<identity provider>`, your name or user name, your e-mail
-  address and the department the provider sends.
-- Your choices: your profession and language, and what you do with the cards (that you viewed or saved one, marked it useful or not useful, tried it, and
+  address, the department the provider sends, and when you last signed in.
+- Your choices: your profession, language, the AI level and the interests you pick, and what you
+  do with the cards (that you viewed or saved one, marked it useful or not useful, tried it, and
   the minutes you say it saved). This is kept for `<12 months, or your setting>`.
 - Administrators see a daily summary of use, as counts. A group with fewer than five people is not
   shown. That lowers the chance that a number points at one person; it does not remove it (an
   administrator who noted earlier counts could still work one out).
-- The audit log records administrative actions and also every sign-in and sign-out, with your
-  account's identifier and a one-way hash of the address you connected from. It is kept for
+- The audit log records administrative actions, every sign-in and sign-out, and what you do with
+  your own feeds (adding, changing, switching on or off, deleting, and attempts that were refused;
+  not the feed's address), with your account's identifier and a one-way hash of the address you
+  connected from. It is kept for
   `<365 days, or your setting>` and can be read by `<who>`.
-- `<If personal feeds are on: feeds you add yourself are seen only by you. If they are off, delete
-  this line.>`
+- `<If personal feeds are on: feeds you add yourself, and their articles, are seen only by you
+  inside Pharos. When fetching one fails, the website's host name is written to the server's logs,
+  which the people who run the server can read. If personal feeds are off, delete this line.>`
 
 ### What goes to an AI model
 

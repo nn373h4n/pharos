@@ -5,7 +5,9 @@
 #   scripts/status.sh [--backups DIR]
 #
 # Checks, each printed as PASS, WARN, FAIL or NOT CHECKED:
-#   services   every long-running Compose service is running (and healthy, where it has a check)
+#   services   every long-running Compose service is running (and healthy, where it has a check): the
+#              services of the default profile, and every other service that has a container (the
+#              local model of the local-llm profile, for example); every container of a service
 #   readyz     the API's own readiness report: database, database role, redis, worker, migrations,
 #              organization
 #   backup     the age of the newest dump under DIR (daily/, weekly/, monthly/); only with --backups.
@@ -24,7 +26,8 @@ cd "$(dirname "$0")/.."
 read -r -a COMPOSE <<<"${PHAROS_COMPOSE:-docker compose -f deploy/docker-compose.yml --env-file deploy/.env}"
 compose() { "${COMPOSE[@]}" "$@"; }
 
-# Services that run once and exit; every other service in the default profile must stay up.
+# Services that run once and exit; every other service in the default profile, and every service
+# that has a container at all, must stay up.
 ONE_SHOT=" migrate operator ollama-init ollama-pull "
 BACKUP_WARN_HOURS=30
 BACKUP_FAIL_HOURS=54
@@ -58,6 +61,14 @@ report() { # level name detail
 # --- services ---------------------------------------------------------------------------------
 if services=$(compose config --services 2>/dev/null) && [ -n "$services" ]; then
   state=$(compose ps -a --format '{{.Service}}|{{.State}}|{{.Health}}' 2>/dev/null || true)
+  # The services to look at: those of the default profile, and any other service that has a
+  # container (a profile's service, such as the local model, is not in `config --services` unless
+  # the profile is named, but once started it must stay up like the others).
+  names=$services
+  while IFS= read -r candidate; do
+    [ -n "$candidate" ] || continue
+    case $'\n'"$names"$'\n' in *$'\n'"${candidate%%|*}"$'\n'*) ;; *) names="$names"$'\n'"${candidate%%|*}" ;; esac
+  done <<<"$state"
   bad=
   count=0
   while IFS= read -r name; do
@@ -70,20 +81,22 @@ if services=$(compose config --services 2>/dev/null) && [ -n "$services" ]; then
     fi
     case "$ONE_SHOT" in *" $name "*) continue ;; esac
     count=$((count + 1))
-    line=
-    while IFS= read -r candidate; do # the exact service name, not a prefix or a pattern
-      if [ "${candidate%%|*}" = "$name" ]; then
-        line=$candidate
-        break
+    # Every container of the service (the exact name, not a prefix or a pattern): a second one that
+    # stopped is not hidden by the first.
+    seen=0
+    while IFS= read -r candidate; do
+      [ "${candidate%%|*}" = "$name" ] || continue
+      seen=$((seen + 1))
+      run=${candidate#*|}
+      run_state=${run%%|*}
+      health=${run#*|}
+      if [ "$run_state" != running ] || { [ -n "$health" ] && [ "$health" != healthy ]; }; then
+        [[ "$run_state$health" =~ ^[a-z]*$ ]] || { run_state=unreadable; health=; }
+        bad="$bad $name(${run_state:-missing}${health:+/$health})"
       fi
     done <<<"$state"
-    run=${line#*|}
-    run_state=${run%%|*}
-    health=${run#*|}
-    if [ "$run_state" != running ] || { [ -n "$health" ] && [ "$health" != healthy ]; }; then
-      bad="$bad $name(${run_state:-missing}${health:+/$health})"
-    fi
-  done <<<"$services"
+    [ "$seen" -gt 0 ] || bad="$bad $name(missing)"
+  done <<<"$names"
   if [ -n "$bad" ]; then
     report FAIL services "not running or not healthy:$bad"
   elif [ "$count" -eq 0 ]; then
@@ -141,9 +154,12 @@ else
   elif ! [[ $newest =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
     report FAIL backup "the date of the newest dump could not be read"
   else
-    # Only the file's date is checked: not its size, its content or whether it restores.
-    hours=$(((${EPOCHSECONDS:-$(date +%s)} - ${newest%.*}) / 3600))
-    if [ "$hours" -lt 0 ]; then
+    # Only the file's date is checked: not its size, its content or whether it restores. In seconds
+    # first: a dump dated less than an hour ahead would round to 0 hours. A minute of clock skew is
+    # allowed.
+    age=$((${EPOCHSECONDS:-$(date +%s)} - ${newest%.*}))
+    hours=$((age / 3600))
+    if [ "$age" -lt -60 ]; then
       report FAIL backup "the newest dump is dated in the future (check the clock)"
     elif [ "$hours" -ge "$BACKUP_FAIL_HOURS" ]; then
       report FAIL backup "newest dump is ${hours} hours old (limit ${BACKUP_FAIL_HOURS})"
