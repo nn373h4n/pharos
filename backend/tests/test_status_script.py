@@ -167,8 +167,10 @@ def test_a_service_name_that_is_a_prefix_of_another_is_not_mistaken_for_it(tmp_p
     ["Web API", "web my$proxy", "migrate operator", "ollama-init ollama-pull migrate"],
 )
 def test_nothing_checked_is_never_a_pass(tmp_path: Path, services: str) -> None:
-    # Names the script cannot match safely, or only one-shot services: no PASS with 0 services.
-    result, _ = run(tmp_path, env={"STUB_SERVICES": services})
+    # Names the script cannot match safely, or only one-shot services (in the configuration and
+    # among the containers): no PASS with 0 services.
+    ps = "".join(f"{name}|exited|\\n" for name in services.split() if "$" not in name)
+    result, _ = run(tmp_path, env={"STUB_SERVICES": services, "STUB_PS": ps})
     assert result.returncode == 1
     assert levels(result)["services"] == "FAIL"
 
@@ -186,6 +188,48 @@ def test_the_local_model_s_one_shot_services_are_not_required_to_run(tmp_path: P
         env={"STUB_SERVICES": "web api worker beat migrate ollama-init ollama-pull"},
     )
     assert levels(result)["services"] == "PASS"
+
+
+def test_a_stopped_service_of_a_profile_fails_although_the_configuration_does_not_list_it(
+    tmp_path: Path,
+) -> None:
+    """`config --services` leaves out the local-llm profile unless it is named; its container is
+    still checked once it exists (second review of M5-11)."""
+    ps = (
+        "web|running|\\napi|running|healthy\\nworker|running|healthy\\nbeat|running|\\n"
+        "ollama|exited|\\n"
+    )
+    result, _ = run(tmp_path, env={"STUB_PS": ps})
+    assert levels(result)["services"] == "FAIL"
+    assert "ollama(exited)" in result.stdout
+    running = ps.replace("ollama|exited|", "ollama|running|healthy")
+    result, _ = run(tmp_path, env={"STUB_PS": running})
+    assert levels(result)["services"] == "PASS"
+    assert "5 long-running services are up" in result.stdout
+    # Its one-shot helpers may have exited.
+    helpers = running + "ollama-pull|exited|\\nollama-init|exited|\\n"
+    result, _ = run(tmp_path, env={"STUB_PS": helpers})
+    assert levels(result)["services"] == "PASS"
+
+
+@pytest.mark.parametrize("second", ["exited|", "running|unhealthy", "restarting|"])
+def test_every_container_of_a_service_is_checked(tmp_path: Path, second: str) -> None:
+    """A second worker (scaled, or left over) that stopped is not hidden by the first one."""
+    ps = (
+        "web|running|\\napi|running|healthy\\nworker|running|healthy\\n"
+        f"worker|{second}\\nbeat|running|\\n"
+    )
+    result, _ = run(tmp_path, env={"STUB_PS": ps})
+    assert result.returncode == 1
+    assert levels(result)["services"] == "FAIL"
+    assert "worker(" in result.stdout
+
+
+def test_a_state_that_is_not_a_plain_word_is_not_printed(tmp_path: Path) -> None:
+    ps = "web|running|\\napi|running|healthy\\nworker|\\033[2Jx|\\nbeat|running|\\n"
+    result, _ = run(tmp_path, env={"STUB_PS": ps})
+    assert levels(result)["services"] == "FAIL"
+    assert "worker(unreadable)" in result.stdout and "\x1b" not in result.stdout
 
 
 def test_compose_not_answering_is_a_failure_not_a_pass(tmp_path: Path) -> None:
@@ -242,9 +286,13 @@ def test_text_from_the_container_is_not_echoed(tmp_path: Path) -> None:
         (55, "FAIL"),
         (500, "FAIL"),
         (-48, "FAIL"),  # a dump dated in the future is not fresh
+        (-0.9, "FAIL"),  # also less than an hour ahead (it used to round to 0 hours)
+        (-0.01, "PASS"),  # 36 seconds: within the minute allowed for clock skew
     ],
 )
-def test_the_age_of_the_newest_dump_sets_the_level(tmp_path: Path, hours: int, level: str) -> None:
+def test_the_age_of_the_newest_dump_sets_the_level(
+    tmp_path: Path, hours: float, level: str
+) -> None:
     make_dump(tmp_path / "dumps", hours)
     result, _ = run(tmp_path, "--backups", str(tmp_path / "dumps"))
     assert levels(result)["backup"] == level

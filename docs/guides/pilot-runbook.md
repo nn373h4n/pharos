@@ -100,9 +100,10 @@ export PHAROS_COMPOSE="docker compose -f deploy/docker-compose.yml -f deploy/doc
 ```
 
 (`PHAROS_COMPOSE` is read by `scripts/backup.sh`, `scripts/restore.sh` and `scripts/status.sh`. Put
-both lines in the profile of the user who runs them and in the environment of the host's scheduler,
-not only in the current shell: without `PHAROS_COMPOSE` the scripts fall back to the base Compose
-file.)
+both lines in the profile of the user who runs them, not only in the current shell: without
+`PHAROS_COMPOSE` the scripts fall back to the base Compose file. A scheduler such as cron reads no
+profile and cannot hold a shell function, so scheduled jobs spell the commands out; step 8 shows
+them.)
 
 ```bash
 pharos run --rm migrate python -m pharos.cli create-org --slug default --name "Your organization"
@@ -248,7 +249,8 @@ scripts/backup.sh run --dir /srv/pharos-backups/dumps
 scripts/backup.sh env --dir /home/operator/pharos-env --dumps /srv/pharos-backups/dumps
 ```
 
-- Schedule `run` nightly with the host's scheduler. Copy the dumps off the server, encrypted. Keep
+- Schedule `run` nightly with the host's scheduler (the crontab below). Copy the dumps off the
+  server, encrypted. Keep
   the `.env` copy somewhere else than the dumps: without the root secret in it, a restored audit
   chain and the tokens cannot be read.
 - **Restore once on a spare machine before you rely on it** (gate G8). A dump that has never been
@@ -269,6 +271,22 @@ pharos --profile operator run --rm operator python -m pharos.cli fold-interactio
 pharos --profile operator run --rm operator python -m pharos.cli prune-audit --confirm
 pharos --profile operator run --rm operator python -m pharos.cli fold-interactions --confirm
 ```
+
+- The scheduled jobs, for the crontab of the user who runs Docker (`crontab -e`). Cron has no
+  `pharos` function and reads no profile, so each line names the checkout and the Compose files;
+  replace `/home/operator/pharos` with your checkout. `-T` because cron gives no terminal:
+
+```text
+PHAROS_COMPOSE=docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.release.yml --env-file deploy/.env
+30 2 * * * cd /home/operator/pharos && scripts/backup.sh run --dir /srv/pharos-backups/dumps >>/home/operator/pharos-backup.log 2>&1
+0 4 1 * * cd /home/operator/pharos && $PHAROS_COMPOSE --profile operator run --rm -T operator python -m pharos.cli prune-audit --confirm >>/home/operator/pharos-retention.log 2>&1
+30 4 1 * * cd /home/operator/pharos && $PHAROS_COMPOSE --profile operator run --rm -T operator python -m pharos.cli fold-interactions --confirm >>/home/operator/pharos-retention.log 2>&1
+```
+
+- Check that the jobs ran: `scripts/status.sh --backups /srv/pharos-backups/dumps` shows the age of
+  the newest dump each day; after the first of the month the retention log ends with `deleted ...`
+  and `folded ...` lines, and the audit log has an `audit.pruned` and an `interactions.folded`
+  entry. Nothing alerts you when a job stops running, so look.
 
 - Deleting one person: find them with `list-people`, run a dry run first, then the same command
   with `--confirm`. Backups made before the deletion still hold the person until they expire.
@@ -299,8 +317,50 @@ pharos --profile operator run --rm operator python -m pharos.cli delete-person -
 | `readyz` fails on `worker` just after start | Wait a few seconds for the first heartbeat. |
 | `services` fails but `readyz` still passes | The worker's heartbeat has not expired yet and `readyz` will follow. Trust `services`. |
 | Disk WARN or FAIL | Free space (old images: `docker image prune`; old dumps: `scripts/backup.sh prune --dir DIR`) or grow the disk. Do not remove Docker volumes. |
-| A secret may have leaked | Replace it in `deploy/.env` (for the model key, also revoke it at the provider), `pharos up -d`. Changing `PHAROS_SECRET_KEY` signs everyone out and makes old audit entries unverifiable: ask the maintainers first. |
+| A secret may have leaked | Rotate it as in "Rotating a secret" below. Editing `deploy/.env` alone is **not** enough for the database passwords. |
 | The database is lost or damaged | Restore ([DEPLOYMENT.md, "Backup and restore"](../DEPLOYMENT.md#backup-and-restore)). People sign in again; sessions are not backed up. |
+
+### Rotating a secret
+
+Generate every new value with `openssl rand -hex 24` (letters and digits only: the passwords go into
+connection addresses) and edit `deploy/.env` with an editor, so no value lands in the shell history.
+
+| Secret | Rotate it like this |
+| --- | --- |
+| `PHAROS_REDIS_PASSWORD`, `PHAROS_REDIS_WORKER_PASSWORD` | New value in `deploy/.env`, then `pharos up -d`. Redis reads them at every start. |
+| `POSTGRES_PASSWORD`, `PHAROS_OWNER_PASSWORD`, `PHAROS_APP_PASSWORD`, `PHAROS_WORKER_DB_PASSWORD` | PostgreSQL sets them **only when its volume is first created**, so a new value in `deploy/.env` alone leaves the old one valid in the database and the services locked out. Follow the steps below. |
+| `PHAROS_OIDC_CLIENT_SECRET` | Create a new secret for the application at the identity provider, put it in `deploy/.env`, `pharos up -d`, sign in once to check, then **delete the old secret at the identity provider**. Until then it still works. |
+| `PHAROS_LLM_API_KEY`, `PHAROS_GITHUB_TOKEN` | New key in `deploy/.env`, `pharos up -d`, then revoke the old one at the provider or at GitHub. |
+| `PHAROS_SECRET_KEY` | Changing it signs everyone out and makes old audit entries unverifiable: ask the maintainers first. |
+
+The database passwords, without a password on any command line:
+
+1. Put the new values in `deploy/.env`.
+2. `pharos up -d postgres`: the database container is made again with the new values in its
+   environment; the data, and the old passwords, stay.
+3. Set them in the database. psql reads them from the container's environment (`\getenv`) and
+   quotes them itself:
+
+   ```bash
+   pharos exec -T postgres sh -c 'exec psql -v ON_ERROR_STOP=1 --quiet --username="$POSTGRES_USER" --dbname=postgres' <<'SQL'
+   \getenv superuser POSTGRES_USER
+   \getenv superuser_password POSTGRES_PASSWORD
+   \getenv owner_password PHAROS_OWNER_PASSWORD
+   \getenv app_password PHAROS_APP_PASSWORD
+   \getenv worker_password PHAROS_WORKER_DB_PASSWORD
+   ALTER ROLE :"superuser" PASSWORD :'superuser_password';
+   ALTER ROLE pharos_owner PASSWORD :'owner_password';
+   ALTER ROLE pharos_app PASSWORD :'app_password';
+   ALTER ROLE pharos_worker PASSWORD :'worker_password';
+   SQL
+   ```
+
+4. `pharos up -d`: the other services start with the new addresses. `scripts/status.sh` must show
+   `readyz` as ready.
+
+After any rotation, make a new copy of `deploy/.env` (`scripts/backup.sh env`, step 8) and destroy
+the older copies: they still hold the leaked value. Dumps are not affected (they hold no role
+passwords).
 
 ## 10. Upgrade and roll back
 
