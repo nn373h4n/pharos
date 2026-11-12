@@ -240,6 +240,32 @@ async def test_every_kind_of_failure_gives_the_same_answer(make_stack: MakeStack
 
 
 @pytest.mark.anyio
+async def test_a_password_with_a_lone_surrogate_is_refused_alike_for_every_account(
+    make_stack: MakeStack,
+) -> None:
+    """Valid JSON, but not encodable. The request is refused while it is read, before any account
+    is looked up, so the answer cannot depend on the account (F-16 review; the hasher would also
+    treat such a password as a plain failure, for callers that do not validate first)."""
+    stack = await make_stack()
+    admin = await make_user(stack)
+    before = len(await audit_rows(stack))
+    answers = {}
+    for name in (admin, unique("ghost")):
+        # Written out as JSON text: the escape is valid JSON, the character it names is not UTF-8.
+        body = '{"username": "' + name + '", "password": "bad \\ud800 password!!"}'
+        response = await stack.client.post(
+            "/api/auth/local/login",
+            content=body.encode("ascii"),
+            headers={"content-type": "application/json"},
+        )
+        assert response.status_code == 422, (name, response.text)
+        assert "set-cookie" not in response.headers
+        answers[name] = without_request_id(response)
+    assert len({str(answer) for answer in answers.values()}) == 1
+    assert len(await audit_rows(stack)) == before  # refused before the sign-in began
+
+
+@pytest.mark.anyio
 async def test_unknown_accounts_cost_the_same_hashing_work(make_stack: MakeStack) -> None:
     stack = await make_stack()
     admin = await make_user(stack)

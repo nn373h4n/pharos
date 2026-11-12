@@ -5,6 +5,13 @@
   must queue, not exhaust memory. The work runs in a thread, so the event loop keeps serving.
 * An unknown user, an SSO-only user or a missing credential is checked against a hash of nothing
   in particular (`verify(None, ...)`), so the work done does not reveal whether the account exists.
+* A check against the dummy or a hash with today's parameters takes its natural time. Any other
+  check (a hash made with older, cheaper parameters, one whose salt or digest is damaged, one that
+  cannot be read) is held, inside its hashing slot, until it has taken as long as one of the last
+  checks with today's parameters, picked at random. Those recent times are measured once when the
+  hasher is made and then kept current, so both groups follow the same spread of times on this
+  machine right now, alone or among parallel requests (F-16). A hash STRONGER than today's (the
+  cost was lowered later) still takes longer than the dummy; it cannot be shortened.
 * `needs_rehash` is true only when the stored hash is WEAKER than today's parameters (less memory,
   fewer iterations, another variant). It is never true for a stronger or equal hash, so lowering the
   configured cost does not make every sign-in rewrite stronger hashes.
@@ -16,17 +23,23 @@
 import asyncio
 import re
 import secrets
+import statistics
+import time
+from collections import deque
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
 from argon2 import PasswordHasher as Argon2
 from argon2 import Type, extract_parameters
-from argon2.exceptions import InvalidHashError, VerificationError
+from argon2.exceptions import InvalidHashError, VerificationError, VerifyMismatchError
 
 from pharos.core.errors import DependencyUnavailable
 
 MIN_PASSWORD_LENGTH = 15
 MAX_PASSWORD_LENGTH = 128
 QUEUE_TIMEOUT_SECONDS = 10.0
+# How many recent checks with today's parameters are kept to draw a hold time from.
+FLOOR_WINDOW = 15
 # Fewer different characters than this is a pattern, not a passphrase ("aaaaaaaaaaaaaaa").
 MIN_DISTINCT_CHARACTERS = 6
 # Passwords that are long enough to pass the length rule and still the first thing anyone tries.
@@ -82,7 +95,11 @@ class PasswordHasher:
         time_cost: int = 3,
         parallelism: int = 1,
         concurrency: int = 2,
+        floor_seconds: float | None = None,
+        sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
+        """`floor_seconds` is the first floor (by default measured now with three checks against
+        the dummy; the CLI, which never verifies a password, passes 0). `sleep` is for tests."""
         self._argon2 = Argon2(
             time_cost=time_cost,
             memory_cost=memory_kib,
@@ -95,6 +112,21 @@ class PasswordHasher:
         self._parallelism = parallelism
         # Made once, with today's parameters, from a random value nobody knows.
         self._dummy = self._argon2.hash(secrets.token_urlsafe(32))
+        self._sleep = sleep
+        self._recent: deque[float] = deque(maxlen=FLOOR_WINDOW)
+        if floor_seconds is None:
+            guess = secrets.token_urlsafe(16)
+            for _ in range(3):
+                started = time.perf_counter()
+                self._check(self._dummy, guess)
+                self._recent.append(time.perf_counter() - started)
+        else:
+            self._recent.append(floor_seconds)
+
+    @property
+    def floor_seconds(self) -> float:
+        """The median of the recent times (for reports and tests; holds draw from all of them)."""
+        return statistics.median(self._recent)
 
     async def _slot(self) -> None:
         try:
@@ -112,14 +144,41 @@ class PasswordHasher:
     async def verify(self, stored: str | None, password: str) -> Verification:
         """Check a password. `stored=None` does the same work against the dummy hash and fails."""
         target = stored or self._dummy
+        today = stored is None or self._has_todays_parameters(stored)
         await self._slot()
         try:
-            ok = await asyncio.to_thread(self._check, target, password)
+            started = time.perf_counter()
+            ok, worked = await asyncio.to_thread(self._check, target, password)
+            elapsed = time.perf_counter() - started
+            if today and worked:
+                # A full check with today's parameters takes its natural time and is remembered.
+                # One that stopped before the work (a damaged hash, a password that cannot be
+                # encoded) is held like the rest, against any target.
+                self._recent.append(elapsed)
+            else:
+                # Anything else is held, inside the slot, to the time of a recent check with
+                # today's parameters picked at random: the same spread of times, and the slot is
+                # kept as long, so neither one request nor parallel ones tell them apart (F-16).
+                hold = secrets.choice(list(self._recent))
+                if elapsed < hold:
+                    await self._sleep(hold - elapsed)
         finally:
             self._semaphore.release()
         if not ok or stored is None:
             return Verification(False)
         return Verification(True, self._is_weaker(stored))
+
+    def _has_todays_parameters(self, stored: str) -> bool:
+        try:
+            params = extract_parameters(stored)
+        except InvalidHashError:
+            return False
+        return (
+            params.type == Type.ID
+            and params.memory_cost == self._memory_kib
+            and params.time_cost == self._time_cost
+            and params.parallelism == self._parallelism
+        )
 
     def _is_weaker(self, stored: str) -> bool:
         try:
@@ -133,8 +192,13 @@ class PasswordHasher:
             or params.parallelism < self._parallelism
         )
 
-    def _check(self, target: str, password: str) -> bool:
+    def _check(self, target: str, password: str) -> tuple[bool, bool]:
+        """(the password is right, the full computation ran). Only a match or a mismatch did the
+        work; a damaged or unreadable hash, or a password that cannot be encoded (a lone surrogate
+        from JSON), stops at once and is a failure that did not (F-16 review)."""
         try:
-            return self._argon2.verify(target, password)
-        except (VerificationError, InvalidHashError):
-            return False
+            return self._argon2.verify(target, password), True
+        except VerifyMismatchError:
+            return False, True
+        except (VerificationError, InvalidHashError, UnicodeError):
+            return False, False

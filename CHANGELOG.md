@@ -7,6 +7,7 @@ All notable changes are listed here, newest first. The format follows [Keep a Ch
 ### Added
 
 - `python -m pharos.cli list-people` (read-only, as the application role): the organization's people with the identifier that `delete-person --user-id` takes, how they sign in, role, status, last sign-in, name and e-mail, 100 at a time; characters that could drive the terminal are escaped (F-57).
+- Signing in with an account whose password hash was made with older, cheaper parameters (or whose hash is damaged) takes as long as signing in with an unknown name, alone or among parallel requests (F-16).
 - Passwords in the database and Redis addresses may contain only letters, digits and `_ . -`; anything else is refused at start-up by the services, the migrations, the operator commands and, on a new volume, PostgreSQL's init script, instead of being read as another password or another host (F-09).
 - `/api/readyz` runs its checks at most once every 2 seconds; calls in between get the last report, and calls during a round wait for it (F-10).
 - The Model page shows how many more insights today's budget covers, at the average cost of the last seven days' insights or, before the first one, at the worst case at the set prices (F-52); `GET /api/llm/status` has `insights_left`. The pilot runbook sizes the budget with the numbers ("How many insights a day"): the default of two dollars a day covers at most a handful of insights at the default prices.
