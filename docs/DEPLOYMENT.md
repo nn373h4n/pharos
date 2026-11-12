@@ -536,9 +536,22 @@ as in an installation). It creates the organization and an administrator with a 
 password that is never printed or put on a command line, imports the starter sources, signs in
 through the API, switches every source on and waits (`--timeout SECONDS`, default 600) until each
 one has been fetched or has failed. It prints one table (name, type, health, articles, last
-problem) and removes everything it created. The language model and personal feeds stay off. Exit
-code 0 means every source was fetched well, 1 that one failed or was not fetched in time, 2 wrong
-usage. It contacts the 25 public sites of the starter catalogue from the host it runs on.
+problem). The language model and personal feeds stay off. Exit code 0 means every source was
+fetched well, 1 that one failed or was not fetched in time, 2 wrong usage. It contacts the 25
+public sites of the starter catalogue from the host it runs on.
+
+- **Isolation.** Every `PHAROS_*`, `POSTGRES_*` and `COMPOSE_*` variable of the calling shell is
+  dropped first, so settings of a real installation that happen to be exported (its image tag,
+  tokens, profiles) never reach this stack. Its subnets (172.28.36.0/24 and 172.28.37.0/24 for the
+  `llm` network) are used by no other script. A lock (`$XDG_RUNTIME_DIR` or `$HOME`,
+  `.pharos-catalogue.lock`) refuses a second run at the same time.
+- **Cleanup.** On every normal exit, error or Ctrl-C it removes its containers, volumes, networks,
+  the two `:catalogue` images and its temporary directory. It leaves Docker's build cache and the
+  base images it pulled. If the process is killed with `SIGKILL` (or the machine stops), nothing is
+  removed: run `docker compose -p pharos-catalogue down --volumes` and delete the leftover
+  `tmp.*` directory under `$TMPDIR` (it holds the run's throwaway passwords).
+- **Exposure.** The two ports listen on all interfaces for the minutes it runs, like the other
+  throwaway stacks; the administrator's password is 48 random hex characters and is never shown.
 
 Result of 2026-11-11: **25 of 25 ok** in 524 seconds (115 of them to build and start the stack),
 1,185 articles in all; no redirect, block, 404, timeout or parse failure. The sources do not
