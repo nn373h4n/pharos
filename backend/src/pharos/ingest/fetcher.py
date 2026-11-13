@@ -84,6 +84,7 @@ async def fetch_source(
             failure = ConnectorError("error", "bad_config")
 
     # --- politeness: one request per host in a short time -------------------------------------
+    host: str | None = None
     if connector is not None and config is not None:
         host = connector.politeness_host(config)
         try:
@@ -92,9 +93,17 @@ async def fetch_source(
             logger.warning("fetch: the host gate is unavailable; deferring")
             allowed = False
         if not allowed:
+            # Until the gate opens: a few seconds after another fetch, or as long as the host
+            # asked for (F-27), so a source is not leased again and again while it waits.
+            wait = gate.gap_seconds * 2 + 1
+            if host is not None:
+                try:
+                    wait = max(wait, await gate.wait_seconds(host))
+                except Exception:
+                    logger.warning("fetch: the host gate is unavailable; deferring")
             async with engine.begin() as connection:
                 await repository.enter_org(connection, org)
-                later = clock() + timedelta(seconds=gate.gap_seconds * 2 + 1)
+                later = clock() + timedelta(seconds=wait)
                 await repository.defer(connection, source_id, lease_token, later)
             return FetchReport("deferred")
 
@@ -122,6 +131,8 @@ async def fetch_source(
         except Exception as error:  # a bug in a connector must not take the worker down
             logger.error("fetch: unexpected error", extra={"error": type(error).__name__})
             failure = ConnectorError("error", "unexpected")
+    if failure is not None and failure.retry_after and host is not None:
+        await _hold(gate, host, failure.retry_after)
 
     # --- 3. Write the result, if the lease is still ours --------------------------------------
     try:
@@ -155,6 +166,14 @@ async def fetch_source(
             )
     except _LeaseLost:
         return FetchReport("stale")
+
+
+async def _hold(gate: HostGate, host: str, seconds: int) -> None:
+    """The host asked to wait: every fetch of it waits, not only this source's (F-27)."""
+    try:
+        await gate.hold(host, seconds)
+    except Exception:  # the source's own backoff still obeys it
+        logger.warning("fetch: could not hold the host gate")
 
 
 async def _write_failure(

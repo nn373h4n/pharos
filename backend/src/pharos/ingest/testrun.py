@@ -112,6 +112,12 @@ async def _fetch(
     try:
         outcome = await connector.fetch(checked, FetchState(), http, clock())
     except ConnectorError as error:
+        if error.retry_after and host is not None:
+            # A "not now" heard by a trial counts like one heard by a scheduled fetch (F-27).
+            try:
+                await gate.hold(host, error.retry_after)
+            except Exception:  # the answer is still given; the source's own backoff is untouched
+                logger.warning("test fetch: could not hold the host gate")
         return _answer(
             test_id,
             source_id,
