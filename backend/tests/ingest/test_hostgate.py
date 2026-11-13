@@ -2,7 +2,9 @@
 
 import pytest
 
-from pharos.ingest.hostgate import KEY_PREFIX, MAX_HOLD_SECONDS, HostGate
+from pharos.ingest.connectors.base import error_from_fetch
+from pharos.ingest.hostgate import KEY_PREFIX, MAX_HOLD_SECONDS, Hops, HostGate
+from pharos.net.safe_http import HOST_HELD, FetchError, FetchErrorKind
 
 pytestmark = pytest.mark.anyio
 
@@ -80,3 +82,89 @@ async def test_an_open_gate_has_nothing_to_wait_for() -> None:
     assert await gate.wait_seconds("news.example") == 0
     await gate.hold("news.example", 61)
     assert await gate.wait_seconds("news.example") == 61
+
+
+# --- F-23: a host reached by a redirect keeps its gate -------------------------------------------
+
+
+class Sleeps:
+    """Records each wait and lets the short gap run out meanwhile."""
+
+    def __init__(self, redis: FakeRedis) -> None:
+        self.redis = redis
+        self.waits: list[float] = []
+
+    async def __call__(self, seconds: float) -> None:
+        self.waits.append(seconds)
+        self.redis.keys.clear()
+
+
+async def test_a_hop_to_an_open_host_goes_at_once_and_closes_its_gate() -> None:
+    redis = FakeRedis()
+    sleeps = Sleeps(redis)
+    gate = HostGate(redis, gap_seconds=5, sleep=sleeps)
+    await gate.pass_hop("cdn.example")
+    assert sleeps.waits == []
+    assert await gate.enter("cdn.example") is False  # the next fetch of that host waits its gap
+
+
+async def test_a_hop_to_a_host_fetched_a_moment_ago_waits_out_the_gap() -> None:
+    redis = FakeRedis()
+    sleeps = Sleeps(redis)
+    gate = HostGate(redis, gap_seconds=5, sleep=sleeps)
+    assert await gate.enter("cdn.example") is True
+    await gate.pass_hop("cdn.example")
+    assert sleeps.waits == [5]
+    assert await gate.enter("cdn.example") is False  # the hop went in and closed it again
+
+
+async def test_a_hop_to_a_host_that_asked_to_wait_ends_the_fetch_without_waiting() -> None:
+    redis = FakeRedis()
+    sleeps = Sleeps(redis)
+    gate = HostGate(redis, gap_seconds=5, sleep=sleeps)
+    await gate.hold("cdn.example", 600)
+    with pytest.raises(FetchError) as caught:
+        await gate.pass_hop("cdn.example")
+    assert (caught.value.kind, caught.value.reason) == (FetchErrorKind.BAD_STATUS, HOST_HELD)
+    assert caught.value.retry_after == 600
+    assert sleeps.waits == []
+    assert vars(error_from_fetch(caught.value)) == {
+        "outcome": "bad_status",
+        "code": "host_held",
+        "http_status": None,
+        "retry_after": 600,
+    }
+
+
+class Passes:
+    def __init__(self) -> None:
+        self.hosts: list[str] = []
+
+    async def pass_hop(self, host: str) -> None:
+        self.hosts.append(host)
+
+
+async def test_the_first_host_is_not_gated_again_and_each_other_host_once() -> None:
+    gate = Passes()
+    hops = Hops(gate)  # type: ignore[arg-type]
+    await hops("feed.example")  # the source's own host: it passed the gate before the fetch
+    assert (gate.hosts, hops.answered) == ([], None)
+    await hops("cdn.example")
+    assert (gate.hosts, hops.answered) == (["cdn.example"], "cdn.example")
+    await hops("cdn.example")  # a redirect within that host is the same visit
+    await hops("mirror.example")
+    assert (gate.hosts, hops.answered) == (["cdn.example", "mirror.example"], "mirror.example")
+    await hops("feed.example")  # back at the start: a "not now" now is the source's host's
+    assert (gate.hosts, hops.answered) == (["cdn.example", "mirror.example"], None)
+
+
+async def test_a_refused_hop_is_the_host_that_answered() -> None:
+    class Held(Passes):
+        async def pass_hop(self, host: str) -> None:
+            raise FetchError(FetchErrorKind.BAD_STATUS, HOST_HELD, retry_after=60)
+
+    hops = Hops(Held())  # type: ignore[arg-type]
+    await hops("feed.example")
+    with pytest.raises(FetchError):
+        await hops("cdn.example")
+    assert hops.answered == "cdn.example"

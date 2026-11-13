@@ -14,7 +14,7 @@ from typing import Any, Literal, Protocol
 
 from pharos.ingest.feed import RawEntry
 from pharos.ingest.sourceconfig import ConfigError
-from pharos.net.safe_http import FetchError, FetchErrorKind, SafeHttpClient
+from pharos.net.safe_http import HOST_HELD, FetchError, FetchErrorKind, SafeHttpClient
 
 __all__ = ["OUTCOMES", "ConfigError", "Connector", "ConnectorError", "FetchOutcome", "FetchState"]
 
@@ -47,6 +47,8 @@ class ConnectorError(Exception):
 
 def error_from_fetch(error: FetchError) -> ConnectorError:
     """The fixed words for a failed fetch; the reason text may carry addresses and is dropped."""
+    if error.reason == HOST_HELD:  # a host reached by a redirect asked to wait (F-23)
+        return ConnectorError("bad_status", "host_held", retry_after=error.retry_after)
     status = _STATUS.match(error.reason)
     if error.kind is FetchErrorKind.BAD_STATUS and status:
         return ConnectorError(
