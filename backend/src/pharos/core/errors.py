@@ -38,6 +38,7 @@ class ErrorCode(StrEnum):
     AI_TOOL_CONFLICT = "ai_tool_conflict"
     AI_TOOL_LIMIT = "ai_tool_limit"
     ITEM_STATE = "item_state"
+    ITEM_CHANGED = "item_changed"
     ORGANIZATION_NOT_CONFIGURED = "organization_not_configured"
     SERVICE_UNAVAILABLE = "service_unavailable"
     INTERNAL_ERROR = "internal_error"
@@ -62,6 +63,7 @@ _TITLES = {
     ErrorCode.AI_TOOL_CONFLICT: "An AI tool with this name exists already",
     ErrorCode.AI_TOOL_LIMIT: "The organization has the most AI tools it may have",
     ErrorCode.ITEM_STATE: "The article is not in a state that allows this",
+    ErrorCode.ITEM_CHANGED: "The article changed after it was shown",
     ErrorCode.ORGANIZATION_NOT_CONFIGURED: "The organization is not set up yet",
     ErrorCode.SERVICE_UNAVAILABLE: "Service unavailable",
     ErrorCode.INTERNAL_ERROR: "Internal error",

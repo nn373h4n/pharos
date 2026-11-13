@@ -270,6 +270,7 @@
     "forbidden": "Buna icazəniz yoxdur.",
     "notFound": "Tapılmadı. Silinmiş ola bilər.",
     "itemState": "Kimsə bu məqaləni əvvəl dəyişdi. Siyahı yeniləndi.",
+    "itemChanged": "Bu məqalə göstərildikdən sonra dəyişdi. Siyahı yeniləndi: ona yenidən baxın.",
     "rateLimited": "Həddindən çox sorğu. {seconds} saniyə sonra yenidən cəhd edin.",
     "rateLimitedNoWait": "Həddindən çox sorğu. Bir az sonra yenidən cəhd edin.",
     "unavailable": "Xidmət hazırda əlçatan deyil. Bir az sonra yenidən cəhd edin.",
