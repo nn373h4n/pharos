@@ -27,6 +27,7 @@ import re
 import unicodedata
 from collections.abc import Sequence
 
+from pharos.core import folding
 from pharos.core.plaintext import is_plain_text
 from pharos.llm.masking import mask
 
@@ -40,34 +41,15 @@ _PLACEHOLDER = re.compile(r"\[([^\[\]\r\n]{2,60})\]")
 
 # --- foldings --------------------------------------------------------------------------------------------
 
-_FOLD = str.maketrans({"ə": "e", "ı": "i", "ß": "ss"})
-# Letters of Cyrillic and Greek that look like Latin letters, and the other way round.
-_TO_LATIN = str.maketrans(
-    "авекмнорстухіјѕαεικνορτυχ",
-    "abekmhopctuxijsaeiknoptux",
-)
-_TO_CYRILLIC = str.maketrans(
-    "abekmhopctuxijs",
-    "авекмнорстухіјѕ",
-)
 _LEET = str.maketrans(
     {"0": "o", "1": "i", "3": "e", "4": "a", "5": "s", "7": "t", "@": "a", "$": "s"}
 )
 
 
-def _folded(text: str) -> str:
-    """Lower case, without accents, with the letters of Azerbaijani and Turkish made plain."""
-    decomposed = unicodedata.normalize("NFKD", text.casefold())
-    stripped = "".join(c for c in decomposed if not unicodedata.combining(c))
-    return stripped.translate(_FOLD)
-
-
 def _views(text: str) -> tuple[str, str, str]:
     """The text as the Latin-script word lists see it, as the Cyrillic one sees it, and with the
     separators removed and digits read as letters (for the long stems)."""
-    base = _folded(text)
-    latin = base.translate(_TO_LATIN)
-    cyrillic = base.translate(_TO_CYRILLIC)
+    latin, cyrillic = folding.views(text)
     squashed = re.sub(r"[^a-z0-9]", "", latin.translate(_LEET))
     return latin, cyrillic, squashed
 
