@@ -79,7 +79,7 @@ export function ItemsView({ sourceId }: { sourceId?: string }) {
     setBusy(true);
     setNotice(null);
     try {
-      await actOnItem(item.id, action, csrf);
+      await actOnItem(item.id, action, csrf, item.updated_at);
       const shown = settled && "page" in settled ? settled.page : null;
       if (shown && RESULT_OF[action] !== status) {
         // The article has left this list.
@@ -110,7 +110,7 @@ export function ItemsView({ sourceId }: { sourceId?: string }) {
       });
       // Someone else got there first: show what the list looks like now. The button that was
       // pressed goes away with the old list, so focus goes to the list's heading.
-      if (problem === "itemState" || problem === "notFound") {
+      if (problem === "itemState" || problem === "itemChanged" || problem === "notFound") {
         setReloads((count) => count + 1);
         heading.current?.focus();
       }

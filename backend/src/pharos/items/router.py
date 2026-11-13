@@ -9,7 +9,7 @@ from pharos.core.auth import require_role
 from pharos.core.client import client_ip
 from pharos.core.principal import Principal, Role
 from pharos.core.unit_of_work import UnitOfWorkDep
-from pharos.items.schemas import ItemListOut, ItemOut, ItemStatus
+from pharos.items.schemas import ItemListOut, ItemOut, ItemStatus, ReviewIn
 from pharos.items.service import Action, ItemService
 
 router = APIRouter(tags=["items"])
@@ -55,33 +55,61 @@ async def _act(
     who: Principal,
     service: ItemService,
     uow: UnitOfWorkDep,
+    body: ReviewIn | None,
 ) -> ItemOut:
-    return await service.act(uow, who, item_id, action, ip=client_ip(request))
+    return await service.act(
+        uow,
+        who,
+        item_id,
+        action,
+        ip=client_ip(request),
+        if_updated_at=body.if_updated_at if body is not None else None,
+    )
 
 
 @router.post("/items/{item_id}/hold")
 async def hold_item(
-    item_id: uuid.UUID, request: Request, who: Reviewer, service: Service, uow: UnitOfWorkDep
+    item_id: uuid.UUID,
+    request: Request,
+    who: Reviewer,
+    service: Service,
+    uow: UnitOfWorkDep,
+    body: ReviewIn | None = None,
 ) -> ItemOut:
-    return await _act("hold", item_id, request, who, service, uow)
+    return await _act("hold", item_id, request, who, service, uow, body)
 
 
 @router.post("/items/{item_id}/approve")
 async def approve_item(
-    item_id: uuid.UUID, request: Request, who: Reviewer, service: Service, uow: UnitOfWorkDep
+    item_id: uuid.UUID,
+    request: Request,
+    who: Reviewer,
+    service: Service,
+    uow: UnitOfWorkDep,
+    body: ReviewIn | None = None,
 ) -> ItemOut:
-    return await _act("approve", item_id, request, who, service, uow)
+    return await _act("approve", item_id, request, who, service, uow, body)
 
 
 @router.post("/items/{item_id}/hide")
 async def hide_item(
-    item_id: uuid.UUID, request: Request, who: Reviewer, service: Service, uow: UnitOfWorkDep
+    item_id: uuid.UUID,
+    request: Request,
+    who: Reviewer,
+    service: Service,
+    uow: UnitOfWorkDep,
+    body: ReviewIn | None = None,
 ) -> ItemOut:
-    return await _act("hide", item_id, request, who, service, uow)
+    return await _act("hide", item_id, request, who, service, uow, body)
 
 
 @router.post("/items/{item_id}/restore")
 async def restore_item(
-    item_id: uuid.UUID, request: Request, who: Reviewer, service: Service, uow: UnitOfWorkDep
+    item_id: uuid.UUID,
+    request: Request,
+    who: Reviewer,
+    service: Service,
+    uow: UnitOfWorkDep,
+    body: ReviewIn | None = None,
 ) -> ItemOut:
-    return await _act("restore", item_id, request, who, service, uow)
+    return await _act("restore", item_id, request, who, service, uow, body)

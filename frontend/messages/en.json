@@ -270,6 +270,7 @@
     "forbidden": "You are not allowed to do this.",
     "notFound": "This was not found. It may have been removed.",
     "itemState": "Someone changed this article first. The list was refreshed.",
+    "itemChanged": "This article changed after it was shown. The list was refreshed: look at it again.",
     "rateLimited": "Too many requests. Try again in {seconds} seconds.",
     "rateLimitedNoWait": "Too many requests. Try again in a moment.",
     "unavailable": "The service is not available right now. Try again later.",

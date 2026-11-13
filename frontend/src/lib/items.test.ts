@@ -158,6 +158,19 @@ describe("listItems and actOnItem", () => {
     expect(init.method).toBe("POST");
     expect((init.headers as Record<string, string>)["X-CSRF-Token"]).toBe("token-1");
   });
+  it("sends no body without a seen moment, and the seen moment when there is one (F-26)", async () => {
+    const fetchMock = answer({ ...item, status: "held" });
+    vi.stubGlobal("fetch", fetchMock);
+    await actOnItem("x", "hold", "t");
+    await actOnItem("x", "hold", "t", "2026-11-13T10:00:00.123456Z");
+    const [, plain] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const [, seen] = fetchMock.mock.calls[1] as unknown as [string, RequestInit];
+    expect(plain.body).toBeUndefined();
+    expect(JSON.parse(seen.body as string)).toEqual({
+      if_updated_at: "2026-11-13T10:00:00.123456Z",
+    });
+    expect((seen.headers as Record<string, string>)["Content-Type"]).toBe("application/json");
+  });
   it("refuses a step whose answer is not an article", async () => {
     vi.stubGlobal("fetch", answer({ ok: true }));
     await expect(actOnItem("6a1f0c2e-3b4d-4e5f-8a9b-0c1d2e3f4a5b", "hide", "t")).rejects.toThrow(

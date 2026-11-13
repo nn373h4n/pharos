@@ -14,6 +14,7 @@
 """
 
 import uuid
+from datetime import datetime
 from typing import Literal
 
 from pharos.core.audit import AuditAction, AuditLog
@@ -116,11 +117,17 @@ class ItemService:
         action: Action,
         *,
         ip: str | None,
+        if_updated_at: datetime | None = None,
     ) -> ItemOut:
         starts, target, event = STEPS[action]
         current = await repository.get_item(uow.session, uow.org_id, item_id, lock=True)
         if current is None:
             raise not_found()
+        # The reviewer decided on the article as it was shown (F-26): if it has changed since
+        # (text, what the model said, state), they must look again. Checked under the row lock,
+        # before anything else, so it also covers a step that would change nothing.
+        if if_updated_at is not None and current.updated_at != if_updated_at:
+            raise ApiError(ErrorCode.ITEM_CHANGED, 409)
         if current.status == target:  # already there: nothing to change, nothing to record
             [(view, sources)] = await self._with_sources(uow, actor, [current])
             return out(view, sources, reviewer=True)
