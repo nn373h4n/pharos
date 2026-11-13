@@ -867,3 +867,36 @@ async def test_a_creation_queues_behind_the_organizations_creation_lock(
         await transaction.commit()
         response = await pending
     assert response.status_code == 201
+
+
+@pytest.mark.anyio
+async def test_many_refusals_at_once_do_not_exhaust_the_connection_pool(
+    make_stack: MakeStack,
+) -> None:
+    """F-25: each refusal writes its audit entry in a transaction of its own, which needs a second
+    connection. If the request still held its first one, more refusals at once than the pool has
+    connections (5 + 10 overflow by default) would wait on each other until the pool's timeout
+    (30 s). The request's transaction ends first, so they all finish, quickly, each audited."""
+    stack: Stack = await make_stack("on")
+    admin = await person(stack, "admin")
+    engine = stack.app.state.session_factory.kw["bind"]
+    assert engine.pool.size() + engine.pool._max_overflow < 60  # more at once than connections
+    responses = await asyncio.wait_for(
+        asyncio.gather(
+            *(
+                post(
+                    admin, {**FEED, "name": f"inward {n}", "config": {"url": "http://127.0.0.1/f"}}
+                )
+                for n in range(60)
+            )
+        ),
+        timeout=20,
+    )
+    assert [r.status_code for r in responses] == [422] * 60
+    refused = [
+        e
+        for e in await audit_rows(stack)
+        if e["action"] == "source.created" and e["outcome"] == "failure"
+    ]
+    assert len(refused) == 60  # every attempt left its trace
+    assert engine.pool.checkedout() == 0  # and every connection went back
