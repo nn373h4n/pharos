@@ -570,3 +570,104 @@ async def test_what_the_model_said_is_shown_to_everyone_and_its_score_to_reviewe
         assert (empty["summary"], empty["category"], empty["quality"]) == (None, None, None)
         listed = {i["id"]: i for i in (await who.client.get("/api/items")).json()["items"]}
         assert listed[str(read)]["summary"] == "A plain summary."
+
+
+# --- F-26: a review step decides on the article as the reviewer saw it ----------------------------
+
+
+async def act_on_seen(who: Person, item: uuid.UUID, action: str, seen: Any) -> httpx.Response:
+    return await who.client.post(
+        f"/api/items/{item}/{action}", headers=who.headers, json={"if_updated_at": seen}
+    )
+
+
+@pytest.mark.anyio
+async def test_a_step_on_the_article_as_it_was_shown_applies(make_stack: MakeStack) -> None:
+    stack: Stack = await make_stack("on")
+    editor = await person(stack, "editor")
+    item = await make_item(stack)
+    seen = (await editor.client.get(f"/api/items/{item}")).json()["updated_at"]
+    response = await act_on_seen(editor, item, "hold", seen)
+    assert response.status_code == 200, response.text
+    assert await status_of(stack, item) == ("held", "editor_hold")
+    # The answer carries the new moment; the next step on it applies too.
+    after = response.json()["updated_at"]
+    assert after != seen
+    assert (await act_on_seen(editor, item, "approve", after)).status_code == 200
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("action", ["hold", "hide"])
+async def test_a_step_on_an_article_that_changed_after_it_was_shown_is_refused(
+    make_stack: MakeStack, worker_engine: AsyncEngine, action: str
+) -> None:
+    """The text came from a feed and can change after the reviewer read it: hiding or holding it
+    must not cover words the reviewer never saw."""
+    stack: Stack = await make_stack("on")
+    admin = await person(stack, "admin")
+    editor = await person(stack, "editor")
+    source = uuid.UUID((await post(admin, FEED)).json()["id"])
+    item = await make_item(stack, sources=(source,))
+    seen = (await editor.client.get(f"/api/items/{item}")).json()["updated_at"]
+    [row] = await rows(stack, "SELECT canonical_url FROM items WHERE id = :i", i=item)
+    entry = RawEntry("g1", "Changed by the feed", "New excerpt", row.canonical_url, None, "d" * 64)
+    async with worker_engine.begin() as connection:
+        await ingest_repository.enter_org(connection, stack.org_a)
+        await pipeline.store_items(connection, stack.org_a, source, None, [entry])
+    response = await act_on_seen(editor, item, action, seen)
+    assert response.status_code == 409, response.text
+    assert response.json()["code"] == "item_changed"
+    assert await status_of(stack, item) == ("new", None)  # nothing happened
+    assert item_events(await audit_rows(stack)) == []
+    # Looking again gives the new moment, and the step applies to the new text.
+    again = (await editor.client.get(f"/api/items/{item}")).json()
+    assert again["title"] == "Changed by the feed" and again["updated_at"] != seen
+    assert (await act_on_seen(editor, item, action, again["updated_at"])).status_code == 200
+
+
+@pytest.mark.anyio
+async def test_a_step_that_would_change_nothing_is_refused_too_when_the_article_changed(
+    make_stack: MakeStack,
+) -> None:
+    """Another editor held it after this one looked: hiding is still possible, but holding again
+    is not answered as if nothing had happened."""
+    stack: Stack = await make_stack("on")
+    first, second = await person(stack, "editor"), await person(stack, "editor")
+    item = await make_item(stack)
+    seen = (await second.client.get(f"/api/items/{item}")).json()["updated_at"]
+    assert (await act(first, item, "hold")).status_code == 200
+    response = await act_on_seen(second, item, "hold", seen)
+    assert response.status_code == 409 and response.json()["code"] == "item_changed"
+    # Without the precondition the step keeps its old meaning (nothing to change, no record).
+    assert (await act(second, item, "hold")).status_code == 200
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"if_updated_at": "2026-11-13T10:00:00"},  # no time zone: which moment is it?
+        {"if_updated_at": "not a time"},
+        {"if_updated_at": "2026-11-13T10:00:00Z", "other": 1},
+    ],
+)
+async def test_a_malformed_precondition_is_a_validation_error(
+    make_stack: MakeStack, body: dict[str, Any]
+) -> None:
+    stack: Stack = await make_stack("on")
+    editor = await person(stack, "editor")
+    item = await make_item(stack)
+    response = await editor.client.post(
+        f"/api/items/{item}/hold", headers=editor.headers, json=body
+    )
+    assert response.status_code == 422, response.text
+    assert await status_of(stack, item) == ("new", None)
+
+
+@pytest.mark.anyio
+async def test_a_member_learns_nothing_from_a_precondition(make_stack: MakeStack) -> None:
+    stack: Stack = await make_stack("on")
+    member = await person(stack, "member")
+    item = await make_item(stack)
+    response = await act_on_seen(member, item, "hold", "2000-01-01T00:00:00Z")
+    assert response.status_code == 403  # the role is checked before anything about the article

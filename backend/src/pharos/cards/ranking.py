@@ -105,6 +105,21 @@ def person_score(
     return int(_EXACT.to_integral_value(_EXACT.multiply(total, SCORE_SCALE)))
 
 
+# The bonuses in whole points of the score. Each weight times the scale is a whole number, so
+# floor((base + bonus) * scale) = floor(base * scale) + bonus points, exactly: a kept ranking
+# floors each article's shared part once and adds whole numbers per person (F-50).
+INTEREST_POINTS: Final = int(INTEREST_WEIGHT * SCORE_SCALE)
+LEVEL_POINTS: Final = int(LEVEL_WEIGHT * SCORE_SCALE)
+if INTEREST_POINTS != INTEREST_WEIGHT * SCORE_SCALE or LEVEL_POINTS != LEVEL_WEIGHT * SCORE_SCALE:
+    raise RuntimeError("a bonus weight must be a whole number of score points")  # pragma: no cover
+
+
+def scaled_base(base: Decimal) -> int:
+    """The shared part of an article's score in whole points, floored: `person_score` for a
+    person with no bonus on the article, and the start of every other person's score."""
+    return int(_EXACT.to_integral_value(_EXACT.multiply(base, SCORE_SCALE)))
+
+
 def score_ceiling(base: Decimal) -> int:
     """The highest score any article with this shared part (or less) can have for anybody."""
     return int(_EXACT.to_integral_value(_EXACT.multiply(_EXACT.add(base, MAX_BONUS), SCORE_SCALE)))

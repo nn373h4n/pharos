@@ -270,6 +270,7 @@
     "forbidden": "Bunu yapma izniniz yok.",
     "notFound": "Bulunamadı. Kaldırılmış olabilir.",
     "itemState": "Biri bu makaleyi önce değiştirdi. Liste yenilendi.",
+    "itemChanged": "Bu makale gösterildikten sonra değişti. Liste yenilendi: lütfen yeniden bakın.",
     "rateLimited": "Çok fazla istek. {seconds} saniye sonra tekrar deneyin.",
     "rateLimitedNoWait": "Çok fazla istek. Biraz sonra tekrar deneyin.",
     "unavailable": "Hizmet şu anda kullanılamıyor. Daha sonra tekrar deneyin.",

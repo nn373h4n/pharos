@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import AwareDatetime, BaseModel, ConfigDict
 
 ItemStatus = Literal["new", "held", "hidden"]
 
@@ -32,6 +32,17 @@ class ItemOut(BaseModel):
     category: str | None
     quality: int | None  # 1 to 5, reviewers only
     sources: list[SourceRef]
+
+
+class ReviewIn(BaseModel):
+    """The optional body of a review step (F-26). `if_updated_at` is the `updated_at` of the
+    article as the reviewer saw it: when the article has changed since (its text, what the model
+    said about it, or its state), the step is refused with `409 item_changed` instead of applying
+    to something the reviewer did not see. Without it the step applies to the article as it is."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    if_updated_at: AwareDatetime | None = None
 
 
 class ItemListOut(BaseModel):

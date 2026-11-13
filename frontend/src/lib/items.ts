@@ -130,11 +130,21 @@ export async function listItems(query: ItemQuery): Promise<ItemPage> {
   return body;
 }
 
-/** One review step. Answers the article as it is now. */
-export async function actOnItem(id: string, action: ItemAction, csrf: string): Promise<Item> {
+/**
+ * One review step. Answers the article as it is now. `seenAt` is the `updated_at` of the article
+ * as the reviewer saw it: if it has changed since, the step is refused (`item_changed`, F-26)
+ * rather than applied to text the reviewer did not see.
+ */
+export async function actOnItem(
+  id: string,
+  action: ItemAction,
+  csrf: string,
+  seenAt: string | null = null,
+): Promise<Item> {
   const response = await request(`/api/items/${encodeURIComponent(id)}/${action}`, {
     method: "POST",
     csrf,
+    ...(seenAt === null ? {} : { body: { if_updated_at: seenAt } }),
   });
   const body: unknown = await response.json();
   if (!isItem(body)) throw new Error("malformed_response");

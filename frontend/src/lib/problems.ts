@@ -5,6 +5,7 @@ export type ProblemKey =
   | "forbidden"
   | "notFound"
   | "itemState"
+  | "itemChanged"
   | "rateLimited"
   | "sourceConflict"
   | "sourceLimit"
@@ -28,6 +29,8 @@ export function problemKey(error: unknown): ProblemKey {
       return "notFound";
     case "item_state":
       return "itemState";
+    case "item_changed":
+      return "itemChanged";
     case "rate_limited":
       return "rateLimited";
     case "source_conflict":

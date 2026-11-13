@@ -9,7 +9,8 @@ import type { Item, ItemAction, ItemPage, ItemQuery, ItemStatus } from "@/lib/it
 type Role = "admin" | "editor" | "member";
 let role: Role = "member";
 const listItems = vi.fn<(query: ItemQuery) => Promise<ItemPage>>();
-const actOnItem = vi.fn<(id: string, action: ItemAction, csrf: string) => Promise<Item>>();
+const actOnItem =
+  vi.fn<(id: string, action: ItemAction, csrf: string, seenAt?: string | null) => Promise<Item>>();
 
 vi.mock("@/components/auth/session-provider", () => ({
   useSession: () => ({
@@ -29,7 +30,8 @@ vi.mock("@/i18n/navigation", () => ({
 vi.mock("@/lib/items", async (original) => ({
   ...(await original<typeof import("@/lib/items")>()),
   listItems: (query: ItemQuery) => listItems(query),
-  actOnItem: (id: string, action: ItemAction, csrf: string) => actOnItem(id, action, csrf),
+  actOnItem: (id: string, action: ItemAction, csrf: string, seenAt?: string | null) =>
+    actOnItem(id, action, csrf, seenAt),
 }));
 
 const { ItemsView } = await import("./items-view");
@@ -229,7 +231,7 @@ describe("a reviewer", () => {
     await loaded();
     fireEvent.click(screen.getByRole("button", { name: "Hold: Story 1" }));
     await waitFor(() => expect(screen.queryByText("Story 1")).toBeNull());
-    expect(actOnItem).toHaveBeenCalledWith("id-1", "hold", "token-1");
+    expect(actOnItem).toHaveBeenCalledWith("id-1", "hold", "token-1", null);
     expect(screen.getByRole("status").textContent).toBe("Held: Story 1");
     expect(document.activeElement).toBe(screen.getByRole("heading", { name: en.Items.results }));
     expect(screen.getAllByRole("article")).toHaveLength(1);
@@ -246,6 +248,22 @@ describe("a reviewer", () => {
     await waitFor(() => expect(screen.queryByText("Story 1")).toBeNull());
     expect(listItems).toHaveBeenCalledTimes(2);
     // the button that was pressed went away with the old list: focus is not lost to the page
+    expect(document.activeElement).toBe(screen.getByRole("heading", { name: en.Items.results }));
+  });
+
+  it("sends the moment the article was shown, so a changed article is not decided on (F-26)", async () => {
+    listItems.mockResolvedValue(page([item(1, { updated_at: "2026-11-13T10:00:00.5Z" })]));
+    actOnItem.mockRejectedValue(new ApiProblem(409, "item_changed"));
+    show();
+    await loaded();
+    listItems.mockResolvedValue(page([item(1, { title: "Story 1, changed" })]));
+    fireEvent.click(screen.getByRole("button", { name: "Hide: Story 1" }));
+    expect(actOnItem).toHaveBeenCalledWith("id-1", "hide", "token-1", "2026-11-13T10:00:00.5Z");
+    await waitFor(() =>
+      expect(screen.getByRole("alert").textContent).toBe(en.Problems.itemChanged),
+    );
+    // The list is read again, so the reviewer sees what the article says now.
+    await waitFor(() => expect(screen.getByText("Story 1, changed")).toBeDefined());
     expect(document.activeElement).toBe(screen.getByRole("heading", { name: en.Items.results }));
   });
 

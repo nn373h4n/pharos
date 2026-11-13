@@ -7,6 +7,7 @@ describe("problemKey", () => {
     [new ApiProblem(403, "forbidden"), "forbidden"],
     [new ApiProblem(404, "not_found"), "notFound"],
     [new ApiProblem(409, "item_state"), "itemState"],
+    [new ApiProblem(409, "item_changed"), "itemChanged"],
     [new ApiProblem(429, "rate_limited", 12), "rateLimited"],
     [new ApiProblem(403, "csrf_failed"), "csrf"],
     [new ApiProblem(503, "service_unavailable"), "unavailable"],
