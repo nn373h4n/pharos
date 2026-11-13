@@ -115,12 +115,17 @@ API's own processor was the limit: each request read the 150 KB list from Redis,
 slowest answers (p99 about 1.8 s) were first pages that waited for their profession's new ranking
 at the start of a period.
 
-- **A parsed copy in each API process.** The ranking under a key is made once (the key names its
-  moment), so a process keeps what it has read or made, parsed, for as long as Redis keeps it
-  (fifteen minutes from when the process got it), at most 48 rankings (two periods of 24
-  professions), the least recently used dropped first. The copy holds what the Redis value holds:
-  no person. A first version kept 16, fewer than the two periods of the 12 professions of the
-  catalogue; the load test showed it reading and parsing again all the time.
+- **A parsed copy in each API process.** A process keeps the rankings it has read or made, parsed,
+  at most 48 (two periods of 24 professions), the least recently used dropped first, and none
+  longer than Redis keeps a ranking. Redis still decides: each making of a ranking gets a random
+  mark that Redis keeps next to it (`<key>:n`, same lifetime), and a process uses its copy only
+  while Redis holds the same mark, which costs a 32-byte read instead of 150 KB. A ranking deleted
+  (an operator or a test forgetting the rankings), expired or made again is read again at the next
+  request of every process. A value without a mark (written before this change) is read every
+  time. The copy holds what the Redis value holds: no person. A first version kept 16, fewer than
+  the two periods of the 12 professions of the catalogue, and the load test showed it reading and
+  parsing again all the time; it also trusted its copy without asking Redis, which the real-stack
+  test caught (a ranking it had deleted was still served).
 - **The person's part in whole numbers.** Each bonus weight times the scale of the score is a whole
   number (100,000 and 50,000), so flooring the shared part once and adding whole points gives
   exactly the score the live query floors: floor(x + n) = floor(x) + n. A kept ranking floors each
@@ -137,10 +142,8 @@ at the start of a period.
   ranking with its floored parts is about 0.9 MB in Python (measured with 2,000 articles), so
   about 45 MB at most for each API process (its limit is 512 MB). A value in
   Redis whose shared part is not a number between 0 and 1 is refused when it is parsed, so a
-  broken value cannot stay in the process. A ranking made again after Redis lost
-  it (a restart) may differ from a copy a process still keeps; both are rankings the database
-  gave at that moment, and the page is still checked against the database, so this can only
-  delay an article, as above.
+  broken value cannot stay in the process. Because the copy follows the mark in Redis,
+  processes never serve different makings of one ranking for longer than one request.
 - **Measured** (`make loadtest`, two CPU threads, 2026-11-13, `docs/DEPLOYMENT.md`): first page
   p95 at 150 people 28 ms (3,319 ms just before), at 300 people 157 ms (2,761 ms); 50 people for
   ten minutes 64 ms. Still open: the request that makes a ranking waits for it, and all

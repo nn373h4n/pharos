@@ -12,10 +12,12 @@ caller gets None and answers with the live query, which is correct and slow.
 
 Each API process also keeps the rankings it has read, parsed, for as long as Redis keeps them
 (F-50): reading and parsing the 150 KB list was most of a feed request's processor time. A ranking
-is made once under its key (the key names its moment), so the copy says what Redis says; it is
-bounded by `LOCAL_ENTRIES` and by the Redis lifetime. Each kept ranking also floors every
-article's shared part once; a person's whole score is then that plus whole points for the bonuses,
-exactly what the live query computes, and a request only sorts 2,000 whole numbers.
+carries a random mark that Redis keeps next to it, and a process uses its copy only while Redis
+still holds the same mark (a 32-byte read), so a ranking deleted or made again in Redis is read
+again; the copies are bounded by `LOCAL_ENTRIES` and by the Redis lifetime. Each kept ranking
+also floors every article's shared part once; a person's whole score is then that plus whole
+points for the bonuses, exactly what the live query computes, and a request only sorts 2,000 whole
+numbers.
 """
 
 import asyncio
@@ -47,6 +49,7 @@ WAIT_SECONDS = 1.0
 POLL_SECONDS = 0.05
 KEY_PREFIX = "pharos:api:feed:v1"
 _PROFESSION = re.compile(r"[a-z0-9][a-z0-9_-]{0,63}")
+_STAMP = re.compile(r"[0-9a-f]{32}")
 # Parsed rankings one API process keeps: two for each profession in use (this period and the one
 # before), so 24 professions before one is read and parsed again; about 0.7 MB each once parsed.
 LOCAL_ENTRIES = 48
@@ -62,7 +65,10 @@ class Ranking:
     candidates: list[Candidate]
     # Fewer candidates than were asked for: the list holds every article there is.
     complete: bool
-    # Worked out on first use and kept with the ranking (F-50); not part of its value.
+    # A random mark of this making of the ranking, kept in Redis next to it (`<key>:n`). A process
+    # uses its parsed copy only while Redis still holds the same mark, so a ranking deleted or
+    # made again in Redis is read again (F-50). Not part of the ranking's value.
+    stamp: str | None = field(default=None, compare=False)
     # Each article's shared part in whole points, worked out on first use and kept with the
     # ranking (F-50); not part of its value.
     _scaled: list[int] = field(default_factory=list, init=False, compare=False, repr=False)
@@ -106,19 +112,22 @@ def key_for(org: uuid.UUID, profession: str, moment: datetime) -> str | None:
 
 
 def _encode(ranking: Ranking) -> str:
-    return json.dumps(
-        {
-            "c": ranking.complete,
-            "e": [[str(c.id), c.category, str(c.base)] for c in ranking.candidates],
-        },
-        separators=(",", ":"),
-    )
+    value: dict[str, object] = {
+        "c": ranking.complete,
+        "e": [[str(c.id), c.category, str(c.base)] for c in ranking.candidates],
+    }
+    if ranking.stamp is not None:
+        value["n"] = ranking.stamp
+    return json.dumps(value, separators=(",", ":"))
 
 
 def _decode(raw: str | bytes) -> Ranking | None:
     try:
         data = json.loads(raw)
         if not isinstance(data, dict) or not isinstance(data.get("c"), bool):
+            return None
+        stamp = data.get("n")
+        if stamp is not None and not (isinstance(stamp, str) and _STAMP.fullmatch(stamp)):
             return None
         entries = data["e"]
         if not isinstance(entries, list) or len(entries) > RANKING_SIZE:
@@ -137,7 +146,7 @@ def _decode(raw: str | bytes) -> Ranking | None:
             if not (shared.is_finite() and _LOWEST <= shared <= _HIGHEST):
                 return None
             found.append(Candidate(id=uuid.UUID(str(ident)), category=category, base=shared))
-        return Ranking(candidates=found, complete=data["c"])
+        return Ranking(candidates=found, complete=data["c"], stamp=stamp)
     except (ValueError, TypeError, KeyError, InvalidOperation):
         return None
 
@@ -233,9 +242,16 @@ class RankingCache:
     async def _read(self, key: str) -> Ranking | None:
         kept = self._local.get(key)
         if kept is not None:
-            if kept[0] > self._clock():
+            until, copy = kept
+            # 32 bytes instead of 150 KB: the parsed copy is used only while Redis still holds
+            # this making of the ranking. Deleted, expired or made again: read it again.
+            if (
+                until > self._clock()
+                and copy.stamp is not None
+                and await self._redis.get(f"{key}:n") in (copy.stamp, copy.stamp.encode())
+            ):
                 self._local.move_to_end(key)
-                return kept[1]
+                return copy
             del self._local[key]
         raw = await self._redis.get(key)
         if raw is None:
@@ -248,8 +264,8 @@ class RankingCache:
         return ranking
 
     def _keep(self, key: str, ranking: Ranking) -> None:
-        # As long as Redis keeps a ranking, counted from now: a copy read late outlives the value in
-        # Redis by up to that, which only lets an old cursor page from it instead of the live query.
+        # At most as long as Redis keeps a ranking, counted from now; and only while Redis holds
+        # the same mark (see `_read`).
         self._local[key] = (self._clock() + self._ttl, ranking)
         self._local.move_to_end(key)
         while len(self._local) > self._local_entries:
@@ -257,7 +273,11 @@ class RankingCache:
 
     async def _make(self, key: str, rank: Callable[[int], Awaitable[list[Candidate]]]) -> Ranking:
         candidates = await rank(self._size)
-        ranking = Ranking(candidates=candidates, complete=len(candidates) < self._size)
+        stamp = uuid.uuid4().hex
+        ranking = Ranking(candidates=candidates, complete=len(candidates) < self._size, stamp=stamp)
+        # The value first, then its mark: a reader that sees the new value before the mark only
+        # reads the value once more.
         await self._redis.set(key, _encode(ranking), ex=self._ttl)
+        await self._redis.set(f"{key}:n", stamp, ex=self._ttl)
         self._keep(key, ranking)
         return ranking

@@ -3,6 +3,7 @@ score, the certificate of how far the cached list can be trusted, and the cache'
 scripted Redis (making it once, waiting, and every way Redis can fail)."""
 
 import asyncio
+import json
 import random
 import uuid
 from datetime import UTC, datetime
@@ -133,10 +134,12 @@ class FakeRedis:
         self.expiry: dict[str, int] = {}
         self.fail: Exception | None = None
         self.reads = 0
+        self.keys_read: list[str] = []
         self.delay = 0.0
 
     async def get(self, key: str) -> Any:
         self.reads += 1
+        self.keys_read.append(key)
         if self.delay:
             await asyncio.sleep(self.delay)
         if self.fail:
@@ -325,7 +328,15 @@ class Ticks:
 
 
 async def made(redis: FakeRedis, key: str, *bases: str) -> None:
-    redis.data[key] = _encode(Ranking([candidate(b) for b in bases], complete=True))
+    """A ranking as another process makes it: the value and, next to it, its mark."""
+    stamp = uuid.uuid4().hex
+    redis.data[key] = _encode(Ranking([candidate(b) for b in bases], complete=True, stamp=stamp))
+    redis.data[f"{key}:n"] = stamp
+
+
+def lists_read(redis: FakeRedis) -> int:
+    """How often a whole list was read from Redis (not a mark, not a lock)."""
+    return sum(1 for key in redis.keys_read if not key.endswith((":n", ":lock")))
 
 
 @pytest.mark.anyio
@@ -336,11 +347,11 @@ async def test_a_ranking_once_read_is_kept_in_the_process_until_redis_would_have
     await made(redis, KEY, "0.9", "0.8")
     cache = cache_with(redis, ttl_seconds=900, clock=ticks)
     first = await cache.get_or_rank(KEY, never)
-    assert redis.reads == 1
+    assert lists_read(redis) == 1
     ticks.value += 899
-    assert await cache.get_or_rank(KEY, never) is first and redis.reads == 1  # not read again
+    assert await cache.get_or_rank(KEY, never) is first and lists_read(redis) == 1  # only the mark
     ticks.value += 2
-    assert await cache.get_or_rank(KEY, never) == first and redis.reads == 2  # read again
+    assert await cache.get_or_rank(KEY, never) == first and lists_read(redis) == 2  # read again
 
 
 @pytest.mark.anyio
@@ -352,8 +363,10 @@ async def test_a_ranking_this_process_made_is_kept_too() -> None:
 
     cache = cache_with(redis)
     ranking = await cache.get_or_rank(KEY, rank)
-    reads = redis.reads  # the first look, and the check of the lock before letting it go
-    assert await cache.get_or_rank(KEY, never) is ranking and redis.reads == reads
+    assert ranking is not None and redis.data[f"{KEY}:n"] == ranking.stamp  # its mark is kept
+    assert redis.expiry[f"{KEY}:n"] == redis.expiry[KEY]  # and goes with it
+    reads = lists_read(redis)
+    assert await cache.get_or_rank(KEY, never) is ranking and lists_read(redis) == reads
 
 
 @pytest.mark.anyio
@@ -367,9 +380,9 @@ async def test_the_process_keeps_only_the_last_few_rankings() -> None:
         await cache.get_or_rank(key, never)
     await cache.get_or_rank(keys[3], never)  # the latest three are kept
     await cache.get_or_rank(keys[1], never)
-    assert redis.reads == 4
+    assert lists_read(redis) == 4
     await cache.get_or_rank(keys[0], never)  # the oldest was let go
-    assert redis.reads == 5
+    assert lists_read(redis) == 5
 
 
 @pytest.mark.anyio
@@ -381,6 +394,51 @@ async def test_a_damaged_value_is_not_kept_in_the_process() -> None:
     await made(redis, KEY, "0.7")
     found = await cache.get_or_rank(KEY, never, make=False)
     assert found is not None and len(found.candidates) == 1
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("change", ["deleted", "mark deleted", "made again"])
+async def test_a_ranking_deleted_or_made_again_in_redis_is_read_again(change: str) -> None:
+    """Redis decides: forgetting the rankings (an operator, a test) or making one again reaches
+    every process at its next request, not when its copy grows old."""
+    redis = FakeRedis()
+    await made(redis, KEY, "0.9")
+    cache = cache_with(redis)
+    first = await cache.get_or_rank(KEY, never, make=False)
+    assert first is not None
+    assert await cache.get_or_rank(KEY, never, make=False) is first  # the control: kept
+    if change == "deleted":
+        await redis.delete(KEY)
+        await redis.delete(f"{KEY}:n")
+        assert await cache.get_or_rank(KEY, never, make=False) is None
+        return
+    if change == "mark deleted":
+        await redis.delete(f"{KEY}:n")
+    else:
+        await made(redis, KEY, "0.2", "0.1")
+    found = await cache.get_or_rank(KEY, never, make=False)
+    assert found is not None and found is not first
+    if change == "made again":
+        assert [str(c.base) for c in found.candidates] == ["0.2", "0.1"]
+
+
+@pytest.mark.anyio
+async def test_a_value_without_a_mark_is_used_but_never_trusted_from_the_copy() -> None:
+    """A value from before marks existed (an upgrade) is read every time, never served stale."""
+    redis = FakeRedis()
+    redis.data[KEY] = _encode(Ranking([candidate("0.5")], complete=True))
+    cache = cache_with(redis)
+    assert await cache.get_or_rank(KEY, never, make=False) is not None
+    assert await cache.get_or_rank(KEY, never, make=False) is not None
+    assert lists_read(redis) == 2
+
+
+def test_a_mark_that_is_not_32_hex_digits_is_refused() -> None:
+    good = Ranking([candidate("0.5")], complete=True, stamp="a" * 32)
+    assert _decode(_encode(good)) == good and _decode(_encode(good)).stamp == "a" * 32  # type: ignore[union-attr]
+    for stamp in ["A" * 32, "a" * 31, "a" * 33, 7, ["a"]]:
+        raw = _encode(good).replace(f'"{"a" * 32}"', json.dumps(stamp))
+        assert _decode(raw) is None, stamp
 
 
 async def never(limit: int) -> list[Candidate]:

@@ -59,14 +59,17 @@ class Cards:
     async def clear(self) -> None:
         async for key in self.redis.scan_iter(match=f"{KEY_PREFIX}:*"):
             await self.redis.delete(key)
-        if self.service._cache is not None:
-            self.service._cache._local.clear()  # the copies this API process keeps (F-50)
 
     async def keys(self) -> list[str]:
-        return [
+        """The rankings and locks kept; each ranking's 32-byte mark (F-50) goes with it and is
+        checked here rather than counted."""
+        found = [
             key.decode() if isinstance(key, bytes) else key
             async for key in self.redis.scan_iter(match=f"{KEY_PREFIX}:*")
         ]
+        rankings = [k for k in found if not k.endswith((":n", ":lock"))]
+        assert sorted(k for k in found if k.endswith(":n")) == sorted(f"{k}:n" for k in rankings)
+        return [k for k in found if not k.endswith(":n")]
 
     async def close(self) -> None:
         await self.redis.aclose()

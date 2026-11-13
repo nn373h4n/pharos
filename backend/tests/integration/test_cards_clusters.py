@@ -28,7 +28,6 @@ async def a_minute_later(stack: Stack) -> None:
     async for key in redis.scan_iter(match=f"{KEY_PREFIX}:*"):
         await redis.delete(key)
     await redis.aclose()
-    stack.app.state.cards._cache._local.clear()  # and the copies this API process keeps (F-50)
 
 
 async def cluster(stack: Stack, *items: uuid.UUID, id: uuid.UUID | None = None) -> uuid.UUID:
