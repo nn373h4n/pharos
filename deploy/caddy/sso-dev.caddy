@@ -1,10 +1,10 @@
 # Development identity provider (Keycloak), served on its own host name so that the browser and
 # the API container use exactly the same issuer URL. Mounted by docker-compose.sso-dev.yml only.
 #
-# NOT FOR PRODUCTION: Keycloak runs in development mode with a fixed administrator password. So the
-# site answers only clients on loopback or private networks (the browser on this machine, the API
-# container, colleagues on the same LAN); a client from the public internet gets a 403 even if the
-# host publishes this port.
+# NOT FOR PRODUCTION: Keycloak runs in development mode; its administrator password is random per
+# installation (PHAROS_KEYCLOAK_ADMIN_PASSWORD). The site answers only clients on loopback or
+# private networks (the browser on this machine, the API container, colleagues on the same LAN); a
+# client from the public internet gets a 403 even if the host publishes this port.
 auth.localhost {
 	tls internal
 

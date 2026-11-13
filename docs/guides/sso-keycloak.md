@@ -24,6 +24,11 @@ PHAROS_OIDC_CLIENT_SECRET=dev-only-client-secret
 PHAROS_OIDC_PROVIDER_NAME=Keycloak (development)
 ```
 
+`deploy/.env` also needs `PHAROS_KEYCLOAK_ADMIN_PASSWORD`, the password of Keycloak's `admin`;
+`make env` fills it in with a random value (a `.env` made before that needs the line added, for
+example with `openssl rand -hex 24`). To keep the development stack off the network altogether, add
+`PHAROS_BIND_ADDRESS=127.0.0.1`.
+
 If you use other ports, put the HTTPS port in both URLs (`https://localhost:8443`,
 `https://auth.localhost:8443`). Then:
 
@@ -33,14 +38,16 @@ make org                      # creates the organization (once)
 make admin                    # creates a local administrator (asks for a password)
 ```
 
-The development Keycloak answers only clients on loopback or private networks, so publishing the
-port on a machine that is reachable from the internet does not expose its fixed administrator
-password. Still do not run it anywhere that matters.
+The development Keycloak answers only clients on loopback or private networks, and its
+administrator password is random per installation, so publishing the port does not open its admin
+console to whoever reads this guide. Still do not run it anywhere that matters. The test and load
+scripts (`make test-sso-dev`, `LOAD_SCENARIO=sso make loadtest`) make their own random password and
+publish their ports on 127.0.0.1 only.
 
 Open `https://localhost`, accept the certificate warning (Caddy signs with its own CA) and choose
 **Keycloak (development)**. Sign in as `alice` (department Finance) or `bob` (Human Resources); the
 password is `dev-only-password`. Keycloak's own admin console is at `https://auth.localhost`
-(`admin` / `dev-only-admin-password`).
+(`admin` and the `PHAROS_KEYCLOAK_ADMIN_PASSWORD` from `deploy/.env`).
 
 Signing out of Pharos also ends the Keycloak session. Pharos does not keep ID tokens, so it cannot
 send an `id_token_hint`, and Keycloak therefore shows a short "Do you want to sign out?" page before it
