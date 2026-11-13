@@ -78,13 +78,21 @@ class FakeConnector:
 class OpenGate:
     gap_seconds = 5
 
-    def __init__(self, allow: bool = True) -> None:
+    def __init__(self, allow: bool = True, wait: int = 0) -> None:
         self.allow = allow
+        self.wait = wait
         self.hosts: list[str] = []
+        self.holds: list[tuple[str, int]] = []
 
     async def enter(self, host: str) -> bool:
         self.hosts.append(host)
         return self.allow
+
+    async def hold(self, host: str, seconds: int) -> None:
+        self.holds.append((host, seconds))
+
+    async def wait_seconds(self, host: str) -> int:
+        return self.wait
 
 
 def ok(*entries: RawEntry, etag: str | None = '"v1"', **extra: Any) -> FetchOutcome:
@@ -924,3 +932,90 @@ async def test_organization_feeds_are_leased_before_personal_ones_however_old(
     sent, enqueue = collect()
     await dispatch(worker_engine, slug=slug, now=T0, enqueue=enqueue, per_tick=3)
     assert {s for s, _ in sent} == set(shared)
+
+
+# --- F-27: a host's "not now" holds every fetch of that host ------------------------------------
+
+
+async def test_a_host_that_asked_to_wait_is_held_for_every_source_on_it(
+    worker_engine: AsyncEngine, owner_engine: AsyncEngine, alpha: Org, slug: str
+) -> None:
+    clock = Clock()
+    source, token = await leased(worker_engine, owner_engine, alpha, slug, clock)
+    gate = OpenGate()
+    connector = FakeConnector(
+        ConnectorError("bad_status", "http_error", http_status=429, retry_after=5400)
+    )
+    report = await run(worker_engine, slug, source, token, clock, connector, gate)
+    assert report.result == "failed"
+    assert gate.holds == [("news.example", 5400)]  # the gate of the host, not just this source
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        ConnectorError("timeout", "timed_out"),
+        ConnectorError("bad_status", "http_error", http_status=500),
+    ],
+)
+async def test_a_failure_that_did_not_ask_to_wait_holds_nothing(
+    worker_engine: AsyncEngine,
+    owner_engine: AsyncEngine,
+    alpha: Org,
+    slug: str,
+    failure: ConnectorError,
+) -> None:
+    clock = Clock()
+    source, token = await leased(worker_engine, owner_engine, alpha, slug, clock)
+    gate = OpenGate()
+    await run(worker_engine, slug, source, token, clock, FakeConnector(failure), gate)
+    assert gate.holds == []
+
+
+async def test_a_source_on_a_held_host_waits_until_the_gate_opens(
+    worker_engine: AsyncEngine, owner_engine: AsyncEngine, alpha: Org, slug: str
+) -> None:
+    """Deferred to when the host said, not by a few seconds again and again for hours."""
+    clock = Clock()
+    source, token = await leased(worker_engine, owner_engine, alpha, slug, clock)
+    connector = FakeConnector(ok(entry(1)))
+    report = await run(
+        worker_engine, slug, source, token, clock, connector, OpenGate(allow=False, wait=3600)
+    )
+    assert report.result == "deferred" and connector.calls == []
+    stored = await row(owner_engine, source)
+    assert stored.next_fetch_at >= clock() + timedelta(seconds=3600)
+    assert stored.consecutive_failures == 0
+
+
+async def test_a_gate_that_cannot_say_how_long_still_defers_by_the_usual_gap(
+    worker_engine: AsyncEngine, owner_engine: AsyncEngine, alpha: Org, slug: str
+) -> None:
+    class Unsure(OpenGate):
+        async def wait_seconds(self, host: str) -> int:
+            raise ConnectionError("redis is down")
+
+    clock = Clock()
+    source, token = await leased(worker_engine, owner_engine, alpha, slug, clock)
+    report = await run(
+        worker_engine, slug, source, token, clock, FakeConnector(ok(entry(1))), Unsure(False)
+    )
+    assert report.result == "deferred"
+    stored = await row(owner_engine, source)
+    assert clock() < stored.next_fetch_at <= clock() + timedelta(seconds=11)
+
+
+async def test_a_gate_that_cannot_be_held_leaves_the_sources_own_backoff(
+    worker_engine: AsyncEngine, owner_engine: AsyncEngine, alpha: Org, slug: str
+) -> None:
+    class Unheld(OpenGate):
+        async def hold(self, host: str, seconds: int) -> None:
+            raise ConnectionError("redis is down")
+
+    clock = Clock()
+    source, token = await leased(worker_engine, owner_engine, alpha, slug, clock)
+    connector = FakeConnector(ConnectorError("bad_status", "http_error", retry_after=7200))
+    report = await run(worker_engine, slug, source, token, clock, connector, Unheld())
+    assert report.result == "failed"
+    stored = await row(owner_engine, source)
+    assert stored.next_fetch_at >= clock() + timedelta(seconds=7200)

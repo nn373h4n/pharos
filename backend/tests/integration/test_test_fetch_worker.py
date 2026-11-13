@@ -16,6 +16,7 @@ from pharos.ingest import testfetch
 from pharos.ingest.connectors.base import ConnectorError
 from pharos.ingest.connectors.rss import RssConnector
 from pharos.ingest.feed import RawEntry
+from pharos.ingest.hostgate import HostGate
 from pharos.ingest.testrun import run_test_fetch
 
 from .ingestion_support import Org, sha
@@ -265,3 +266,43 @@ async def test_a_feed_whose_every_title_is_odd_still_answers_ok_with_no_sample(
     hostile = RawEntry("h", "<i>x</i>", "x", "https://news.example/h", None, sha("h"))
     result, _, _ = await trial(worker_engine, slug, source, FakeConnector(ok(hostile)))
     assert (result.outcome, result.entries_seen, result.sample) == ("ok", 1, [])
+
+
+# --- F-27: a trial obeys and passes on a host's "not now" -----------------------------------------
+
+
+async def test_a_trial_that_hears_not_now_holds_the_host_for_the_scheduled_fetches_too(
+    worker_engine: AsyncEngine, owner_engine: AsyncEngine, alpha: Org, slug: str
+) -> None:
+    source = await make_source(owner_engine, alpha, "a")
+    gate = OpenGate()
+    failure = ConnectorError("bad_status", "http_error", http_status=429, retry_after=900)
+    result, _, _ = await trial(worker_engine, slug, source, FakeConnector(failure), gate=gate)
+    assert (result.outcome, result.http_status) == ("bad_status", 429)
+    assert gate.holds == [("news.example", 900)]
+
+
+async def test_a_trial_on_a_held_host_is_not_sent(
+    worker_engine: AsyncEngine, owner_engine: AsyncEngine, alpha: Org, slug: str
+) -> None:
+    """With the real gate: a scheduled fetch heard "not now", so the person's trial waits too."""
+
+    class Keys:
+        def __init__(self) -> None:
+            self.keys: dict[str, int] = {}
+
+        async def set(self, name: str, value: str, *, nx: bool = False, px: int) -> bool | None:
+            if nx and name in self.keys:
+                return None
+            self.keys[name] = px
+            return True
+
+        async def pttl(self, name: str) -> int:
+            return self.keys.get(name, -2)
+
+    source = await make_source(owner_engine, alpha, "a")
+    gate = HostGate(Keys())  # type: ignore[arg-type]
+    await gate.hold("news.example", 3600)
+    connector = FakeConnector(ok(entry(1)))
+    result, _, _ = await trial(worker_engine, slug, source, connector, gate=gate)  # type: ignore[arg-type]
+    assert result.outcome == "host_busy" and connector.calls == []

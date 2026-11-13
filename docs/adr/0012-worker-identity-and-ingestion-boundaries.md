@@ -72,6 +72,19 @@ says so. There is no upgrade script before 1.0.
   user are listed in `docs/THREAT_MODEL.md` and `docs/DEPLOYMENT.md`.
 - New dependencies: `feedparser`, `nh3`, `defusedxml` (approved with the M3 plan).
 
+## Amendment (2026-11-13, F-27): a host's "not now" holds the whole host
+
+A `Retry-After`, or a spent rate limit such as GitHub's (`x-ratelimit-remaining: 0`), used to
+delay only the source whose fetch heard it. Other sources on the same host, and trial fetches an
+administrator starts, went on asking. Now the worker also closes that host's gate in Redis (the
+politeness key, `pharos:worker:host:<hash>`) for as long as the host asked, at most a day, the
+longest backoff of a source. Scheduled fetches and trials alike find the gate closed: a trial
+answers `host_busy`, and a scheduled fetch is given back until the gate opens rather than every
+few seconds. A trial that hears "not now" closes the gate for the scheduled fetches too. A wait no
+longer than the usual five-second gap changes nothing, and a later answer of the same host
+replaces an earlier one. If Redis cannot be written, the source's own backoff still obeys the
+host. The key holds no address (the host is hashed) and lives under the worker's own prefix.
+
 ## References
 
 - [0005 Tenancy and RLS](0005-tenancy-and-rls.md),
