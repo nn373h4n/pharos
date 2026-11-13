@@ -3,6 +3,7 @@
 import { useLocale, useTranslations } from "next-intl";
 import { RunsPanel } from "@/components/sources/runs-panel";
 import { TestPanel } from "@/components/sources/test-panel";
+import type { TrialState } from "@/components/sources/trial-state";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Link } from "@/i18n/navigation";
@@ -21,13 +22,26 @@ type Props = {
   onToggle: (source: Source) => void;
   onEdit: (source: Source) => void;
   onDelete: (source: Source) => void;
+  /** The state of this source's trial fetch, kept by the list (F-29). */
+  trial?: TrialState;
+  onTrial?: (sourceId: string, next: TrialState) => void;
 };
 
 /**
  * One source: what it fetches, how it is doing, and (for administrators) what can be done with
  * it. The name and the address are shown as text; the address of a feed is not made a link.
  */
-export function SourceCard({ source, admin, csrf, busy, onToggle, onEdit, onDelete }: Props) {
+export function SourceCard({
+  source,
+  admin,
+  csrf,
+  busy,
+  onToggle,
+  onEdit,
+  onDelete,
+  trial,
+  onTrial,
+}: Props) {
   const t = useTranslations("Sources");
   const locale = useLocale();
   const health = healthOf(source);
@@ -110,7 +124,7 @@ export function SourceCard({ source, admin, csrf, busy, onToggle, onEdit, onDele
             </>
           )}
         </div>
-        {admin && <TestPanel source={source} csrf={csrf} />}
+        {admin && <TestPanel source={source} csrf={csrf} trial={trial} onTrial={onTrial} />}
         <RunsPanel source={source} />
       </article>
     </li>

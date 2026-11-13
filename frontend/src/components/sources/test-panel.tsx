@@ -1,13 +1,14 @@
 "use client";
 
 import { useLocale, useTranslations } from "next-intl";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ApiProblem } from "@/lib/api";
 import { formatDate } from "@/lib/format";
 import { hostOf, safeHref } from "@/lib/links";
-import { problemKey, type ProblemKey } from "@/lib/problems";
+import { problemKey } from "@/lib/problems";
 import { errorKey, outcomeKey } from "@/lib/source-text";
+import { IDLE, type TrialState } from "@/components/sources/trial-state";
 import {
   readTestFetch,
   startTestFetch,
@@ -17,44 +18,50 @@ import {
   type TestAnswer,
 } from "@/lib/sources";
 
-type State =
-  | { phase: "idle" }
-  | { phase: "starting" }
-  | { phase: "waiting"; testId: string }
-  | { phase: "answer"; answer: TestAnswer }
-  | { phase: "gaveUp" }
-  | { phase: "failed"; problem: ProblemKey; seconds: number | null };
-
-type Props = { source: Source; csrf: string };
+type Props = {
+  source: Source;
+  csrf: string;
+  /**
+   * The trial's state, kept by the list above the cards so that a card shown again after the
+   * list reloads (a step, a filter, a page) goes on with its trial (F-29). Without it the panel
+   * keeps its own state. `onTrial` must not change between renders.
+   */
+  trial?: TrialState;
+  onTrial?: (sourceId: string, next: TrialState) => void;
+};
 
 /**
  * One trial fetch of a source, done by the worker. The page asks for it, then asks every two
  * seconds for the answer, for two minutes at the most. What comes back is text from a third party
  * and from a process that handles hostile content: it is shown as text only.
  */
-export function TestPanel({ source, csrf }: Props) {
+export function TestPanel({ source, csrf, trial, onTrial }: Props) {
   const t = useTranslations("Sources");
   const problems = useTranslations("Problems");
   const locale = useLocale();
-  const [state, setState] = useState<State>({ phase: "idle" });
+  const [own, setOwn] = useState<TrialState>(IDLE);
+  const keepOwn = useCallback((_: string, next: TrialState) => setOwn(next), []);
+  const state = trial ?? own;
+  const report = onTrial ?? keepOwn;
+  const sourceId = source.id;
   const waitingFor = state.phase === "waiting" ? state.testId : null;
+  const startedAt = state.phase === "waiting" ? state.startedAt : 0;
 
   useEffect(() => {
     if (waitingFor === null) return;
     let current = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const startedAt = Date.now();
     const poll = async () => {
       try {
-        const answer = await readTestFetch(source.id, waitingFor);
+        const answer = await readTestFetch(sourceId, waitingFor);
         if (!current) return;
         if (answer.status !== "pending") {
-          setState({ phase: "answer", answer });
+          report(sourceId, { phase: "answer", answer });
           return;
         }
       } catch (error) {
         if (!current) return;
-        setState({
+        report(sourceId, {
           phase: "failed",
           problem: problemKey(error),
           seconds: error instanceof ApiProblem ? error.retryAfter : null,
@@ -62,25 +69,26 @@ export function TestPanel({ source, csrf }: Props) {
         return;
       }
       if (Date.now() - startedAt >= TEST_GIVE_UP_MS) {
-        setState({ phase: "gaveUp" });
+        report(sourceId, { phase: "gaveUp" });
         return;
       }
       timer = setTimeout(poll, TEST_POLL_MS);
     };
+    // A trial already past its two minutes (the card was away meanwhile) asks once more.
     timer = setTimeout(poll, TEST_POLL_MS);
     return () => {
       current = false;
       clearTimeout(timer);
     };
-  }, [source.id, waitingFor]);
+  }, [sourceId, waitingFor, startedAt, report]);
 
   async function start() {
-    setState({ phase: "starting" });
+    report(sourceId, { phase: "starting" });
     try {
-      const started = await startTestFetch(source.id, csrf);
-      setState({ phase: "waiting", testId: started.test_id });
+      const started = await startTestFetch(sourceId, csrf);
+      report(sourceId, { phase: "waiting", testId: started.test_id, startedAt: Date.now() });
     } catch (error) {
-      setState({
+      report(sourceId, {
         phase: "failed",
         problem: problemKey(error),
         seconds: error instanceof ApiProblem ? error.retryAfter : null,
@@ -111,11 +119,7 @@ export function TestPanel({ source, csrf }: Props) {
             ? problems("rateLimitedNoWait")
             : problems(state.problem, { seconds: state.seconds ?? 0 }))}
         {state.phase === "answer" && (
-          <Answer
-            answer={state.answer}
-            locale={locale}
-            onClose={() => setState({ phase: "idle" })}
-          />
+          <Answer answer={state.answer} locale={locale} onClose={() => report(sourceId, IDLE)} />
         )}
       </div>
     </div>

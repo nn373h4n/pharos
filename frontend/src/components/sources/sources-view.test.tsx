@@ -30,7 +30,25 @@ vi.mock("@/i18n/navigation", () => ({
 }));
 vi.mock("@/components/sources/runs-panel", () => ({ RunsPanel: () => null }));
 vi.mock("@/components/sources/test-panel", () => ({
-  TestPanel: () => <span data-testid="test-panel" />,
+  // Shows the trial state it is given and reports a change when clicked, as the real panel does.
+  TestPanel: ({
+    source,
+    trial,
+    onTrial,
+  }: {
+    source: Source;
+    trial: { phase: string };
+    onTrial: (sourceId: string, next: { phase: "gaveUp" }) => void;
+  }) => (
+    <button
+      type="button"
+      data-testid="test-panel"
+      aria-label={`trial of ${source.name}`}
+      onClick={() => onTrial(source.id, { phase: "gaveUp" })}
+    >
+      {trial.phase}
+    </button>
+  ),
 }));
 vi.mock("@/lib/sources", async (original) => ({
   ...(await original<typeof import("@/lib/sources")>()),
@@ -468,5 +486,40 @@ describe("while the next list is on its way", () => {
         screen.getByRole("heading", { level: 2, name: en.Sources.results }),
       ),
     );
+  });
+});
+
+describe("a trial fetch while the list reloads (F-29)", () => {
+  const trialOf = (name: string) => screen.getByRole("button", { name: `trial of ${name}` });
+
+  it("is still there after a step reloads the list", async () => {
+    show();
+    await loaded();
+    fireEvent.click(trialOf("Source 2"));
+    expect(trialOf("Source 2").textContent).toBe("gaveUp");
+    let reload: (value: SourcePage) => void = () => {};
+    listSources.mockReturnValueOnce(new Promise((resolve) => (reload = resolve)));
+    fireEvent.click(act(en.Sources.actions.disable, "Source 1"));
+    // While the list reloads the cards are gone (and so would be a trial kept in a card) ...
+    await waitFor(() => expect(screen.queryByText("Source 2")).toBeNull());
+    reload(page([source(1, { enabled: false }), source(2)]));
+    // ... and the card that comes back goes on with its trial.
+    await waitFor(() => expect(trialOf("Source 2").textContent).toBe("gaveUp"));
+    expect(trialOf("Source 1").textContent).toBe("idle");
+  });
+
+  it("is still there after a filter hides the source and shows it again", async () => {
+    show();
+    await loaded();
+    fireEvent.click(trialOf("Source 1"));
+    listSources.mockResolvedValueOnce(page([source(7)]));
+    fireEvent.change(screen.getByLabelText(en.Sources.filters.type), {
+      target: { value: "github" },
+    });
+    await waitFor(() => expect(screen.getByText("Source 7")).toBeDefined());
+    expect(screen.queryByText("Source 1")).toBeNull();
+    fireEvent.change(screen.getByLabelText(en.Sources.filters.type), { target: { value: "" } });
+    await waitFor(() => expect(trialOf("Source 1").textContent).toBe("gaveUp"));
+    expect(trialOf("Source 2").textContent).toBe("idle");
   });
 });
