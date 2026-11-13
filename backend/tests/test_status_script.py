@@ -20,7 +20,15 @@ echo "$1 ${2-} ${3-} ${4-}" >> "$STUB_LOG"  # not "$*": the probe is a many-line
 case "$1" in
   config) [ "$STUB_CONFIG_EXIT" = 0 ] || exit 1; printf '%s\\n' $STUB_SERVICES ;;
   ps) printf '%b' "$STUB_PS" ;;
-  exec) [ "$STUB_EXEC_EXIT" = 0 ] || exit 1; printf '%b' "$STUB_READY" ;;
+  exec)
+    [ "$STUB_EXEC_EXIT" = 0 ] || exit 1
+    case "$*" in
+      *retention-status*)
+        echo "exec retention-status" >> "$STUB_LOG"
+        [ "${STUB_RETENTION_EXIT:-0}" = 0 ] || exit 1
+        printf '%b' "$STUB_RETENTION" ;;
+      *) printf '%b' "$STUB_READY" ;;
+    esac ;;
   *) echo "unexpected: $*" >&2; exit 99 ;;
 esac
 """
@@ -28,6 +36,9 @@ DEFAULTS = {
     "STUB_CONFIG_EXIT": "0",
     "STUB_EXEC_EXIT": "0",
     "STUB_SERVICES": "web api worker beat migrate",
+    "STUB_RETENTION": (
+        "audit_pruned_days=12\\ninteractions_folded_days=12\\noldest_entry_days=200\\n"
+    ),
     "STUB_PS": "web|running|\\napi|running|healthy\\nworker|running|healthy\\n"
     "beat|running|\\nmigrate|exited|\\n",
     "STUB_READY": "status=ok\\ndatabase=ok\\nredis=ok\\nworker=ok\\nheartbeat-age=12\\n",
@@ -106,6 +117,7 @@ def test_a_healthy_installation_passes_and_changes_nothing(tmp_path: Path) -> No
         "readyz": "PASS",
         "worker": "PASS",
         "backup": "PASS",
+        "retention": "PASS",
         "disk": "PASS",
     }
     # Only reads: no up, down, restart, run, rm, stop, kill, or a shell in a container.
@@ -442,3 +454,54 @@ def test_a_newest_dump_less_than_half_the_one_before_is_warned_about(
     assert levels(result)["backup"] == level
     assert result.returncode == 0
     assert "pharos-2026" not in result.stdout  # sizes and ages only, never a file name
+
+
+# --- F-48: the retention jobs ------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "pruned, folded, oldest, level, text",
+    [
+        ("12", "12", "200", "PASS", "prune-audit 12 days ago; fold-interactions 12 days ago"),
+        ("40", "3", "200", "PASS", "prune-audit 40 days ago"),
+        ("41", "3", "200", "WARN", "prune-audit (41 days ago)"),
+        ("3", "90", "200", "WARN", "fold-interactions (90 days ago)"),
+        ("none", "none", "10", "PASS", "prune-audit never ran; fold-interactions never ran"),
+        ("none", "none", "none", "PASS", "never ran"),
+        ("none", "5", "41", "WARN", "prune-audit (never, the oldest audit entry is 41 days old)"),
+    ],
+)
+def test_the_retention_jobs_are_watched(
+    tmp_path: Path, pruned: str, folded: str, oldest: str, level: str, text: str
+) -> None:
+    report = (
+        f"audit_pruned_days={pruned}\\ninteractions_folded_days={folded}\\n"
+        f"oldest_entry_days={oldest}\\n"
+    )
+    result, calls = run(tmp_path, env={"STUB_RETENTION": report})
+    assert levels(result)["retention"] == level
+    assert text in result.stdout
+    assert result.returncode == 0  # a lapse is a warning, not a failure
+    assert "exec retention-status" in calls  # read through the operator command
+
+
+@pytest.mark.parametrize(
+    "report",
+    [
+        "",
+        "audit_pruned_days=12\\n",  # a line missing
+        "audit_pruned_days=-1\\ninteractions_folded_days=1\\noldest_entry_days=1\\n",
+        "audit_pruned_days=1\\033[2J\\ninteractions_folded_days=1\\noldest_entry_days=1\\n",
+    ],
+)
+def test_a_retention_report_that_cannot_be_read_is_not_checked(tmp_path: Path, report: str) -> None:
+    result, _ = run(tmp_path, env={"STUB_RETENTION": report})
+    assert levels(result)["retention"] == "NOT CHECKED"
+    assert "\x1b" not in result.stdout
+    assert "disk" in levels(result)  # the script went on to the next check
+
+
+def test_a_failing_retention_command_is_not_checked(tmp_path: Path) -> None:
+    result, _ = run(tmp_path, env={"STUB_RETENTION_EXIT": "1"})
+    assert levels(result)["retention"] == "NOT CHECKED"
+    assert levels(result)["readyz"] == "PASS"

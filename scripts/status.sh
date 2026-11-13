@@ -15,6 +15,8 @@
 #   backup     the age and size of the newest dump under DIR (daily/, weekly/, monthly/); only with
 #              --backups. FAIL when it is empty, WARN when it is less than half the one before. Not
 #              its content: rehearse scripts/restore.sh
+#   retention  days since prune-audit and fold-interactions last ran with --confirm (from the audit
+#              log); WARN after 40 days, or when they never ran on an installation older than that
 #   disk       free space on the disk that holds Docker's data
 # It does NOT check: that the sources fetch, that the model answers, the budget, or that a dump can
 # be restored (rehearse scripts/restore.sh). Those are on the admin pages and in the runbook.
@@ -33,6 +35,7 @@ compose() { "${COMPOSE[@]}" "$@"; }
 # that has a container at all, must stay up.
 ONE_SHOT=" migrate operator ollama-init ollama-pull caddy-volumes dev-ca-export "
 HEARTBEAT_WARN_SECONDS=90 # a beat every 60 seconds (pharos.core.heartbeat), with slack
+RETENTION_WARN_DAYS=40 # the runbook schedules both jobs monthly
 BACKUP_WARN_HOURS=30
 BACKUP_FAIL_HOURS=54
 DISK_WARN_PERCENT=85
@@ -208,6 +211,40 @@ else
     else
       report PASS backup "newest dump is ${hours} hours old, $((size / 1024)) KiB"
     fi
+  fi
+fi
+
+# --- retention --------------------------------------------------------------------------------
+# A read-only operator command in the API container; only `name=<days or none>` lines are taken.
+retention=$(compose exec -T api python -m pharos.cli retention-status 2>/dev/null || true)
+# No match is an empty answer, not the end of the script (set -e and pipefail are on).
+read_days() { grep -E "^$1=([0-9]{1,6}|none)\$" <<<"$retention" | head -n 1 | cut -d= -f2 || true; }
+pruned=$(read_days audit_pruned_days)
+folded=$(read_days interactions_folded_days)
+oldest=$(read_days oldest_entry_days)
+if [ -z "$pruned" ] || [ -z "$folded" ] || [ -z "$oldest" ]; then
+  report "NOT CHECKED" retention "the API container did not report when the retention jobs ran"
+else
+  late=
+  summary=
+  for job in "prune-audit:$pruned" "fold-interactions:$folded"; do
+    name=${job%%:*}
+    days=${job#*:}
+    if [ "$days" = none ]; then
+      summary="$summary $name never ran;"
+      if [ "$oldest" != none ] && [ "$oldest" -gt "$RETENTION_WARN_DAYS" ]; then
+        late="$late $name (never, the oldest audit entry is $oldest days old)"
+      fi
+    else
+      summary="$summary $name $days days ago;"
+      [ "$days" -le "$RETENTION_WARN_DAYS" ] || late="$late $name ($days days ago)"
+    fi
+  done
+  if [ -n "$late" ]; then
+    report WARN retention "not run for more than $RETENTION_WARN_DAYS days:$late; see the runbook, step 8"
+  else
+    summary=${summary# }
+    report PASS retention "${summary%;}"
   fi
 fi
 

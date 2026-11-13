@@ -6,6 +6,7 @@
     docker compose exec api python -m pharos.cli unlock --username admin
     docker compose exec api python -m pharos.cli import-sources [--file PATH] [--dry-run]
     docker compose exec api python -m pharos.cli list-people [--limit N] [--offset N]
+    docker compose exec api python -m pharos.cli retention-status
 
 `create-org` needs the table owner's credentials (the application role may not create
 organizations), so it runs in the `migrate` service. The others run as the application role inside a
@@ -312,6 +313,57 @@ async def list_people(settings: Settings, *, limit: int, offset: int) -> str:
     return "\n".join(lines)
 
 
+async def retention_status(settings: Settings) -> str:
+    """When the two retention jobs last ran, in whole days, and how old the oldest audit entry is
+    (about how long the installation has run, or the audit retention once pruning works). One
+    `name=value` line each, a number of days or `none`; `scripts/status.sh` reads them (F-48).
+
+    Read-only, as the application role inside a tenant transaction. A run writes its audit entry
+    only with --confirm, so a dry run does not count."""
+    context = _Context(settings)
+    try:
+        org_id = await context.org_id()
+        async with tenant_session(context.factory, org_id) as session:
+            rows = (
+                await session.execute(
+                    text(
+                        "SELECT action, floor(extract(epoch FROM now() - max(occurred_at)) "
+                        "/ 86400)::int AS days FROM audit_logs WHERE org_id = :org "
+                        "AND outcome = 'success' AND action IN (:pruned, :folded) "
+                        "GROUP BY action"
+                    ),
+                    {
+                        "org": org_id,
+                        "pruned": AuditAction.AUDIT_PRUNED.value,
+                        "folded": AuditAction.INTERACTIONS_FOLDED.value,
+                    },
+                )
+            ).all()
+            last: dict[str, int | None] = {row.action: row.days for row in rows}
+            oldest = (
+                await session.execute(
+                    text(
+                        "SELECT floor(extract(epoch FROM now() - min(occurred_at)) / 86400)::int "
+                        "FROM audit_logs WHERE org_id = :org"
+                    ),
+                    {"org": org_id},
+                )
+            ).scalar_one()
+    finally:
+        await context.close()
+
+    def days(value: int | None) -> str:
+        return "none" if value is None else str(max(0, int(value)))
+
+    return "\n".join(
+        (
+            f"audit_pruned_days={days(last.get(AuditAction.AUDIT_PRUNED.value))}",
+            f"interactions_folded_days={days(last.get(AuditAction.INTERACTIONS_FOLDED.value))}",
+            f"oldest_entry_days={days(oldest)}",
+        )
+    )
+
+
 async def import_sources(
     settings: Settings, *, file: Path | None, dry_run: bool
 ) -> catalogue.Result:
@@ -501,6 +553,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     people.add_argument("--offset", type=int, default=0, help="skip this many first")
 
+    commands.add_parser(
+        "retention-status",
+        help="days since prune-audit and fold-interactions last ran with --confirm (read-only)",
+    )
+
     sources = commands.add_parser(
         "import-sources",
         help="add the starter catalogue of sources to the organization, switched off",
@@ -548,6 +605,8 @@ async def run(args: argparse.Namespace) -> str:
         return f"cleared {removed} delay record(s) for {_username(args.username)!r}"
     if args.command == "list-people":
         return await list_people(settings, limit=args.limit, offset=args.offset)
+    if args.command == "retention-status":
+        return await retention_status(settings)
     if args.command == "import-sources":
         result = await import_sources(settings, file=args.file, dry_run=args.dry_run)
         verb = "would add" if args.dry_run else "added"

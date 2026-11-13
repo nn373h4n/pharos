@@ -438,6 +438,10 @@ cron) or run them by hand; the first dry run shows what would happen.
 
 - `prune-audit` deletes entries strictly older than the retention and leaves an `audit.pruned`
   entry with the count.
+- Nothing runs these commands for you. `python -m pharos.cli retention-status` (read-only, in the
+  `api` service) prints how many days ago each last ran with `--confirm`, and `scripts/status.sh`
+  warns when that is more than 40 days, or when a job never ran on an installation older than that
+  (F-48). Schedule both, for example monthly (the runbook has crontab lines).
 - `fold-interactions` first writes monthly counts, then deletes the interactions of the months
   before the cutoff (the first day of the month `--months` back, in UTC), all in one transaction. A
   month and kind with fewer than five people is not kept; one person's minutes count at most 120

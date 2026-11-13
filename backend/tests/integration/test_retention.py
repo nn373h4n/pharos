@@ -864,3 +864,46 @@ async def test_no_function_or_view_reads_the_monthly_counts(owner_engine: Any) -
     assert not others, (
         f"{others} are granted rights on {table}: only the table owner may touch it (F-47)"
     )
+
+
+# --- F-48: when the retention jobs last ran ------------------------------------------------------
+
+
+def parsed(report: str) -> dict[str, str]:
+    return dict(line.split("=", 1) for line in report.splitlines())
+
+
+async def test_retention_status_reports_confirmed_runs_of_this_organization_only(
+    make_stack: MakeStack, database: TestDatabase
+) -> None:
+    stack = await make_stack()
+    slug, other = await slug_of(stack), await slug_of(stack, stack.org_b)
+    before = parsed(await cli.retention_status(stack.settings))
+    assert set(before) == {"audit_pruned_days", "interactions_folded_days", "oldest_entry_days"}
+    assert before["audit_pruned_days"] == before["interactions_folded_days"] == "none"
+
+    # Another organization's runs and a dry run here do not count.
+    await retention.prune_audit(database.owner_url, org_slug=other, days=365, confirm=True)
+    await retention.fold_interactions(database.owner_url, org_slug=other, months=12, confirm=True)
+    await retention.prune_audit(database.owner_url, org_slug=slug, days=365)
+    await retention.fold_interactions(database.owner_url, org_slug=slug, months=12)
+    assert parsed(await cli.retention_status(stack.settings))["audit_pruned_days"] == "none"
+
+    await retention.prune_audit(database.owner_url, org_slug=slug, days=365, confirm=True)
+    after = parsed(await cli.retention_status(stack.settings))
+    assert after["audit_pruned_days"] == "0" and after["interactions_folded_days"] == "none"
+    assert after["oldest_entry_days"] == "0"
+
+    # An old run is reported in whole days (the newest run counts).
+    async with stack.owner.begin() as connection:
+        await connection.execute(
+            text(
+                "UPDATE audit_logs SET occurred_at = now() - interval '50 days 3 hours' "
+                "WHERE org_id = :o AND action = 'audit.pruned'"
+            ),
+            {"o": stack.org_a},
+        )
+    await retention.fold_interactions(database.owner_url, org_slug=slug, months=12, confirm=True)
+    late = parsed(await cli.retention_status(stack.settings))
+    assert late["audit_pruned_days"] == "50" and late["interactions_folded_days"] == "0"
+    assert int(late["oldest_entry_days"]) >= 50
