@@ -1019,3 +1019,59 @@ async def test_a_gate_that_cannot_be_held_leaves_the_sources_own_backoff(
     assert report.result == "failed"
     stored = await row(owner_engine, source)
     assert stored.next_fetch_at >= clock() + timedelta(seconds=7200)
+
+
+# --- F-23 -----------------------------------------------------------------------------------------
+
+
+async def test_two_dispatchers_at_once_never_pass_the_cap_together(
+    worker_engine: AsyncEngine, owner_engine: AsyncEngine, alpha: Org, slug: str
+) -> None:
+    """Each counted the sources in flight before the other had leased: both saw room for 20
+    under a cap of 25, and 30 went out. The count and the leases are now one step."""
+    async with owner_engine.begin() as connection:
+        for n in range(30):
+            await add_source(
+                connection, alpha, key=f"c{n}", enabled=True,
+                config='{"url": "https://news.example/f"}',
+                next_fetch_at=T0 - timedelta(minutes=n + 1),
+            )  # fmt: skip
+    sent_a, enqueue_a = collect()
+    sent_b, enqueue_b = collect()
+    await asyncio.gather(
+        dispatch(
+            worker_engine, slug=slug, now=T0, enqueue=enqueue_a, per_tick=20, in_flight_cap=25
+        ),
+        dispatch(
+            worker_engine, slug=slug, now=T0, enqueue=enqueue_b, per_tick=20, in_flight_cap=25
+        ),
+    )
+    ids = [s for s, _ in sent_a + sent_b]
+    assert len(ids) == len(set(ids)) == 25  # 20 and 5, in either order
+    assert sorted((len(sent_a), len(sent_b))) == [5, 20]
+
+
+async def test_an_entry_that_never_changes_is_not_a_new_article_after_its_raw_copy_expires(
+    worker_engine: AsyncEngine, owner_engine: AsyncEngine, alpha: Org, slug: str
+) -> None:
+    """A feed that keeps an entry for months: its raw copy is deleted after 14 days and stored again
+    at the next fetch, but the article is the same one, untouched (F-23)."""
+    clock = Clock()
+    source, token = await leased(worker_engine, owner_engine, alpha, slug, clock)
+    connector = FakeConnector(ok(entry(1)), ok(entry(1)))
+    assert (await run(worker_engine, slug, source, token, clock, connector)).items_new == 1
+    [before] = await table(owner_engine, "SELECT id, updated_at, created_at FROM items")
+    clock.advance(hours=15 * 24)
+    async with worker_engine.begin() as connection:
+        await repository.enter_org(connection, alpha.id)
+        # A raw copy is stamped by the database's clock, not the test's: fifteen real days on.
+        later = datetime.now(UTC) + timedelta(days=15)
+        counts = await repository.cleanup(connection, later, repository.Retention())
+    assert counts["raw_items"] == 1  # the positive control: the raw copy really expired
+    sent, enqueue = collect()
+    await dispatch(worker_engine, slug=slug, now=clock(), enqueue=enqueue)
+    again = await run(worker_engine, slug, *sent[0], clock, connector)
+    assert (again.result, again.items_new) == ("ok", 0)
+    assert len(await table(owner_engine, "SELECT 1 FROM raw_items")) == 1  # stored again ...
+    [after] = await table(owner_engine, "SELECT id, updated_at, created_at FROM items")
+    assert tuple(after) == tuple(before)  # ... but the article is not new and not touched
