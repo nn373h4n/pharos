@@ -1,11 +1,12 @@
 "use client";
 
 import { useLocale, useTranslations } from "next-intl";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useSession } from "@/components/auth/session-provider";
 import { DeleteDialog } from "@/components/sources/delete-dialog";
 import { SourceCard } from "@/components/sources/source-card";
 import { SourceForm, type FormValues } from "@/components/sources/source-form";
+import { IDLE, type TrialState } from "@/components/sources/trial-state";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { SelectField } from "@/components/ui/field";
@@ -56,6 +57,14 @@ export function SourcesView() {
   const heading = useRef<HTMLHeadingElement>(null);
   // Asked for after a step; done once the dialogs are closed, as a modal page cannot take focus.
   const [focusAsked, setFocusAsked] = useState(0);
+  // The trial fetches, by source, kept here rather than in the cards: a card is gone while the
+  // list reloads after a step or a change of filter or page, and its trial must not go with it
+  // (F-29). A card shown again goes on asking for the answer, within the same two minutes.
+  const [trials, setTrials] = useState<Record<string, TrialState>>({});
+  const onTrial = useCallback(
+    (sourceId: string, next: TrialState) => setTrials((now) => ({ ...now, [sourceId]: next })),
+    [],
+  );
 
   const role = state.status === "authenticated" ? state.session.user.role : null;
   const csrf = state.status === "authenticated" ? state.session.csrf_token : "";
@@ -295,6 +304,8 @@ export function SourcesView() {
                   setEditor({ source: found });
                 }}
                 onDelete={setRemoving}
+                trial={trials[source.id] ?? IDLE}
+                onTrial={onTrial}
               />
             ))}
           </ul>

@@ -1,9 +1,11 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { NextIntlClientProvider } from "next-intl";
+import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import en from "../../../messages/en.json";
 import { ApiProblem } from "@/lib/api";
 import type { Source, TestAnswer, TestStarted } from "@/lib/sources";
+import { IDLE, type TrialState } from "./trial-state";
 
 const startTestFetch = vi.fn<(id: string, csrf: string) => Promise<TestStarted>>();
 const readTestFetch = vi.fn<(id: string, testId: string) => Promise<TestAnswer>>();
@@ -246,6 +248,71 @@ describe("a poll still on its way when the page goes away", () => {
     unmount();
     await act(async () => late(pending));
     await tick(20_000);
+    expect(readTestFetch).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("a trial kept above the panel (F-29)", () => {
+  /** The list of sources: it keeps the trial, and its cards come and go as the list reloads. */
+  function Holder({ shown }: { shown: boolean }) {
+    const [trials, setTrials] = useState<Record<string, TrialState>>({});
+    const [onTrial] = useState(
+      () => (id: string, next: TrialState) => setTrials((now) => ({ ...now, [id]: next })),
+    );
+    return shown ? (
+      <TestPanel source={source} csrf="token-1" trial={trials[ID] ?? IDLE} onTrial={onTrial} />
+    ) : null;
+  }
+
+  function hold(shown: boolean) {
+    return (
+      <NextIntlClientProvider locale="en" messages={en}>
+        <Holder shown={shown} />
+      </NextIntlClientProvider>
+    );
+  }
+
+  it("goes on asking for the answer when the panel is shown again", async () => {
+    const view = render(hold(true));
+    fireEvent.click(button());
+    await tick(0);
+    view.rerender(hold(false)); // the list reloads: the card is gone
+    await tick(6000);
+    expect(readTestFetch).not.toHaveBeenCalled(); // nobody asks while it is away
+    readTestFetch.mockResolvedValue(done);
+    view.rerender(hold(true));
+    expect(region().textContent).toBe(en.Sources.test.waiting);
+    expect(button().disabled).toBe(true); // the same trial, not a new one
+    await tick(2000);
+    expect(readTestFetch).toHaveBeenCalledWith(ID, TEST);
+    expect(startTestFetch).toHaveBeenCalledTimes(1);
+    expect(region().textContent).toContain("First story");
+  });
+
+  it("an answer to a request made before the panel went away is kept", async () => {
+    let started: (value: TestStarted) => void = () => {};
+    startTestFetch.mockReturnValue(new Promise((resolve) => (started = resolve)));
+    const view = render(hold(true));
+    fireEvent.click(button());
+    view.rerender(hold(false));
+    await act(async () => started({ test_id: TEST, retry_after_seconds: 30 }));
+    view.rerender(hold(true));
+    expect(region().textContent).toBe(en.Sources.test.waiting);
+    await tick(2000);
+    expect(readTestFetch).toHaveBeenCalledWith(ID, TEST);
+  });
+
+  it("gives up two minutes after it began, counting the time the panel was away", async () => {
+    const view = render(hold(true));
+    fireEvent.click(button());
+    await tick(0);
+    view.rerender(hold(false));
+    await tick(150_000);
+    view.rerender(hold(true));
+    await tick(2000); // asks once more, then gives up
+    expect(readTestFetch).toHaveBeenCalledTimes(1);
+    expect(region().textContent).toBe(en.Sources.test.gaveUp);
+    await tick(10_000);
     expect(readTestFetch).toHaveBeenCalledTimes(1);
   });
 });
