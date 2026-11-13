@@ -7,6 +7,7 @@ nowhere else. Interactions are the person's own: they are written and read under
 """
 
 import uuid
+from bisect import bisect_left, bisect_right
 from dataclasses import replace
 from datetime import datetime, timedelta
 from urllib.parse import urlsplit
@@ -19,7 +20,6 @@ from pharos.cards.ranking import (
     RANK_MOMENT_SECONDS,
     categories_for_interests,
     categories_for_level,
-    person_score,
     rank_moment,
 )
 from pharos.cards.ranking_cache import RankingCache, key_for
@@ -89,7 +89,7 @@ class CardService:
                 raise _invalid("cursor", "invalid_cursor")
             as_of, after = parsed.a, (parsed.s, parsed.i)
         await repository.act_as(uow.session, actor.user_id)
-        rows = await self._rows(
+        rows, as_of = await self._rows(
             uow,
             actor,
             profession=code,
@@ -134,11 +134,38 @@ class CardService:
         as_of: datetime,
         after: tuple[int, uuid.UUID] | None,
         limit: int,
-    ) -> list[repository.CardRow]:
-        """The next `limit` cards after `after`, from the shared ranking when there is one.
+    ) -> tuple[list[repository.CardRow], datetime]:
+        """The next `limit` cards after `after`, from the shared ranking when there is one, and
+        the moment they were ranked at.
 
-        The answer is the same as the live query's (a test compares them page by page); the shared
-        ranking only makes it cheaper (ADR-0027)."""
+        The answer is the same as the live query's at that moment (a test compares them page by
+        page); the shared ranking only makes it cheaper (ADR-0027). A first page may be ranked at
+        the previous period's moment instead of `as_of`: while this period's ranking is being made,
+        the previous one is used rather than waited for (F-50)."""
+        key = key_for(uow.org_id, profession, as_of) if self._cache is not None else None
+        found = None
+        if self._cache is not None and key is not None:
+            # A ranking is made only for the current period and the one before it; a cursor from
+            # an older one reads what is still kept and otherwise gets the live query.
+            current = as_of >= rank_moment(self._clock.now()) - timedelta(
+                seconds=RANK_MOMENT_SECONDS
+            )
+            previous = as_of - timedelta(seconds=RANK_MOMENT_SECONDS)
+            moment = as_of
+
+            async def rank(count: int) -> list[repository.Candidate]:
+                return await repository.ranked_candidates(
+                    uow.session, uow.org_id, profession=profession, as_of=moment, limit=count
+                )
+
+            found = await self._cache.lookup(
+                key,
+                rank,
+                make=current,
+                stand_in=key_for(uow.org_id, profession, previous) if after is None else None,
+            )
+            if found is not None and found[1]:
+                as_of = previous
 
         async def live(start: tuple[int, uuid.UUID] | None, count: int) -> list[repository.CardRow]:
             return await repository.ranked_cards(
@@ -153,42 +180,22 @@ class CardService:
                 limit=count,
             )
 
-        key = key_for(uow.org_id, profession, as_of) if self._cache is not None else None
-        ranking = None
-        if self._cache is not None and key is not None:
-            # A ranking is made only for the current period and the one before it; a cursor from
-            # an older one reads what is still kept and otherwise gets the live query.
-            current = as_of >= rank_moment(self._clock.now()) - timedelta(
-                seconds=RANK_MOMENT_SECONDS
-            )
-            ranking = await self._cache.get_or_rank(
-                key,
-                lambda count: repository.ranked_candidates(
-                    uow.session, uow.org_id, profession=profession, as_of=as_of, limit=count
-                ),
-                make=current,
-            )
-        if ranking is None:
-            return await live(after, limit)
+        if found is None:
+            return await live(after, limit), as_of
+        ranking = found[0]
 
-        interests, levels = frozenset(interest_categories), frozenset(level_categories)
+        # Ascending by (score, id); the page is read from the top down. Only scores above the
+        # certain line, and only entries before the cursor, are this page's to take.
+        order = ranking.order(frozenset(interest_categories), frozenset(level_categories))
         certain = ranking.exact_from()
-        scored = sorted(
-            (
-                (person_score(c.base, c.category, interests, levels), c.id)
-                for c in ranking.candidates
-            ),
-            reverse=True,
-        )
-        if certain is not None:
-            scored = [entry for entry in scored if entry[0] > certain]
-        if after is not None:
-            scored = [entry for entry in scored if entry < after]
+        low = 0 if certain is None else bisect_right(order, certain, key=lambda entry: entry[0])
+        high = len(order) if after is None else bisect_left(order, after)
+        scored = order[low:high][::-1]
 
-        found: list[repository.CardRow] = []
+        cards_found: list[repository.CardRow] = []
         last = after
         position = 0
-        while len(found) < limit and position < len(scored):
+        while len(cards_found) < limit and position < len(scored):
             chunk = scored[position : position + max(limit * 2, 40)]
             position += len(chunk)
             cards = await repository.cards_by_ids(
@@ -199,13 +206,14 @@ class CardService:
                 card = cards.get(item)
                 if card is None or card[1]:
                     continue  # not shown any more, or hidden by this person
-                found.append(replace(card[0], score=score))
-                if len(found) == limit:
-                    return found
+                cards_found.append(replace(card[0], score=score))
+                if len(cards_found) == limit:
+                    return cards_found, as_of
         if certain is None:
-            return found  # the list holds every article there is: this is the end of the feed
+            # The list holds every article there is: this is the end of the feed.
+            return cards_found, as_of
         # The certain part ran out: the live query goes on from the last article looked at.
-        return found + await live(last, limit - len(found))
+        return cards_found + await live(last, limit - len(cards_found)), as_of
 
     async def _limit(
         self, uow: UnitOfWork, actor: Principal, what: str = "interactions", limit: int = 0

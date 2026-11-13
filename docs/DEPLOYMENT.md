@@ -502,7 +502,28 @@ page p95 85 ms, 0 failed of 1,476 requests (the last run, of the code as merged)
 300 outside it on this hardware. Two things the numbers hide: the slowest answers (p99 about
 1.8 s, at most 3.3 s) are the requests that arrive as a profession's ranking is being made, once in
 five minutes for each profession; and above 150 people the limit is the API's own CPU (reading the
-kept list and adding the person's part for every request), tracked as F-50.
+kept list and adding the person's part for every request), fixed by F-50 (below).
+
+**After F-50 (2026-11-13), same virtual machine and settings.** Each API process now keeps the
+rankings parsed and adds a person's bonuses in whole numbers, and a first page that arrives while
+a ranking is being made is answered from the previous period's ranking (ADR-0027 amendment). The
+stepped run (3 minutes a step) of `main` just before F-50 and of F-50, the same day:
+
+| People at work | Before F-50 | After F-50 |
+| --- | --- | --- |
+| 50, first page p95 | 144 ms (no period boundary in the step) | 462 ms (a period boundary in the step) |
+| 150, first page p95 (p99) | 3,319 ms (8,826 ms) | **28 ms (70 ms)** |
+| 300, first page p95 (p99) | 2,761 ms (6,972 ms) | **157 ms (1,528 ms)** |
+| 300, second page p95 | 1,016 ms | 73 ms |
+
+The D5 run (50 people, 10 minutes) after F-50: first page p95 **64 ms**, second page 33 ms, 0
+failed of 1,507 requests. What is left is the request that *makes* a profession's ranking at the
+start of a period, one for each profession that is asked for (twelve in the catalogue), all at the
+same moment: on two threads they take one to five seconds together (the p99 and the maximum). A
+three-minute step that holds a period boundary as well as the cold start has about two dozen such
+requests in some 460, enough to move its p95: the 50-people step of F-50 above, and 575 ms in a
+second run that also held a boundary, while the step of `main` held none. Making the rankings
+outside the request is F-61.
 
 What it was before: one feed request scored every eligible article of the window (about 20,000)
 before it kept twenty, 393 ms alone and about 120,000 buffer reads, and PostgreSQL used both cores
