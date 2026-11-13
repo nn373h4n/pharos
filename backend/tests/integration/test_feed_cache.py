@@ -72,6 +72,7 @@ class Cards:
         return [k for k in found if not k.endswith(":n")]
 
     async def close(self) -> None:
+        await self.service.wait_for_rankings()  # nothing made in the background outlives its Redis
         await self.redis.aclose()
 
 
@@ -194,8 +195,9 @@ async def test_people_with_other_interests_share_one_ranking_and_each_gets_their
         assert await pages(first) == want_first
         assert await pages(second) == want_second
         assert len(ranked) == 1  # one ranking for both people, however many pages they read
-        cards.clock.value += timedelta(seconds=300)  # the next period is ranked again
+        cards.clock.value += timedelta(seconds=300)  # the next period is ranked again ...
         await feed(first)
+        await cards.service.wait_for_rankings()  # ... after the page, in the background (F-61)
         assert len(ranked) == 2
     finally:
         await cards.close()
@@ -507,10 +509,13 @@ async def test_while_a_ranking_is_being_made_a_first_page_is_ranked_at_the_previ
         assert len(await cards.keys()) == 2  # the previous ranking and the lock; nothing new made
         assert got == await live_pages_at(cards, who, previous, per_page=7)
 
-        # The lock is gone and the ranking can be made: the next visit is ranked at this period.
+        # The lock is gone: the next visit makes this period's ranking, in the background (F-61),
+        # and is itself answered from the previous one; the visit after it is ranked at this period.
         await cards.redis.delete(
             f"{KEY_PREFIX}:{stack.org_a}:accountant:{int(period.timestamp())}:lock"
         )
+        assert moment_of(await feed(who, limit=5)) == previous
+        await cards.service.wait_for_rankings()
         assert moment_of(await feed(who, limit=5)) == period
     finally:
         await cards.close()
@@ -557,3 +562,33 @@ async def live_pages_at(
         return await pages(who, per_page=per_page)
     finally:
         cards.service._cache, cards.clock.value = cached, value
+
+
+@pytest.mark.anyio
+async def test_the_ranking_made_in_the_background_is_the_live_feed_of_its_period(
+    make_stack: MakeStack,
+) -> None:
+    """F-61: the request that would make a new period's ranking is answered from the previous one
+    and the ranking is made after it, in a transaction of its own; what it made pages exactly like
+    the live query at the new moment."""
+    stack, who = await stack_and_person(make_stack, level="advanced", interests=["research"])
+    cards = Cards(stack)
+    try:
+        await fill(stack, 60)
+        await cards.clear()
+        cards.cached(size=25)
+        period = rank_moment_of(cards)
+        previous = period - timedelta(minutes=5)
+        cards.clock.value = previous + timedelta(seconds=150)
+        assert moment_of(await feed(who, limit=5)) == previous  # made at once: nothing to stand in
+        cards.clock.value = period + timedelta(seconds=150)
+        first = await feed(who, limit=5)
+        assert moment_of(first) == previous  # answered at once from the previous ranking
+        await cards.service.wait_for_rankings()
+        made = f"{KEY_PREFIX}:{stack.org_a}:accountant:{int(period.timestamp())}"
+        assert made in await cards.keys() and f"{made}:lock" not in await cards.keys()
+        got = await pages(who, per_page=7)
+        assert moment_of(got[0]) == period
+        assert got == await live_pages_at(cards, who, period, per_page=7)
+    finally:
+        await cards.close()
