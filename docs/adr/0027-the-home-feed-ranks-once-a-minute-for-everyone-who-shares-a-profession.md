@@ -107,6 +107,45 @@ Option 1.
 - Follow-up: `make loadtest` is the acceptance (feed p95 under 400 ms with 50 people, and the
   stepped run shows where it stops). Option 5 can follow if the ranking itself becomes too slow.
 
+## Amendment (2026-11-13, F-50): the API keeps parsed rankings, and the previous one stands in
+
+The load test after this decision showed two costs it left. Above about 150 people at work, the
+API's own processor was the limit: each request read the 150 KB list from Redis, parsed it (about
+7 ms) and added the person's part to 2,000 articles with exact decimals (about 3 ms). And the
+slowest answers (p99 about 1.8 s) were first pages that waited for their profession's new ranking
+at the start of a period.
+
+- **A parsed copy in each API process.** The ranking under a key is made once (the key names its
+  moment), so a process keeps what it has read or made, parsed, for as long as Redis keeps it
+  (fifteen minutes from when the process got it), at most 48 rankings (two periods of 24
+  professions), the least recently used dropped first. The copy holds what the Redis value holds:
+  no person. A first version kept 16, fewer than the two periods of the 12 professions of the
+  catalogue; the load test showed it reading and parsing again all the time.
+- **The person's part in whole numbers.** Each bonus weight times the scale of the score is a whole
+  number (100,000 and 50,000), so flooring the shared part once and adding whole points gives
+  exactly the score the live query floors: floor(x + n) = floor(x) + n. A kept ranking floors each
+  article's shared part once; a request adds the points of its categories and sorts 2,000 whole
+  numbers (about a millisecond). The cursor and the certain line are found in that order by binary
+  search. A start-up check refuses a weight that is not a whole number of points.
+- **The previous ranking stands in.** When a first page finds that another request is making this
+  period's ranking, it is answered at once from the previous period's ranking, if that is still
+  kept, and ranked at the previous period's moment (the cursor carries that moment, so the whole
+  visit is the live feed at that moment). Without one, it waits as before. Only first pages do
+  this; a cursor keeps its own moment.
+- **What it costs.** A new article can now take up to ten minutes to reach a first page, not
+  five, but only for the requests that arrive while a ranking is being made. Memory: a parsed
+  ranking with its floored parts is about 0.9 MB in Python (measured with 2,000 articles), so
+  about 45 MB at most for each API process (its limit is 512 MB). A value in
+  Redis whose shared part is not a number between 0 and 1 is refused when it is parsed, so a
+  broken value cannot stay in the process. A ranking made again after Redis lost
+  it (a restart) may differ from a copy a process still keeps; both are rankings the database
+  gave at that moment, and the page is still checked against the database, so this can only
+  delay an article, as above.
+- **Measured** (`make loadtest`, two CPU threads, 2026-11-13, `docs/DEPLOYMENT.md`): first page
+  p95 at 150 people 28 ms (3,319 ms just before), at 300 people 157 ms (2,761 ms); 50 people for
+  ten minutes 64 ms. Still open: the request that makes a ranking waits for it, and all
+  professions are made at the same moment (F-61).
+
 ## References
 
 - F-49 and M5-08 in `TASKS.md`; `docs/DEPLOYMENT.md` ("Load test"); ADR-0018 (interactions are

@@ -59,6 +59,8 @@ class Cards:
     async def clear(self) -> None:
         async for key in self.redis.scan_iter(match=f"{KEY_PREFIX}:*"):
             await self.redis.delete(key)
+        if self.service._cache is not None:
+            self.service._cache._local.clear()  # the copies this API process keeps (F-50)
 
     async def keys(self) -> list[str]:
         return [
@@ -464,3 +466,91 @@ async def test_equal_scores_that_come_from_different_parts_are_not_trusted_at_th
         assert await pages(who, per_page=4) == expected
     finally:
         await cards.close()
+
+
+def moment_of(page: dict[str, Any]) -> datetime:
+    raw = page["next_cursor"]
+    return datetime.fromisoformat(
+        json.loads(base64.urlsafe_b64decode(raw + "=" * (-len(raw) % 4)))["a"]
+    )
+
+
+@pytest.mark.anyio
+async def test_while_a_ranking_is_being_made_a_first_page_is_ranked_at_the_previous_moment(
+    make_stack: MakeStack,
+) -> None:
+    """F-50: the slowest answers of the load test were first pages that waited for their
+    profession's new ranking. While another request makes it, the previous period's ranking
+    answers at once, and every page of that visit is the live feed at the previous moment."""
+    stack, who = await stack_and_person(make_stack, level="beginner", interests=["coding"])
+    cards = Cards(stack)
+    try:
+        await fill(stack, 60)
+        await cards.clear()
+        cache = cards.cached(size=25)  # cut short: the live query takes over past it
+        period = rank_moment_of(cards)
+        previous = period - timedelta(minutes=5)
+        cards.clock.value = previous + timedelta(seconds=150)
+        assert moment_of(await feed(who, limit=5)) == previous  # the previous ranking is made
+
+        cards.clock.value = period + timedelta(seconds=150)
+        # Somebody else is making this period's ranking and has not finished.
+        await cards.redis.set(
+            f"{KEY_PREFIX}:{stack.org_a}:accountant:{int(period.timestamp())}:lock", "x"
+        )
+        cache._local.clear()  # read from Redis, as another API process would
+        got = await pages(who, per_page=7)
+        assert moment_of(got[0]) == previous
+        assert len(await cards.keys()) == 2  # the previous ranking and the lock; nothing new made
+        assert got == await live_pages_at(cards, who, previous, per_page=7)
+
+        # The lock is gone and the ranking can be made: the next visit is ranked at this period.
+        await cards.redis.delete(
+            f"{KEY_PREFIX}:{stack.org_a}:accountant:{int(period.timestamp())}:lock"
+        )
+        assert moment_of(await feed(who, limit=5)) == period
+    finally:
+        await cards.close()
+
+
+@pytest.mark.anyio
+async def test_without_a_previous_ranking_a_first_page_still_waits_and_then_goes_live(
+    make_stack: MakeStack,
+) -> None:
+    """The control of the test above: no previous ranking kept, so the request is answered at its
+    own moment by the live query once the wait is over, as before F-50."""
+    stack, who = await stack_and_person(make_stack)
+    cards = Cards(stack)
+    try:
+        await fill(stack, 20)
+        await cards.clear()
+        cards.service._cache = RankingCache(cards.redis, wait_seconds=0.2)
+        period = rank_moment_of(cards)
+        await cards.redis.set(
+            f"{KEY_PREFIX}:{stack.org_a}:accountant:{int(period.timestamp())}:lock", "x"
+        )
+        page = await feed(who, limit=5)
+        assert moment_of(page) == period
+        assert await cards.keys() == [
+            f"{KEY_PREFIX}:{stack.org_a}:accountant:{int(period.timestamp())}:lock"
+        ]
+    finally:
+        await cards.close()
+
+
+def rank_moment_of(cards: Cards) -> datetime:
+    value = cards.clock.value
+    return value - timedelta(seconds=150)
+
+
+async def live_pages_at(
+    cards: Cards, who: Person, moment: datetime, per_page: int
+) -> list[dict[str, Any]]:
+    """The live feed's pages ranked at `moment`: the clock is moved into that period."""
+    cached, value = cards.service._cache, cards.clock.value
+    cards.live()
+    cards.clock.value = moment + timedelta(seconds=150)
+    try:
+        return await pages(who, per_page=per_page)
+    finally:
+        cards.service._cache, cards.clock.value = cached, value

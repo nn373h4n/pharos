@@ -3,6 +3,7 @@ score, the certificate of how far the cached list can be trusted, and the cache'
 scripted Redis (making it once, waiting, and every way Redis can fail)."""
 
 import asyncio
+import random
 import uuid
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -12,10 +13,13 @@ import pytest
 from redis.exceptions import ConnectionError as RedisConnectionError
 
 from pharos.cards.ranking import (
+    INTEREST_POINTS,
+    LEVEL_POINTS,
     MAX_BONUS,
     SCORE_SCALE,
     person_score,
     rank_moment,
+    scaled_base,
     score_ceiling,
 )
 from pharos.cards.ranking_cache import (
@@ -307,3 +311,178 @@ async def test_a_damaged_value_is_made_again_rather_than_trusted() -> None:
     answer = await cache_with(redis).get_or_rank(KEY, rank)
     assert answer is not None and calls == [1]
     assert _decode(redis.data[KEY]) is not None  # and what is kept now is sound
+
+
+# --- F-50: the copy each API process keeps, the kept orders and the stand-in --------------------
+
+
+class Ticks:
+    def __init__(self) -> None:
+        self.value = 1000.0
+
+    def __call__(self) -> float:
+        return self.value
+
+
+async def made(redis: FakeRedis, key: str, *bases: str) -> None:
+    redis.data[key] = _encode(Ranking([candidate(b) for b in bases], complete=True))
+
+
+@pytest.mark.anyio
+async def test_a_ranking_once_read_is_kept_in_the_process_until_redis_would_have_dropped_it() -> (
+    None
+):
+    redis, ticks = FakeRedis(), Ticks()
+    await made(redis, KEY, "0.9", "0.8")
+    cache = cache_with(redis, ttl_seconds=900, clock=ticks)
+    first = await cache.get_or_rank(KEY, never)
+    assert redis.reads == 1
+    ticks.value += 899
+    assert await cache.get_or_rank(KEY, never) is first and redis.reads == 1  # not read again
+    ticks.value += 2
+    assert await cache.get_or_rank(KEY, never) == first and redis.reads == 2  # read again
+
+
+@pytest.mark.anyio
+async def test_a_ranking_this_process_made_is_kept_too() -> None:
+    redis = FakeRedis()
+
+    async def rank(limit: int) -> list[Candidate]:
+        return [candidate("0.4")]
+
+    cache = cache_with(redis)
+    ranking = await cache.get_or_rank(KEY, rank)
+    reads = redis.reads  # the first look, and the check of the lock before letting it go
+    assert await cache.get_or_rank(KEY, never) is ranking and redis.reads == reads
+
+
+@pytest.mark.anyio
+async def test_the_process_keeps_only_the_last_few_rankings() -> None:
+    redis = FakeRedis()
+    keys = [f"{KEY}{n}" for n in range(4)]
+    for key in keys:
+        await made(redis, key, "0.5")
+    cache = cache_with(redis, local_entries=3)
+    for key in keys:
+        await cache.get_or_rank(key, never)
+    await cache.get_or_rank(keys[3], never)  # the latest three are kept
+    await cache.get_or_rank(keys[1], never)
+    assert redis.reads == 4
+    await cache.get_or_rank(keys[0], never)  # the oldest was let go
+    assert redis.reads == 5
+
+
+@pytest.mark.anyio
+async def test_a_damaged_value_is_not_kept_in_the_process() -> None:
+    redis = FakeRedis()
+    redis.data[KEY] = "{not json"
+    cache = cache_with(redis)
+    assert await cache.get_or_rank(KEY, never, make=False) is None
+    await made(redis, KEY, "0.7")
+    found = await cache.get_or_rank(KEY, never, make=False)
+    assert found is not None and len(found.candidates) == 1
+
+
+async def never(limit: int) -> list[Candidate]:
+    raise AssertionError("must not rank")
+
+
+def test_the_floored_shared_part_plus_whole_points_is_exactly_the_person_score() -> None:
+    edges = ["0", "0.85", "0.1234565", "0.0000009999999999999999", "0.333333333333333333333333"]
+    rng = random.Random(50)  # noqa: S311 (test data, not a secret)
+    bases = edges + [str(Decimal(rng.random()) * Decimal("0.85")) for _ in range(300)]
+    one = frozenset({"tool"})
+    assert (INTEREST_POINTS, LEVEL_POINTS) == (100_000, 50_000)
+    for raw in bases:
+        base = Decimal(raw)
+        shared = scaled_base(base)
+        assert shared == person_score(base, "tool", frozenset(), frozenset())
+        assert shared + INTEREST_POINTS == person_score(base, "tool", one, frozenset())
+        assert shared + LEVEL_POINTS == person_score(base, "tool", frozenset(), one)
+        assert shared + INTEREST_POINTS + LEVEL_POINTS == person_score(base, "tool", one, one)
+
+
+def test_the_kept_order_is_the_order_the_person_score_gives() -> None:
+    rng = random.Random(7)  # noqa: S311 (test data, not a secret)
+    categories = ["tool", "tutorial", "technique", "news", "research", "case_study", "policy"]
+    candidates = [
+        Candidate(
+            id=uuid.UUID(int=rng.getrandbits(128)),
+            category=rng.choice(categories),
+            # Few distinct values, so equal scores (broken by the id) are common.
+            base=Decimal(rng.randrange(0, 40)) / Decimal(50),
+        )
+        for _ in range(400)
+    ]
+    ranking = Ranking(candidates, complete=False)
+    for _ in range(30):
+        interests = frozenset(rng.sample(categories, rng.randrange(0, 5)))
+        levels = frozenset(rng.sample(categories, rng.randrange(0, 4)))
+        expected = sorted(
+            (person_score(c.base, c.category, interests, levels), c.id) for c in candidates
+        )
+        assert ranking.order(interests, levels) == expected
+
+
+def test_an_order_is_a_new_list_and_equality_ignores_what_was_worked_out() -> None:
+    ranking = Ranking([candidate("0.5", "tool"), candidate("0.4", "news")], complete=True)
+    first = ranking.order(frozenset({"tool"}), frozenset())
+    first.clear()  # a caller that changes its order changes nobody else's
+    assert len(ranking.order(frozenset({"tool"}), frozenset())) == 2
+    assert ranking == Ranking(list(ranking.candidates), complete=True)
+
+
+def test_an_empty_ranking_has_an_empty_order() -> None:
+    assert Ranking([], complete=True).order(frozenset({"tool"}), frozenset()) == []
+
+
+@pytest.mark.anyio
+async def test_while_another_request_makes_the_ranking_the_previous_one_stands_in_at_once() -> None:
+    redis = FakeRedis()
+    previous = f"{KEY_PREFIX}:{ORG}:accountant:0"
+    await made(redis, previous, "0.6")
+    redis.data[f"{KEY}:lock"] = "somebody-else"
+    cache = cache_with(redis, wait_seconds=5.0)
+    started = asyncio.get_running_loop().time()
+    found = await cache.lookup(KEY, never, stand_in=previous)
+    assert found is not None and found[1] is True and len(found[0].candidates) == 1
+    assert asyncio.get_running_loop().time() - started < 1.0  # no wait
+
+
+@pytest.mark.anyio
+async def test_the_stand_in_is_used_only_while_another_request_makes_the_ranking() -> None:
+    redis, calls = FakeRedis(), []
+    previous = f"{KEY_PREFIX}:{ORG}:accountant:0"
+    await made(redis, previous, "0.6")
+
+    async def rank(limit: int) -> list[Candidate]:
+        calls.append(limit)
+        return [candidate("0.9"), candidate("0.8")]
+
+    cache = cache_with(redis)
+    found = await cache.lookup(KEY, rank, stand_in=previous)  # nobody makes it: this one does
+    assert found is not None and found[1] is False and len(found[0].candidates) == 2
+    assert calls == [cache.size]
+    found = await cache.lookup(KEY, rank, stand_in=previous)  # it is there: read, not stood in
+    assert found is not None and found[1] is False and len(calls) == 1
+    # A period that is over is not made, and nothing stands in for it.
+    assert await cache.lookup(f"{KEY}9", rank, make=False, stand_in=previous) is None
+
+
+@pytest.mark.anyio
+async def test_without_a_stand_in_kept_the_caller_waits_as_before() -> None:
+    redis = FakeRedis()
+    redis.data[f"{KEY}:lock"] = "somebody-else"
+    cache = cache_with(redis, wait_seconds=0.15)
+    assert await cache.lookup(KEY, never, stand_in=f"{KEY_PREFIX}:{ORG}:accountant:0") is None
+
+
+def test_a_shared_part_that_is_not_a_number_between_0_and_1_is_refused() -> None:
+    """F-50 review: a parsed list stays in the process, so a value that would break the
+    arithmetic of every request must not be parsed at all."""
+    good = Ranking([candidate("0.5")], complete=True)
+    for base in ["NaN", "sNaN", "Infinity", "-Infinity", "-0.0001", "1.0001", "1E+999999"]:
+        raw = _encode(good).replace('"0.5"', f'"{base}"')
+        assert _decode(raw) is None, base
+    for base in ["0", "1", "0.85"]:  # the edges are numbers a ranking can hold
+        assert _decode(_encode(good).replace('"0.5"', f'"{base}"')) is not None, base
