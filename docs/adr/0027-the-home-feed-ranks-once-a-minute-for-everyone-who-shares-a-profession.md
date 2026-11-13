@@ -146,8 +146,29 @@ at the start of a period.
   processes never serve different makings of one ranking for longer than one request.
 - **Measured** (`make loadtest`, two CPU threads, 2026-11-13, `docs/DEPLOYMENT.md`): first page
   p95 at 150 people 28 ms (3,319 ms just before), at 300 people 157 ms (2,761 ms); 50 people for
-  ten minutes 64 ms. Still open: the request that makes a ranking waits for it, and all
-  professions are made at the same moment (F-61).
+  ten minutes 64 ms. The request that made a ranking still waited for it; F-61 (below) moved
+  that work after the request.
+
+## Amendment (2026-11-13, F-61): the ranking is made after the request
+
+After F-50 the slowest answers were the requests that *make* a ranking at the start of a period:
+one for each profession asked for, all at the same moment, each waiting for its own ranking.
+
+- A first page that takes the lock to make this period's ranking, while the previous period's
+  ranking is kept, is answered from the previous one at once (at its moment, as for the requests
+  that find the lock taken), and the new ranking is made right after, in the background, in a
+  transaction of its own for the same organization. Nobody waits for it; the next request finds
+  it. The lock and its lifetime are unchanged, so it is still made once.
+- Without a previous ranking (the first request of a profession, or after a quiet ten minutes) it
+  is made at once, as before.
+- A ranking that fails in the background only lets the lock go: the next request makes it.
+- When the API stops, it waits for the rankings being made before it closes its connections.
+- Cost: a ranking is made from the database while no request holds the connection it uses, so it
+  takes one more connection from the pool for its time (about 0.4 s alone); at most one for each
+  profession and period, as before.
+- Measured (`make loadtest`, stepped, 3 minutes a step, two threads): every step inside the
+  limits; at 300 people, with a period boundary in the step, first page p95 140 ms, p99 707 ms
+  and at most 1.7 s (after F-50 alone: 157 ms, 1.5 s and 11.1 s). The cold start still waits.
 
 ## References
 

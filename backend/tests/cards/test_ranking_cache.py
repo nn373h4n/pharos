@@ -544,3 +544,76 @@ def test_a_shared_part_that_is_not_a_number_between_0_and_1_is_refused() -> None
         assert _decode(raw) is None, base
     for base in ["0", "1", "0.85"]:  # the edges are numbers a ranking can hold
         assert _decode(_encode(good).replace('"0.5"', f'"{base}"')) is not None, base
+
+
+# --- F-61: the request that would make the ranking does not wait for it ------------------------
+
+PREVIOUS = f"{KEY_PREFIX}:{ORG}:accountant:0"
+
+
+@pytest.mark.anyio
+async def test_the_maker_is_answered_from_the_previous_ranking_and_ranks_afterwards() -> None:
+    redis, inline, later = FakeRedis(), [], []
+    await made(redis, PREVIOUS, "0.6")
+    started = asyncio.Event()
+    finish = asyncio.Event()
+
+    async def rank(limit: int) -> list[Candidate]:
+        inline.append(limit)
+        return [candidate("0.9")]
+
+    async def rank_later(limit: int) -> list[Candidate]:
+        later.append(limit)
+        started.set()
+        await finish.wait()
+        return [candidate("0.8"), candidate("0.7")]
+
+    cache = cache_with(redis)
+    found = await cache.lookup(KEY, rank, stand_in=PREVIOUS, rank_later=rank_later)
+    assert found is not None and found[1] is True and len(found[0].candidates) == 1
+    assert inline == []  # the request did not rank
+    await started.wait()
+    assert f"{KEY}:lock" in redis.data and KEY not in redis.data  # being made, lock held
+    # Meanwhile another first page gets the previous ranking too, without waiting.
+    other = await cache.lookup(KEY, never, stand_in=PREVIOUS, rank_later=never)
+    assert other is not None and other[1] is True
+    finish.set()
+    await cache.wait_for_background()
+    assert later == [cache.size] and f"{KEY}:lock" not in redis.data
+    now = await cache.lookup(KEY, never, stand_in=PREVIOUS, rank_later=never)
+    assert now is not None and now[1] is False and len(now[0].candidates) == 2
+
+
+@pytest.mark.anyio
+async def test_without_a_previous_ranking_the_maker_ranks_at_once() -> None:
+    redis, inline = FakeRedis(), []
+
+    async def rank(limit: int) -> list[Candidate]:
+        inline.append(limit)
+        return [candidate("0.9")]
+
+    cache = cache_with(redis)
+    found = await cache.lookup(KEY, rank, stand_in=PREVIOUS, rank_later=never)
+    assert found is not None and found[1] is False and inline == [cache.size]
+    await cache.wait_for_background()
+
+
+@pytest.mark.anyio
+async def test_a_ranking_that_fails_in_the_background_lets_the_lock_go() -> None:
+    redis = FakeRedis()
+    await made(redis, PREVIOUS, "0.6")
+
+    async def broken(limit: int) -> list[Candidate]:
+        raise RuntimeError("the database went away")
+
+    async def rank(limit: int) -> list[Candidate]:
+        return [candidate("0.9")]
+
+    cache = cache_with(redis)
+    found = await cache.lookup(KEY, never, stand_in=PREVIOUS, rank_later=broken)
+    assert found is not None and found[1] is True
+    await cache.wait_for_background()
+    assert f"{KEY}:lock" not in redis.data and KEY not in redis.data
+    # The next request makes it, as before.
+    again = await cache.lookup(KEY, rank)
+    assert again is not None and again[1] is False and KEY in redis.data

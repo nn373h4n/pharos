@@ -522,8 +522,21 @@ start of a period, one for each profession that is asked for (twelve in the cata
 same moment: on two threads they take one to five seconds together (the p99 and the maximum). A
 three-minute step that holds a period boundary as well as the cold start has about two dozen such
 requests in some 460, enough to move its p95: the 50-people step of F-50 above, and 575 ms in a
-second run that also held a boundary, while the step of `main` held none. Making the rankings
-outside the request is F-61.
+second run that also held a boundary, while the step of `main` held none.
+
+**After F-61 (2026-11-13), same machine.** The request that would make a ranking is answered from
+the previous period's ranking and the new one is made after it, in the background. The same
+stepped run, all three steps inside the limits:
+
+| People at work | First page p95 (p99, max) | Period boundary in the step |
+| --- | --- | --- |
+| 50 | 47 ms (548 ms, 699 ms) | no (the cold start only) |
+| 150 | 48 ms (125 ms, 650 ms) | yes |
+| 300 | 140 ms (707 ms, 1,683 ms) | yes; after F-50 alone: 157 ms (1,528 ms, 11,132 ms) |
+
+These are single runs on a shared machine, so a few tens of milliseconds either way are noise; the
+tail at a boundary is what changed. The cold start (the first request of each profession, with no
+previous ranking to stand in) still waits for its ranking.
 
 What it was before: one feed request scored every eligible article of the window (about 20,000)
 before it kept twenty, 393 ms alone and about 120,000 buffer reads, and PostgreSQL used both cores

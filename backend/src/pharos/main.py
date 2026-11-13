@@ -191,6 +191,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             clock=SystemClock(),
             limiter=limiter,
             cache=RankingCache(feed_redis),
+            sessions=app.state.session_factory,
         )
         app.state.insights = InsightService(
             profile=app.state.profile,
@@ -233,6 +234,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if app.state.oidc is not None:
                 await app.state.oidc.idp.aclose()
             await session_redis.aclose()
+            await app.state.cards.wait_for_rankings()
             await feed_redis.aclose()
             await redis.aclose()
             await engine.dispose()
