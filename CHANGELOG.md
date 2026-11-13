@@ -22,6 +22,7 @@ All notable changes are listed here, newest first. The format follows [Keep a Ch
 - `scripts/status.sh` shows how long ago the worker's heartbeat was written (WARN after 90 seconds; readyz fails only after 210) and the newest dump's size (FAIL when empty, WARN when less than half the one before); `make test-compose` now runs it on the real stack (F-59).
 - `python -m pharos.cli retention-status` prints how many days ago `prune-audit` and `fold-interactions` last ran; `scripts/status.sh` warns when that is more than 40 days, so retention does not lapse unnoticed (F-48).
 - `make check-catalogue` (`scripts/starter-catalogue-check.sh`): every starter source fetched once from the real internet on a throwaway stack, manual and never in CI (M5-08). First run: 25 of 25 sources ok.
+- The release guide has a routine for the starter catalogue: `make check-catalogue` before every release, before a pilot, in any pull request that changes the list and once a quarter, and what to do with a source that fails (F-30).
 - The pilot runbook has "Rotating a secret": a table per secret and a procedure that changes the database passwords inside PostgreSQL (editing `deploy/.env` alone left the old password valid), and crontab lines for the backup and retention jobs. `scripts/status.sh` also fails for a stopped service outside the default profile (the local model), for any stopped container of a service, and for a dump dated even minutes in the future (second review of M5-11).
 
 ## [0.1.0] - 2026-11-10

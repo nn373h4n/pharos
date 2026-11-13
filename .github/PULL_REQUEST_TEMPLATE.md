@@ -12,6 +12,7 @@ Mark each as PASS, FAIL or NOT RUN, with a reason for anything not run.
 - [ ] User-visible strings added to all four locales (`en`, `az`, `tr`, `ru`)
 - [ ] Docs updated (`docs/`, `.env.example`, `CHANGELOG.md` where relevant)
 - [ ] ADR added or updated if this changes architecture, data model, a security boundary or deployment
+- [ ] If `starter_sources.json` changed: `make check-catalogue` exits 0 (manual; paste the summary line)
 
 ## Security
 

@@ -636,8 +636,10 @@ public sites of the starter catalogue from the host it runs on.
 Result of 2026-11-11: **25 of 25 ok** in 524 seconds (115 of them to build and start the stack),
 1,185 articles in all; no redirect, block, 404, timeout or parse failure. The sources do not
 all finish in the first minute: 16 were done within about a minute of being switched on and the rest over the next six
-minutes. Feeds move and start blocking bots over time (F-30), so run it again before a pilot and
-after changing `starter_sources.json`.
+minutes. Feeds move and start blocking bots over time, so the maintainer runs it before every release,
+before a pilot, after any change to `starter_sources.json` and once a quarter, and fixes the list
+as described in [the release guide](guides/releasing.md#keeping-the-starter-catalogue-alive)
+(F-30).
 
 ## Checking a running installation
 

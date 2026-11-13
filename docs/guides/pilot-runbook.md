@@ -143,7 +143,10 @@ pharos exec api python -m pharos.cli import-sources --dry-run
 pharos exec api python -m pharos.cli import-sources
 ```
 
-This adds 25 public sources, all **switched off**. Open the Sources page as an administrator, read
+This adds 25 public sources, all **switched off**. The maintainer checks the list before every
+release and before a pilot (`make check-catalogue`, see [releasing.md](releasing.md#keeping-the-starter-catalogue-alive));
+ask for the date of the last clean run. A source that fails for you anyway shows as failing on the
+Sources page: leave it switched off and tell the maintainer. Open the Sources page as an administrator, read
 the list, and switch on the ones you want. Each row says whether it is working, failing or not
 fetched yet, the last success and the last problem. The first fetches take a few minutes. Gate G10
 asks for at least 20 cards for each pilot profession: if a profession has fewer, add or switch on

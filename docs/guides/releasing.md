@@ -18,8 +18,33 @@ These are repository settings the workflow cannot enforce, and the first two mat
 - Look at the readiness list of the milestone you are releasing (`TASKS.md`, `PROGRESS.md`) and write
   what is not ready into the release notes. Tasks that are still open are never described as done.
 
+## Keeping the starter catalogue alive
+
+The 25 sources of `backend/src/pharos/sources/starter_sources.json` are third-party sites: feeds
+move, die or start blocking bots (two of the first candidates redirected). `make check-catalogue`
+fetches every entry once, through the real worker and its `SafeHttpClient` rules, and prints a
+table (see [DEPLOYMENT.md](../DEPLOYMENT.md#starter-catalogue-check-scriptsstarter-catalogue-checksh)).
+It is run by hand, never in CI: it contacts all 25 sites from the machine it runs on and builds a
+whole stack. Run it:
+
+- **before every release** (step 0 below);
+- **before a pilot starts** that will import the list, and give the date of the last clean run to
+  the pilot's operator;
+- **after any change to `starter_sources.json`**, in the pull request that makes it (write the
+  result under "Checks");
+- **once a quarter** between releases, so a dead feed is found before someone imports it.
+
+When it exits 1, read the table: a feed that moved gets its new address (check that it is the same
+publisher); a feed that is gone, or that refuses Pharos (a block, a 403 or a 429 every time), is
+removed or replaced with a feed of the same kind. Never loosen a rule of `SafeHttpClient` to make a
+feed pass. Change the file in a pull request, run the check again until it exits 0, and add a line
+to `CHANGELOG.md`. A failure that goes away on a second run a day later (a site that was down) needs
+no change; note it in the pull request or the release notes.
+
 ## Steps
 
+0. **Check the starter catalogue** (`make check-catalogue`, about ten minutes; see above). It must
+   exit 0, or the release notes say which source fails and why it was kept.
 1. **Prepare the release.** In one pull request: raise the version in `backend/pyproject.toml` and
    `frontend/package.json` to `X.Y.Z` (and run `uv lock` so `uv.lock` agrees), and cut
    `CHANGELOG.md`: rename `Unreleased` to `[X.Y.Z] - <date>`, add a new empty `Unreleased` above it,
