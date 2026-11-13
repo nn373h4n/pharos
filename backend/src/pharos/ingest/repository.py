@@ -47,6 +47,16 @@ async def enter_org(connection: AsyncConnection, org: uuid.UUID) -> None:
     await connection.execute(text("SELECT set_config('app.org_id', :org, true)"), {"org": str(org)})
 
 
+async def lock_dispatch(connection: AsyncConnection, org: uuid.UUID) -> None:
+    """One dispatcher of an organization at a time, until its transaction ends (F-23): the count of
+    sources in flight and the new leases are then one step, so two dispatchers that run at once
+    (a beat started twice) cannot pass the cap together."""
+    await connection.execute(
+        text("SELECT pg_advisory_xact_lock(hashtextextended(:name, 0))"),
+        {"name": f"pharos:ingest:dispatch:{org}"},
+    )
+
+
 async def count_in_flight(connection: AsyncConnection, now: datetime) -> int:
     row = await connection.execute(
         text("SELECT count(*) FROM sources WHERE lease_until > :now"), {"now": now}

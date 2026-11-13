@@ -8,7 +8,9 @@ cannot choose a URL (ADR-0012).
 A lease says "this fetch is running" and ends on its own. If a worker dies, the lease runs out and
 the source is due again; if a task is delivered twice, the second one finds the lease gone or
 changed and does nothing. At most `per_tick` sources are started per run and at most
-`in_flight_cap` are leased at any time, so a flood of due sources can never fill the broker.
+`in_flight_cap` are leased at any time, so a flood of due sources can never fill the broker. The
+count and the leases happen under one lock per organization, so two dispatchers at once cannot
+pass the cap together (F-23).
 """
 
 import logging
@@ -55,6 +57,7 @@ async def dispatch(
             logger.info("dispatch: the organization of this installation does not exist yet")
             return DispatchReport(0, 0, 0)
         await repository.enter_org(connection, org)
+        await repository.lock_dispatch(connection, org)
         room = in_flight_cap - await repository.count_in_flight(connection, now)
         leased = await repository.lease_due_sources(
             connection,
