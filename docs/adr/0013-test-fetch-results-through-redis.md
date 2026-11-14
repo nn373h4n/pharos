@@ -1,6 +1,6 @@
 # 0013. Test fetch: results from the worker reach the API through Redis
 
-- Status: Proposed
+- Status: Accepted (by the maintainer, 2026-11-14, gate G1)
 - Date: 2026-10-30
 
 ## Context

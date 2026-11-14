@@ -1,6 +1,6 @@
 # 0024. Release v0.1: published images, an SBOM and a signature
 
-- Status: Proposed
+- Status: Accepted (by the maintainer, 2026-11-14, gate G1)
 - Date: 2026-11-04
 
 ## Context

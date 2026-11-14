@@ -1,6 +1,6 @@
 # 0015. What may reach a model, how the answer is limited, and how it is cached
 
-- Status: Proposed
+- Status: Accepted (by the maintainer, 2026-11-14, gate G1)
 - Date: 2026-10-31
 
 ## Context

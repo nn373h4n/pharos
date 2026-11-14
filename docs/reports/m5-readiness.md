@@ -19,7 +19,7 @@ was found.
 | # | Check | Result |
 | --- | --- | --- |
 | 1 | M5 acceptance criteria 1 to 10 | **FAIL**: 1, 3, 5, 7, 8, 9 and 10 PASS; 2 partly; 4 and 6 NOT RUN (see below) |
-| 2 | G1: the Proposed ADRs of D1 accepted | NOT RUN (the maintainer) |
+| 2 | G1: the Proposed ADRs of D1 accepted | PASS (2026-11-14, after this report was first written: the maintainer accepted them; M5-03, M5-05 and M5-06 can start) |
 | 3 | G2: internal approval and the pilot teams (M0-01) | NOT RUN |
 | 4 | G3: F-36, the evaluation bar met in Azerbaijani per pilot profession by two native raters | NOT RUN |
 | 5 | G4: F-01, the az wording reviewed by a native speaker (now including the hold phrases of F-24 and the master prompt's translation) | NOT RUN |

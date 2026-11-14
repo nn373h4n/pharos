@@ -58,6 +58,8 @@ applies to the data, and public data carries no tenant.
 
 ## Amendment (2026-10-26, M1-05 security review)
 
+Confirmed by the maintainer on 2026-11-14 (gate G1).
+
 This clarifies the decision without changing it:
 
 - **Reads and writes on content tables are separate policies.** The decision text says

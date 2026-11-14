@@ -1,6 +1,6 @@
 # 0023. Egress control by host firewall rules and a check script
 
-- Status: Proposed
+- Status: Accepted (by the maintainer, 2026-11-14, gate G1)
 - Date: 2026-11-04
 
 ## Context

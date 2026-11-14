@@ -33,7 +33,7 @@ Three kinds of work, kept apart in every section below:
 Answers of the maintainer, 2026-11-04 (the table below keeps the question and the recommendation):
 
 - **D2** firewall rules and a check script, no new service. **D3** a script run by the host's scheduler, as recommended. **D4** images on GHCR with an SBOM and keyless signing; the signing tool is new in CI, so it is asked for again at M5-10. **D5** k6 as a pinned container run by a script. **D6** the proposal's defaults, plus a command that deletes one person's data. **D7** later; M5-14 is cut. **D8** the cap comes from the environment only; ADR-0016 is amended and the budget events go to the audit log. **D10** the cautious defaults: personal feeds off until gate G7, embeddings and the local model off, local login `break-glass`.
-- **D1** the maintainer reads the Proposed ADRs and accepts them together. Not done yet; until then gate G1 is NOT RUN, and M5-03, M5-05 and M5-06 (which amend accepted text) wait for it. The assistant does not change an ADR status itself.
+- **D1** the maintainer reads the Proposed ADRs and accepts them together. Done on 2026-11-14: the maintainer accepted the ADRs of D1 (0006, 0009 with 0019, 0010 to 0018) and 0022 to 0025, and confirmed the ADR-0005 amendment; the assistant changed the status lines on the maintainer's instruction. Gate G1 is PASS, and M5-03, M5-05 and M5-06 can start.
 - **D9** the pilot professions are **SAP Basis and HR** (two, not three as in the M4 bar). The approved AI tools and the raters are still open. Note: the seeded profession list (migration 0002) has `hr_specialist` but no SAP Basis profession (it has `sap_consultant`); whether an administrator can add one was not checked. M5-01 settles this before the corpus is exported.
 
 | # | Decision | Blocks | Recommendation |
@@ -93,7 +93,7 @@ Left on purpose, still open: F-08, F-09, F-10, F-11, F-12, F-16, F-19, F-22, F-2
 | # | Check | Result |
 | --- | --- | --- |
 | 1 | M5 acceptance criteria 1 to 10 | FAIL on 2026-11-14 (2 partly, 4 and 6 NOT RUN; the rest PASS): see [the readiness report](../reports/m5-readiness.md) |
-| 2 to 12 | Gates G1 to G11 | NOT RUN |
+| 2 to 12 | Gates G1 to G11 | G1 PASS (2026-11-14); G2 to G11 NOT RUN |
 | 13 | No open P0 or P1 (the proposal's G2 checkpoint) | PASS for findings on 2026-11-14 (two independent reviews); R1 stays open as a behaviour risk |
 
 ## Acceptance criteria (measurable)
