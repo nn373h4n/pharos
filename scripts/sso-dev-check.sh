@@ -9,6 +9,9 @@ PROJECT=pharos-sso
 TAG=ssodev
 HTTP_PORT=${PHAROS_SSO_HTTP_PORT:-19080}
 HTTPS_PORT=${PHAROS_SSO_HTTPS_PORT:-19443}
+# The generated env file is the only source of settings (scripts/lib/throwaway-env.sh).
+source scripts/lib/throwaway-env.sh
+drop_installation_env PHAROS_SSO_HTTP_PORT PHAROS_SSO_HTTPS_PORT
 PUBLIC="https://localhost:$HTTPS_PORT"
 KEYCLOAK="https://auth.localhost:$HTTPS_PORT"
 ISSUER="$KEYCLOAK/realms/pharos"

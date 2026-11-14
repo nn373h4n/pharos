@@ -21,6 +21,9 @@ PROJECT=pharos-resil
 TAG=resil
 HTTP_PORT=${PHAROS_RESIL_HTTP_PORT:-19380}
 HTTPS_PORT=${PHAROS_RESIL_HTTPS_PORT:-19743}
+# The generated env file is the only source of settings (scripts/lib/throwaway-env.sh).
+source scripts/lib/throwaway-env.sh
+drop_installation_env PHAROS_RESIL_HTTP_PORT PHAROS_RESIL_HTTPS_PORT
 ORG_SLUG=resil
 MEMORY_LIMIT_MIB=300
 SLOW_ENTRIES=120
@@ -44,6 +47,8 @@ PHAROS_DOMAIN=localhost
 PHAROS_TLS=internal
 PHAROS_HTTP_PORT=$HTTP_PORT
 PHAROS_HTTPS_PORT=$HTTPS_PORT
+# Only this machine can reach the throwaway stack (M5-13 review).
+PHAROS_BIND_ADDRESS=127.0.0.1
 PHAROS_APP_SUBNET=172.28.35.0/24
 PHAROS_APP_DYNAMIC_RANGE=172.28.35.0/25
 PHAROS_CADDY_IP=172.28.35.254

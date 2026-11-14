@@ -55,9 +55,8 @@ LOCK=${CATALOGUE_LOCK:-${XDG_RUNTIME_DIR:-$HOME}/.pharos-catalogue.lock}
 # Compose reads a variable from the shell before the env file. With a real installation's settings
 # exported, this run would re-tag that installation's images (PHAROS_IMAGE_TAG), hand its tokens to
 # the throwaway worker or load its profiles: the generated file must be the only source.
-while read -r name; do
-  unset "$name"
-done < <(compgen -e | grep -E '^(PHAROS_|POSTGRES_|COMPOSE_)' || true)
+source scripts/lib/throwaway-env.sh
+drop_installation_env
 
 # One run at a time: a second one would start by taking down the first one's project.
 if command -v flock >/dev/null; then
@@ -92,6 +91,7 @@ PHAROS_DOMAIN=localhost
 PHAROS_TLS=internal
 PHAROS_HTTP_PORT=$HTTP_PORT
 PHAROS_HTTPS_PORT=$HTTPS_PORT
+PHAROS_BIND_ADDRESS=127.0.0.1
 PHAROS_APP_SUBNET=172.28.36.0/24
 PHAROS_APP_DYNAMIC_RANGE=172.28.36.0/25
 PHAROS_CADDY_IP=172.28.36.254

@@ -12,6 +12,9 @@ PROJECT=pharos-stack
 TAG=stacke2e
 HTTP_PORT=${PHAROS_STACK_HTTP_PORT:-19180}
 HTTPS_PORT=${PHAROS_STACK_HTTPS_PORT:-19543}
+# The generated env file is the only source of settings (scripts/lib/throwaway-env.sh).
+source scripts/lib/throwaway-env.sh
+drop_installation_env PHAROS_STACK_HTTP_PORT PHAROS_STACK_HTTPS_PORT
 PUBLIC="https://localhost:$HTTPS_PORT"
 KEYCLOAK="https://auth.localhost:$HTTPS_PORT"
 ISSUER="$KEYCLOAK/realms/pharos"
@@ -40,6 +43,8 @@ PHAROS_DOMAIN=localhost
 PHAROS_TLS=internal
 PHAROS_HTTP_PORT=$HTTP_PORT
 PHAROS_HTTPS_PORT=$HTTPS_PORT
+# Only this machine can reach the throwaway stack (M5-13 review).
+PHAROS_BIND_ADDRESS=127.0.0.1
 PHAROS_KEYCLOAK_ADMIN_PASSWORD=$KEYCLOAK_ADMIN_PASSWORD
 PHAROS_APP_SUBNET=172.28.33.0/24
 PHAROS_APP_DYNAMIC_RANGE=172.28.33.0/25

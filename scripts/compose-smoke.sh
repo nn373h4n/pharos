@@ -11,6 +11,9 @@ PROJECT=pharos-smoke
 TAG=smoke
 HTTP_PORT=${PHAROS_SMOKE_HTTP_PORT:-18080}
 HTTPS_PORT=${PHAROS_SMOKE_HTTPS_PORT:-18443}
+# The generated env file is the only source of settings (scripts/lib/throwaway-env.sh).
+source scripts/lib/throwaway-env.sh
+drop_installation_env PHAROS_SMOKE_HTTP_PORT PHAROS_SMOKE_HTTPS_PORT
 WORK=$(mktemp -d)
 ENV_FILE="$WORK/env"
 
@@ -30,6 +33,8 @@ PHAROS_DOMAIN=localhost
 PHAROS_TLS=internal
 PHAROS_HTTP_PORT=$HTTP_PORT
 PHAROS_HTTPS_PORT=$HTTPS_PORT
+# Only this machine can reach the throwaway stack (M5-13 review).
+PHAROS_BIND_ADDRESS=127.0.0.1
 PHAROS_ENVIRONMENT=production
 PHAROS_DEFAULT_LOCALE=az
 PHAROS_MIGRATE_ON_START=true
