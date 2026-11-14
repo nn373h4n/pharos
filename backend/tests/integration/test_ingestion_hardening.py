@@ -174,7 +174,7 @@ async def test_the_worker_cannot_delete_a_hidden_item_or_recreate_one_as_hidden(
             alpha,
             url="https://example.com/ok-held",
             status="held",
-            hold_reason="manual",
+            hold_reason="link_ip_host",  # a reason of the ingestion rules (migration 0014)
         )
     async with owner_engine.connect() as connection:
         still = (

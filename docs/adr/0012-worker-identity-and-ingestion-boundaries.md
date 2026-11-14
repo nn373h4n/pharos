@@ -103,6 +103,17 @@ which addresses may be reached: every hop is still validated by the client. The 
 new authority; the copy shares its connections and only adds the call. If Redis fails during the
 check, the fetch fails as `unexpected`, like any other error of the worker.
 
+## Amendment (2026-11-14, M5-05: F-31): a new personal feed waits an hour
+
+A new personal feed was due for its first fetch at once (the default of `next_fetch_at`), so only
+the application's limit of ten new addresses an hour per person bounded how fast a person could
+make the worker fetch addresses of their choice. The application role cannot write `next_fetch_at`
+(on purpose: a person must not be able to make the worker fetch at will), so migration 0014 adds a
+trigger: a personal feed that the application creates, whose address it changes, or that it
+switches on is first due an hour later, or later still if it was already due later (a backoff is
+kept). A new name alone changes nothing. The worker's own updates of the schedule, the owner role
+(the operator, the tests) and the organization's sources are not affected.
+
 ## References
 
 - [0005 Tenancy and RLS](0005-tenancy-and-rls.md),

@@ -812,3 +812,75 @@ async def test_when_the_operator_switches_personal_feeds_off_the_endpoints_do_no
     ):
         response = await who.client.request(method, path, json=body, headers=who.headers)
         assert response.status_code == 404, (method, path)
+
+
+# --- F-31: a new personal feed is first due an hour later (migration 0014) --------------------------
+
+
+async def due_in_minutes(stack: Stack, feed: str) -> float:
+    [row] = await rows(
+        stack,
+        "SELECT extract(epoch FROM next_fetch_at - now()) / 60 AS minutes FROM sources "
+        "WHERE id = :i",
+        i=feed,
+    )
+    return float(row.minutes)
+
+
+@pytest.mark.anyio
+async def test_a_new_personal_feed_is_first_due_an_hour_later(make_stack: MakeStack) -> None:
+    stack: Stack = await make_stack("on")
+    who = await person(stack, "member")
+    created = await post(who, FEED)
+    assert created.status_code == 201
+    feed = created.json()["id"]
+    assert 59 <= await due_in_minutes(stack, feed) <= 60
+    # The organization's own sources are not affected: the operator's insert keeps its time.
+    async with stack.owner.begin() as connection:
+        own = (
+            await connection.execute(
+                text(
+                    "INSERT INTO sources (org_id, owner_user_id, type, name, config, dedupe_key, "
+                    "interval_seconds, next_fetch_at) VALUES (:o, :u, 'rss', 'Operator', "
+                    'CAST(\'{"url": "https://op.example.org/feed.xml"}\' AS jsonb), :k, 3600, '
+                    "now() - interval '1 minute') RETURNING id"
+                ),
+                {"o": stack.org_a, "u": who.id, "k": uuid.uuid4().hex},
+            )
+        ).scalar_one()
+    assert await due_in_minutes(stack, str(own)) < 0  # control: the trigger is the app's only
+
+
+@pytest.mark.anyio
+async def test_a_new_address_or_switching_a_feed_on_waits_an_hour_too(
+    make_stack: MakeStack,
+) -> None:
+    stack: Stack = await make_stack("on")
+    who = await person(stack, "member")
+    feed = (await post(who, FEED)).json()["id"]
+    async with stack.owner.begin() as connection:  # as if it had been fetched and were due now
+        await connection.execute(
+            text("UPDATE sources SET next_fetch_at = now() WHERE id = :i"), {"i": feed}
+        )
+    assert (await patch(who, feed, {"name": "Renamed"})).status_code == 200
+    assert await due_in_minutes(stack, feed) <= 0  # a new name is not a new address
+    assert (
+        await patch(who, feed, {"url": "https://other.example.org/feed.xml"})
+    ).status_code == 200
+    assert 59 <= await due_in_minutes(stack, feed) <= 60
+    async with stack.owner.begin() as connection:
+        await connection.execute(
+            text("UPDATE sources SET next_fetch_at = now() WHERE id = :i"), {"i": feed}
+        )
+    assert (await patch(who, feed, {"enabled": False})).status_code == 200
+    assert (await patch(who, feed, {"enabled": True})).status_code == 200
+    assert 59 <= await due_in_minutes(stack, feed) <= 60
+    async with stack.owner.begin() as connection:  # a later time already set is kept
+        await connection.execute(
+            text("UPDATE sources SET next_fetch_at = now() + interval '1 day' WHERE id = :i"),
+            {"i": feed},
+        )
+    assert (
+        await patch(who, feed, {"url": "https://third.example.org/feed.xml"})
+    ).status_code == 200
+    assert await due_in_minutes(stack, feed) > 23 * 60

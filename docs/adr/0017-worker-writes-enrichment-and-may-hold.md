@@ -77,6 +77,20 @@ transition. An editor approves a held article as for any other hold.
 - Follow-up: M4-04b shows the fields; the prompts are versioned (`enrichment_version`), and a new
   version does not rewrite old answers in bulk.
 
+## Amendment (2026-11-14, M5-05: F-33)
+
+The limit left from migration 0003 is closed by migration 0014, with two restrictive policies on
+`items` for the worker's role:
+
+- it deletes only `new` articles (retention never deletes a held one, and nothing else of the
+  worker deletes articles), so a held article cannot be removed and inserted again as `new`;
+- an article it inserts is `new`, or `held` with a reason of the ingestion rules (`link_ip_host`,
+  `link_odd_port`, `instruction_phrase`); never with the reason of an editor (`editor_hold`) or of
+  the model (`low_quality`), which only a person or the enrichment update may set.
+
+`tests/integration/test_worker_boundary.py` shows both, the attack end to end, and the positive
+controls; the exact-set privilege tests are unchanged, because policies are not privileges.
+
 ## References
 
 ADR-0004, ADR-0012, ADR-0014, ADR-0015, ADR-0016; `docs/plans/m4-llm-layer-and-personal-feed.md`
