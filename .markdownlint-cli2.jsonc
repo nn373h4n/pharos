@@ -15,6 +15,7 @@
     "**/playwright-report/**",
     "CLAUDE.md",
     "PHAROS_MASTER_PROMPT.md",
+    "PHAROS_MASTER_PROMPT.en.md", // a translation that keeps the original's layout (F-12)
     "docs/PLAN.md",
     "docs/ARCHITECTURE_PROPOSAL.md"
   ]
