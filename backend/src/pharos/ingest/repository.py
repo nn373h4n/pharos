@@ -266,13 +266,14 @@ async def finish_run(
     bytes_fetched: int | None = None,
     items_seen: int | None = None,
     items_new: int | None = None,
+    edits_refused: int | None = None,
 ) -> None:
     duration = max(int((now - started).total_seconds() * 1000), 0)
     await connection.execute(
         text(
             "UPDATE fetch_runs SET finished_at = :now, outcome = :outcome, error_code = :code, "
             "http_status = :status, duration_ms = :ms, bytes_fetched = :bytes, "
-            "items_seen = :seen, items_new = :new WHERE id = :id"
+            "items_seen = :seen, items_new = :new, edits_refused = :refused WHERE id = :id"
         ),
         {
             "now": now,
@@ -283,6 +284,7 @@ async def finish_run(
             "bytes": bytes_fetched,
             "seen": items_seen,
             "new": items_new,
+            "refused": edits_refused,
             "id": run,
         },
     )

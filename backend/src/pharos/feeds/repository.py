@@ -220,7 +220,8 @@ async def recent_runs(
             await session.execute(
                 text(
                     "SELECT r.id, r.started_at, r.finished_at, r.outcome, r.error_code, "
-                    "r.http_status, r.duration_ms, r.bytes_fetched, r.items_seen, r.items_new "
+                    "r.http_status, r.duration_ms, r.bytes_fetched, r.items_seen, r.items_new, "
+                    "r.edits_refused "
                     "FROM fetch_runs r JOIN sources s "
                     "ON s.org_id = r.org_id AND s.id = r.source_id "
                     "WHERE r.org_id = :org AND r.source_id = :id AND s.owner_user_id = :user "

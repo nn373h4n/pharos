@@ -242,7 +242,8 @@ async def recent_runs(
             await session.execute(
                 text(
                     "SELECT id, started_at, finished_at, outcome, error_code, http_status, "
-                    "duration_ms, bytes_fetched, items_seen, items_new FROM fetch_runs "
+                    "duration_ms, bytes_fetched, items_seen, items_new, edits_refused "
+                    "FROM fetch_runs "
                     "WHERE org_id = :org AND source_id = :id "
                     "ORDER BY started_at DESC, id DESC LIMIT :limit"
                 ),

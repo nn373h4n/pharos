@@ -408,7 +408,9 @@
       "result": "Sonuç",
       "http": "Yanıt",
       "seen": "Görülen",
-      "added": "Yeni"
+      "added": "Yeni",
+      "refused": "Reddedilen",
+      "refusedNote": "Bu çekimlerde {count, plural, one {# düzenleme} other {# düzenleme}} reddedildi: yeni metni bir bekletme kuralı işaretledi. Makaleler önceki metinlerini koruyor; kaynağı kontrol edin."
     },
     "outcome": {
       "running": "Çalışıyor",

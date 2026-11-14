@@ -1,6 +1,6 @@
 # 0028. An edit that a hold rule flags is counted on the fetch run
 
-- Status: Proposed
+- Status: Accepted (by the maintainer, 2026-11-14)
 - Date: 2026-11-14
 
 ## Context
@@ -45,7 +45,7 @@ it.
 
 ## Decision
 
-Proposed: option 4.
+Option 4, as built in migration 0012 (2026-11-14).
 
 - Migration: `fetch_runs.edits_refused integer NULL CHECK (edits_refused >= 0)`. The worker may
   write it in the same `UPDATE` as `items_seen` and `items_new` (the grant is widened by that one
@@ -54,10 +54,13 @@ Proposed: option 4.
 - `pipeline.store_items` returns how many existing items kept their text because the new text was
   flagged (the conflict rows that the `EXCLUDED.status = 'new'` condition skipped, counted from the
   candidates that are held and already existed). The fetcher writes the number on the run.
-- API: `GET /api/sources/{id}/runs` returns `edits_refused`; the source list returns it for the
-  last run.
-- Front end: a column in the run history and one line on the source card ("The last fetch refused
-  N edits that a hold rule flagged; check the source"), in four languages.
+- API: `GET /api/sources/{id}/runs` and `GET /api/me/feeds/{id}/runs` return `edits_refused`
+  (`null` for a run that fetched nothing new, and for runs before the migration).
+- Front end: a column in the run history, and a note above it when any of the fetches shown
+  refused an edit ("N edits were refused in these fetches: a hold rule flagged the new text. The
+  articles keep their earlier text; check the source."), in four languages. As built, the note is
+  in the run history of a source or a personal feed, not on the card itself: the source list does
+  not carry the runs, and adding them was not worth a second query on every list.
 - Audit: none. The count is operational data about a source and lives as long as the run (30 days).
 - Documentation: DATA_MODEL, API, THREAT_MODEL (the F-24 residual risk shrinks to "the reviewer
   does not see the refused text").
@@ -69,8 +72,8 @@ Proposed: option 4.
 - The flagged text is still never stored, so there is nothing new to protect, retain or delete.
 - The guarantee of ADR-0012 stays whole: the worker never changes an article a person has decided
   about.
-- One migration, one grant change and one new string in four languages. It needs the maintainer's
-  approval to write and run the migration.
+- One migration, one grant change and two new strings in four languages.
+- An administrator sees the note only when they open the run history of a source.
 - If the pilot shows that reviewers need the refused text itself, option 1 can be added later on
   top of the count.
 

@@ -408,7 +408,9 @@
       "result": "Result",
       "http": "Answer",
       "seen": "Seen",
-      "added": "New"
+      "added": "New",
+      "refused": "Refused",
+      "refusedNote": "{count, plural, one {# edit was} other {# edits were}} refused in these fetches: a hold rule flagged the new text. The articles keep their earlier text; check the source."
     },
     "outcome": {
       "running": "Running",

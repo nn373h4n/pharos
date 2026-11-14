@@ -24,6 +24,7 @@ const run = (id: number, changes: Partial<Run> = {}): Run => ({
   bytes_fetched: 1000,
   items_seen: 5,
   items_new: 2,
+  edits_refused: 0,
   ...changes,
 });
 
@@ -69,6 +70,7 @@ describe("the latest fetches", () => {
         http_status: 500,
         items_seen: null,
         items_new: null,
+        edits_refused: null,
       }),
       run(1),
     ]);
@@ -82,6 +84,7 @@ describe("the latest fetches", () => {
       en.Sources.runs.http,
       en.Sources.runs.seen,
       en.Sources.runs.added,
+      en.Sources.runs.refused,
     ]);
     const rows = screen.getAllByRole("row").slice(1);
     expect(rows[0]!.textContent).toContain("Server refused");
@@ -137,6 +140,41 @@ describe("the latest fetches", () => {
     unmount();
     await act(async () => finish([run(1)]));
     expect(document.body.textContent).toBe("");
+  });
+});
+
+describe("edits a hold rule refused (ADR-0028)", () => {
+  it("are counted per fetch and summed in a note above the table", async () => {
+    listRuns.mockResolvedValue([
+      run(3, { edits_refused: 2 }),
+      run(2, { edits_refused: null }),
+      run(1, { edits_refused: 1 }),
+    ]);
+    show();
+    await toggle();
+    await waitFor(() => expect(screen.getByRole("table")).toBeDefined());
+    expect(screen.getByRole("columnheader", { name: en.Sources.runs.refused })).toBeDefined();
+    const cells = screen
+      .getAllByRole("row")
+      .slice(1)
+      .map((row) => row.lastElementChild?.textContent);
+    expect(cells).toEqual(["2", "–", "1"]);
+    expect(screen.getByText(/3 edits were refused in these fetches/)).toBeDefined();
+  });
+
+  it("leave no note when nothing was refused", async () => {
+    listRuns.mockResolvedValue([run(2), run(1, { edits_refused: null })]);
+    show();
+    await toggle();
+    await waitFor(() => expect(screen.getByRole("table")).toBeDefined());
+    expect(screen.queryByText(/refused in these fetches/)).toBeNull();
+  });
+
+  it("say one edit in the singular", async () => {
+    listRuns.mockResolvedValue([run(1, { edits_refused: 1 })]);
+    show();
+    await toggle();
+    await waitFor(() => expect(screen.getByText(/1 edit was refused/)).toBeDefined());
   });
 });
 
