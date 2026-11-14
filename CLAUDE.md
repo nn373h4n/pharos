@@ -4,7 +4,7 @@ Open-source, self-hosted platform that shows employees practical, profession-spe
 
 - Product plan: `docs/PLAN.md`
 - Architecture and accepted decisions: `docs/ARCHITECTURE_PROPOSAL.md`
-- Full working rules: `PHAROS_MASTER_PROMPT.md` — open the section you need; it is not loaded every session on purpose.
+- Full working rules: `PHAROS_MASTER_PROMPT.md` (Azerbaijani, the original; English translation: `PHAROS_MASTER_PROMPT.en.md`) — open the section you need; it is not loaded every session on purpose.
 
 ## Language
 - Reply to the user in the language they write in.
