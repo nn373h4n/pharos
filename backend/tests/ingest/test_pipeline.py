@@ -47,6 +47,55 @@ def test_the_same_article_with_other_tracking_has_one_canonical_link() -> None:
     assert a == b
 
 
+@pytest.mark.parametrize(
+    ("a", "b"),
+    [
+        ("https://bücher.example/a", "https://xn--bcher-kva.example/a"),
+        ("https://BÜCHER.example/a", "https://xn--bcher-kva.example/a"),
+        ("https://e.example/~ann/post", "https://e.example/%7Eann/post"),
+        ("https://e.example/~ann/post", "https://e.example/%7eann/post"),
+        ("https://e.example/a?q=a-b", "https://e.example/a?q=%61%2D%62"),
+        ("https://e.example/a%2fb", "https://e.example/a%2Fb"),
+        ("https://e.example/a?q=%c3%a9", "https://e.example/a?q=%C3%A9"),
+    ],
+)
+def test_equal_links_in_other_spellings_have_one_canonical_link(a: str, b: str) -> None:
+    """F-24: a Unicode host and its ASCII form, an escaped unreserved character and the character,
+    and escapes in either case are the same link to every server."""
+    assert canonical_url(a) is not None
+    assert canonical_url(a) == canonical_url(b)
+
+
+@pytest.mark.parametrize(
+    ("a", "b"),
+    [
+        ("https://e.example/a/b", "https://e.example/a%2Fb"),  # a separator, not a letter
+        ("https://e.example/a?q=1&r=2", "https://e.example/a?q=1%26r=2"),
+        ("https://e.example/a?q=%FF", "https://e.example/a?q=%FE"),
+        ("https://e.example/a?x=1&y=2", "https://e.example/a?y=2&x=1"),  # some sites read the order
+        ("https://e.example/a?q=+", "https://e.example/a?q=%20"),
+    ],
+)
+def test_links_that_may_differ_keep_different_canonical_links(a: str, b: str) -> None:
+    assert canonical_url(a) != canonical_url(b)
+
+
+def test_the_canonical_spelling_is_the_one_stored() -> None:
+    assert canonical_url("https://Bücher.example/%7Eann?q=%2f&utm_source=x") == (
+        "https://xn--bcher-kva.example/~ann?q=%2F"
+    )
+
+
+def test_a_host_that_has_no_ascii_form_keeps_its_spelling() -> None:
+    # An empty label: the client could not connect, but the link is still the article's link.
+    assert canonical_url("https://a..example/x") == "https://a..example/x"
+
+
+def test_a_link_whose_ascii_host_would_be_too_long_to_store_keeps_its_spelling() -> None:
+    raw = "https://bücher.example/" + "a" * (2048 - len("https://bücher.example/"))
+    assert len(raw) == 2048 and canonical_url(raw) == raw  # xn--bcher-kva is four longer
+
+
 def test_other_parameters_are_kept_because_they_may_identify_the_article() -> None:
     assert canonical_url("https://e.example/p?id=1") != canonical_url("https://e.example/p?id=2")
 
