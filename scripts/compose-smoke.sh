@@ -595,6 +595,8 @@ check "status.sh shows a recent worker heartbeat in seconds" \
   grep -qE '^PASS +worker +last heartbeat [0-9]+ s ago$' <<<"$status_out"
 check "status.sh reads when the retention jobs ran, through the operator command (F-48)" \
   grep -qE '^PASS +retention +prune-audit (never ran|[0-9]+ days ago); fold-interactions' <<<"$status_out"
+check "status.sh reads the embedding vectors through the operator command in the worker (F-42)" \
+  grep -qE '^PASS +clusters +(embeddings are off|every vector is of the configured embedding model)$' <<<"$status_out"
 check "status.sh shows the size of the newest dump" \
   grep -qE '^PASS +backup +newest dump is [0-9]+ hours old, [0-9]+ KiB$' <<<"$status_out"
 redis_api_password=$(sed -n 's/^PHAROS_REDIS_PASSWORD=//p' "$ENV_FILE")
