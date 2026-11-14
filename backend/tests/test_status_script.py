@@ -27,6 +27,10 @@ case "$1" in
         echo "exec retention-status" >> "$STUB_LOG"
         [ "${STUB_RETENTION_EXIT:-0}" = 0 ] || exit 1
         printf '%b' "$STUB_RETENTION" ;;
+      *"worker python -m pharos.llm.clusters status --report"*)
+        echo "exec clusters-status" >> "$STUB_LOG"
+        [ "${STUB_CLUSTERS_EXIT:-0}" = 0 ] || exit 1
+        printf '%b' "$STUB_CLUSTERS" ;;
       *) printf '%b' "$STUB_READY" ;;
     esac ;;
   *) echo "unexpected: $*" >&2; exit 99 ;;
@@ -39,6 +43,7 @@ DEFAULTS = {
     "STUB_RETENTION": (
         "audit_pruned_days=12\\ninteractions_folded_days=12\\noldest_entry_days=200\\n"
     ),
+    "STUB_CLUSTERS": "vectors=3\\nclusters=1\\nother_model_vectors=0\\n",
     "STUB_PS": "web|running|\\napi|running|healthy\\nworker|running|healthy\\n"
     "beat|running|\\nmigrate|exited|\\n",
     "STUB_READY": "status=ok\\ndatabase=ok\\nredis=ok\\nworker=ok\\nheartbeat-age=12\\n",
@@ -118,6 +123,7 @@ def test_a_healthy_installation_passes_and_changes_nothing(tmp_path: Path) -> No
         "worker": "PASS",
         "backup": "PASS",
         "retention": "PASS",
+        "clusters": "PASS",
         "disk": "PASS",
     }
     # Only reads: no up, down, restart, run, rm, stop, kill, or a shell in a container.
@@ -505,3 +511,50 @@ def test_a_failing_retention_command_is_not_checked(tmp_path: Path) -> None:
     result, _ = run(tmp_path, env={"STUB_RETENTION_EXIT": "1"})
     assert levels(result)["retention"] == "NOT CHECKED"
     assert levels(result)["readyz"] == "PASS"
+
+
+# --- F-42: vectors of another embedding model ---------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("other", "level", "text"),
+    [
+        ("0", "PASS", "every vector is of the configured embedding model"),
+        ("off", "PASS", "embeddings are off"),
+        ("17", "WARN", "17 vectors of another embedding model"),
+    ],
+)
+def test_vectors_of_another_embedding_model_are_a_warning(
+    tmp_path: Path, other: str, level: str, text: str
+) -> None:
+    report = f"vectors=20\\nclusters=4\\nother_model_vectors={other}\\n"
+    result, calls = run(tmp_path, env={"STUB_CLUSTERS": report})
+    assert levels(result)["clusters"] == level
+    assert text in result.stdout
+    assert result.returncode == 0  # a warning, not a failure
+    assert "exec clusters-status" in calls  # read through the operator command, in the worker
+    if level == "WARN":
+        assert "reset --confirm" in result.stdout
+
+
+@pytest.mark.parametrize(
+    "report",
+    [
+        "",
+        "vectors=20\\n",  # the line missing
+        "other_model_vectors=-3\\n",
+        "other_model_vectors=3\\033[2J\\n",
+        "other_model_vectors=lots\\n",
+    ],
+)
+def test_an_unreadable_clusters_report_is_not_checked(tmp_path: Path, report: str) -> None:
+    result, _ = run(tmp_path, env={"STUB_CLUSTERS": report})
+    assert levels(result)["clusters"] == "NOT CHECKED"
+    assert "\x1b" not in result.stdout
+    assert "disk" in levels(result)
+
+
+def test_a_failing_clusters_command_is_not_checked(tmp_path: Path) -> None:
+    result, _ = run(tmp_path, env={"STUB_CLUSTERS_EXIT": "1"})
+    assert levels(result)["clusters"] == "NOT CHECKED"
+    assert result.returncode == 0

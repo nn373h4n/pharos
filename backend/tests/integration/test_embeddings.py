@@ -815,6 +815,25 @@ async def test_a_reset_for_one_model_leaves_the_vectors_of_another(
     assert deleted == 1
 
 
+async def test_the_status_counts_the_vectors_of_another_model(
+    worker_engine: AsyncEngine, owner_engine: AsyncEngine, alpha_beta: tuple[Org, Org]
+) -> None:
+    """F-42: after a change of model without a reset, the old vectors and their clusters stay."""
+    alpha, beta = alpha_beta
+    item = await story(owner_engine, alpha, "a", STORY)
+    other = await story(owner_engine, alpha, "b", SAME)
+    theirs = await story(owner_engine, beta, "theirs", STORY)
+    await give_vector(owner_engine, alpha, item, MODEL, await vector_of(STORY))
+    await give_vector(owner_engine, alpha, item, "old-model", await vector_of(STORY))
+    await give_vector(owner_engine, alpha, other, "old-model", await vector_of(SAME))
+    await give_vector(owner_engine, beta, theirs, "old-model", await vector_of(STORY))
+    counts = await clustering.status(worker_engine, alpha.id, model=MODEL)
+    assert (counts["vectors"], counts["other_models"]) == (3, 2)  # not the other organization's
+    assert "other_models" not in await clustering.status(worker_engine, alpha.id)
+    await clustering.reset(worker_engine, alpha.id, model="old-model")
+    assert (await clustering.status(worker_engine, alpha.id, model=MODEL))["other_models"] == 0
+
+
 async def test_only_the_worker_may_delete_vectors(
     app_engine: AsyncEngine, owner_engine: AsyncEngine, alpha_beta: tuple[Org, Org]
 ) -> None:

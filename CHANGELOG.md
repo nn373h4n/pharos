@@ -6,6 +6,7 @@ All notable changes are listed here, newest first. The format follows [Keep a Ch
 
 ### Added
 
+- `scripts/status.sh` warns (`clusters`) when vectors of an embedding model other than the configured one are left, because their clusters stay in place until `python -m pharos.llm.clusters reset --confirm`; `clusters status` counts them and `status --report` prints them for the script (F-42).
 - `python -m pharos.cli list-people` (read-only, as the application role): the organization's people with the identifier that `delete-person --user-id` takes, how they sign in, role, status, last sign-in, name and e-mail, 100 at a time; characters that could drive the terminal are escaped (F-57).
 - Signing in with an account whose password hash was made with older, cheaper parameters (or whose hash is damaged) takes as long as signing in with an unknown name, alone or among parallel requests (F-16).
 - Passwords in the database and Redis addresses may contain only letters, digits and `_ . -`; anything else is refused at start-up by the services, the migrations, the operator commands and, on a new volume, PostgreSQL's init script, instead of being read as another password or another host (F-09).

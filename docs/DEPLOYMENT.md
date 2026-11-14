@@ -207,7 +207,11 @@ still see them, and the Home feed shows the best one.
   sent, masked, like any other model call.
 - **The model is yours to choose.** It must handle your languages (Azerbaijani, Turkish, Russian,
   English). The vector size follows the model. Changing the model means embedding every recent
-  article again (the sweep does it by itself); the old vectors are then ignored.
+  article again (the sweep does it by itself); the old vectors are then ignored, but the clusters
+  they made stay in place. After a change of model, run
+  `docker compose exec worker python -m pharos.llm.clusters reset --confirm`; until then
+  `scripts/status.sh` warns (`clusters`) and `python -m pharos.llm.clusters status` counts the
+  vectors of the other model (F-42).
 - **The threshold.** `0.92` is a cautious start, not a measurement: with the one real model that
   was tried (`bge-m3`, 14 hand-written pairs in four languages) it joined nothing at all, while 0.80
   joined every copy with no wrong join. Do not leave it untuned. A threshold that is too low
