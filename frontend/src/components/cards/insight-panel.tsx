@@ -7,6 +7,7 @@ import { ApiProblem } from "@/lib/api";
 import { approvedTools, toolHref, type AiTool } from "@/lib/ai-tools";
 import { hostOf } from "@/lib/links";
 import {
+  askInsight,
   getInsight,
   INSIGHT_GIVE_UP_MS,
   INSIGHT_POLL_MS,
@@ -62,18 +63,22 @@ export function InsightPanel({ itemId, title, csrf }: Props) {
     };
   }, [ready]);
 
+  // The first look asks for the insight (POST, with the CSRF token); the looks after it only read
+  // (GET). If a read finds that nothing was asked or the ask ran out, the next look asks again.
   useEffect(() => {
     let current = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const startedAt = Date.now();
+    let post = true;
     const ask = async () => {
       try {
-        const answer = await getInsight(itemId);
+        const answer = post ? await askInsight(itemId, csrf) : await getInsight(itemId);
         if (!current) return;
         if (answer.status === "ready") return setState({ phase: "ready", insight: answer.insight });
         if (answer.status === "unavailable") {
           return setState({ phase: "unavailable", reason: answer.reason });
         }
+        post = answer.status === "absent";
         setState({ phase: "pending" });
       } catch (error) {
         if (!current) return;
@@ -91,7 +96,7 @@ export function InsightPanel({ itemId, title, csrf }: Props) {
       current = false;
       clearTimeout(timer);
     };
-  }, [itemId]);
+  }, [itemId, csrf]);
 
   async function copy(prompt: string) {
     try {

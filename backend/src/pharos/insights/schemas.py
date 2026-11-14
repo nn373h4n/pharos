@@ -16,8 +16,10 @@ class InsightBody(BaseModel):
 
 class InsightOut(BaseModel):
     """`ready` carries the insight; `pending` means the worker has been asked and the page should
-    ask again in a few seconds; `unavailable` says why there will be none for now."""
+    look again in a few seconds; `absent` (only from GET) means nobody has asked, or the ask ran
+    out without an answer, so the page asks with POST; `unavailable` says why there will be none
+    for now."""
 
-    status: Literal["ready", "pending", "unavailable"]
+    status: Literal["ready", "pending", "absent", "unavailable"]
     reason: Literal["off", "rejected", "invalid"] | None
     insight: InsightBody | None

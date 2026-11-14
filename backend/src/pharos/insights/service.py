@@ -4,7 +4,8 @@ The person never says which profession or language: both come from their profile
 holds only pairs that have people and nobody can make the product pay for a pair that does not
 exist. The first view of a card asks the worker (by identifiers, once per key and five minutes,
 through a marker in Redis); later views read the stored row. A stored row is checked again before
-it is served, so a row somebody wrote around the checks is never shown.
+it is served, so a row somebody wrote around the checks is never shown. Only POST asks (it carries
+the CSRF checks); GET only reads, so a cross-site request cannot spend a person's quota (F-40 b).
 
 Like the other services, this one has no network in it and imports no provider.
 """
@@ -46,6 +47,7 @@ class TaskQueue(Protocol):
 class KeyValues(Protocol):
     def set(self, name: str, value: str, *, ex: int, nx: bool = ...) -> Awaitable[Any]: ...
     def delete(self, *names: str) -> Awaitable[Any]: ...
+    def exists(self, *names: str) -> Awaitable[Any]: ...
 
 
 def marker_key(
@@ -70,12 +72,35 @@ class InsightService:
         self._queue = queue
         self._limiter = limiter
 
-    async def get(
+    async def read(
         self,
         uow: UnitOfWork,
         actor: Principal,
         item_id: uuid.UUID,
         accept_language: str | None,
+    ) -> InsightOut:
+        """What there is, without asking for anything (GET; F-40 b). A request a person did not
+        mean, a link or an image on another site, can therefore never spend the model budget."""
+        return await self._answer(uow, actor, item_id, accept_language, ask=False)
+
+    async def ask(
+        self,
+        uow: UnitOfWork,
+        actor: Principal,
+        item_id: uuid.UUID,
+        accept_language: str | None,
+    ) -> InsightOut:
+        """What there is, and if there is nothing, ask the worker to make it (POST, with CSRF)."""
+        return await self._answer(uow, actor, item_id, accept_language, ask=True)
+
+    async def _answer(
+        self,
+        uow: UnitOfWork,
+        actor: Principal,
+        item_id: uuid.UUID,
+        accept_language: str | None,
+        *,
+        ask: bool,
     ) -> InsightOut:
         profile = await self._profile.get(uow, actor.user_id, accept_language)
         professions = await self._profile.professions(uow)
@@ -97,8 +122,22 @@ class InsightService:
             return self._from_row(row, code, language)
         if self._provider == "off":
             return InsightOut(status="unavailable", reason="off", insight=None)
+        if not ask:
+            asked = await self._asked(uow.org_id, item_id, code, language, version)
+            return InsightOut(status="pending" if asked else "absent", reason=None, insight=None)
         await self._ask(uow, actor, item_id, code, language, version)
         return InsightOut(status="pending", reason=None, insight=None)
+
+    async def _asked(
+        self, org: uuid.UUID, item_id: uuid.UUID, code: str, language: str, version: str
+    ) -> bool:
+        """Whether the worker was asked for this key in the last five minutes (the marker)."""
+        if self._redis is None:
+            raise DependencyUnavailable
+        try:
+            return bool(await self._redis.exists(marker_key(org, item_id, code, language, version)))
+        except (RedisError, OSError, TimeoutError):
+            raise DependencyUnavailable from None
 
     def _from_row(self, row: repository.InsightRow, code: str, language: str) -> InsightOut:
         if row.status != "ok":

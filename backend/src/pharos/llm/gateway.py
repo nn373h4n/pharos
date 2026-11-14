@@ -51,6 +51,7 @@ from pharos.llm.errors import (
     SchemaRejected,
     StagePaused,
 )
+from pharos.llm.pauses import LocalPauses, Pauses
 from pharos.llm.provider import Provider
 from pharos.llm.schemas import SCHEMAS, forbids_extra
 from pharos.llm.types import MAX_ANSWER_TOKENS, TASK_STAGE, PublicArticleText, Stage, Task, Usage
@@ -74,16 +75,6 @@ Event = Callable[[str, UUID], Awaitable[None]]
 # The key check says nothing but this: no article, no schema, a few tokens.
 KEY_TEST_SYSTEM = "You are a connectivity check. Answer with the single word: ok."
 KEY_TEST_USER = "Answer now."
-
-
-@dataclass(slots=True)
-class Pause:
-    """A stage that fails again and again rests (one process's view; enough to avoid a loop)."""
-
-    after: int = 5
-    seconds: float = 60.0
-    failures: int = 0
-    until: float = 0.0
 
 
 @dataclass(slots=True)
@@ -124,6 +115,7 @@ class LLMGateway:
         monotonic: Callable[[], float] | None = None,
         on_event: Event | None = None,
         embedder: EmbeddingProvider | None = None,
+        pauses: Pauses | None = None,
     ) -> None:
         self._provider = provider
         self._embedder = embedder
@@ -133,8 +125,9 @@ class LLMGateway:
         self._clock = clock
         self._sleep = sleep
         self._on_event = on_event
-        self._pauses: dict[Stage, Pause] = {}
         self._monotonic = monotonic or time.monotonic
+        # Where a failing stage's rest is kept: Redis in the worker (F-40 c), this object otherwise.
+        self._pauses = pauses or LocalPauses(self._monotonic)
 
     # --- the call ---
 
@@ -165,7 +158,7 @@ class LLMGateway:
         model = self._config.models.get(stage, "")
         if not model:
             raise LLMNotConfigured()
-        self._check_pause(stage)
+        await self._check_pause(stage)
 
         messages = prompt.build(
             task,
@@ -197,7 +190,7 @@ class LLMGateway:
             except ProviderRejected:
                 await self._budget.release(reservation)
                 await self._record(org_id, stage, provider.name, model, Usage(0, 0, 0), "failed")
-                self._failed(stage)
+                await self._failed(stage)
                 raise
             except ProviderFailed as error:
                 last = error
@@ -228,7 +221,7 @@ class LLMGateway:
                 # the rest of the stage.
                 await self._budget.release(reservation)
                 await self._record(org_id, stage, provider.name, model, Usage(0, 0, 0), "failed")
-                self._failed(stage)
+                await self._failed(stage)
                 raise
 
             usage = Usage(
@@ -246,10 +239,10 @@ class LLMGateway:
                 result = self._parse(answer.text, schema)
             except SchemaRejected:
                 await self._record(org_id, stage, provider.name, model, usage, "rejected")
-                self._failed(stage)
+                await self._failed(stage)
                 raise
             await self._record(org_id, stage, provider.name, model, usage, "ok")
-            self._worked(stage)
+            await self._worked(stage)
             logger.info(
                 "llm call",
                 extra={
@@ -266,7 +259,7 @@ class LLMGateway:
 
         if last is None or not getattr(last, "sent", True):
             await self._record(org_id, stage, provider.name, model, Usage(0, 0, 0), "failed")
-        self._failed(stage)
+        await self._failed(stage)
         raise last or ProviderFailed()
 
     async def embed(self, *, org_id: UUID, article: PublicArticleText) -> Embedded:
@@ -282,7 +275,7 @@ class LLMGateway:
         model = self._config.models.get(stage, "")
         if not model:
             raise LLMNotConfigured()
-        self._check_pause(stage)
+        await self._check_pause(stage)
         text = embedding_text(article)
         price = self._config.embedding_price
         estimate = (len(text) // CHARS_PER_TOKEN + 1) * price
@@ -299,7 +292,7 @@ class LLMGateway:
         except ProviderRejected:
             await self._budget.release(reservation)
             await self._record(org_id, stage, embedder.name, model, Usage(0, 0, 0), "failed")
-            self._failed(stage)
+            await self._failed(stage)
             raise
         except ProviderFailed as error:
             if error.sent:
@@ -310,7 +303,7 @@ class LLMGateway:
             else:
                 await self._budget.release(reservation)
                 await self._record(org_id, stage, embedder.name, model, Usage(0, 0, 0), "failed")
-            self._failed(stage)
+            await self._failed(stage)
             raise
         except asyncio.CancelledError:
             with contextlib.suppress(Exception, asyncio.CancelledError):
@@ -323,7 +316,7 @@ class LLMGateway:
         except Exception:
             await self._budget.release(reservation)
             await self._record(org_id, stage, embedder.name, model, Usage(0, 0, 0), "failed")
-            self._failed(stage)
+            await self._failed(stage)
             raise
         # A provider that reports no tokens must not make the call free: count at least what the
         # text is estimated to be.
@@ -337,10 +330,10 @@ class LLMGateway:
             vector = check_vector(answer)
         except SchemaRejected:
             await self._record(org_id, stage, embedder.name, model, usage, "rejected")
-            self._failed(stage)
+            await self._failed(stage)
             raise
         await self._record(org_id, stage, embedder.name, model, usage, "ok")
-        self._worked(stage)
+        await self._worked(stage)
         return Embedded(model, vector)
 
     async def check_key(self, org_id: UUID) -> str:
@@ -362,7 +355,7 @@ class LLMGateway:
         if not model:
             return "not_configured"
         try:
-            self._check_pause(stage)
+            await self._check_pause(stage)
             if not await self._budget.pace(org_id, self._config.calls_per_minute):
                 await self._record(org_id, stage, provider.name, model, Usage(0, 0, 0), "refused")
                 return "paced"
@@ -385,7 +378,7 @@ class LLMGateway:
         except ProviderRejected:
             await self._budget.release(reservation)
             await self._record(org_id, stage, provider.name, model, Usage(0, 0, 0), "failed")
-            self._failed(stage)
+            await self._failed(stage)
             return "rejected"
         except ProviderFailed as error:
             if error.sent:
@@ -396,7 +389,7 @@ class LLMGateway:
             else:
                 await self._budget.release(reservation)
                 await self._record(org_id, stage, provider.name, model, Usage(0, 0, 0), "failed")
-            self._failed(stage)
+            await self._failed(stage)
             return "failed"
         except LLMNotConfigured:
             await self._budget.release(reservation)
@@ -409,7 +402,7 @@ class LLMGateway:
         with contextlib.suppress(BudgetUnavailable):
             await self._budget.settle(reservation, usage.cost_micro_usd)
         await self._record(org_id, stage, provider.name, model, usage, "ok")
-        self._worked(stage)
+        await self._worked(stage)
         return "ok"
 
     # --- parts ---
@@ -478,20 +471,12 @@ class LLMGateway:
 
     # --- a stage that keeps failing rests ---
 
-    def _pause(self, stage: Stage) -> Pause:
-        return self._pauses.setdefault(stage, Pause())
-
-    def _check_pause(self, stage: Stage) -> None:
-        pause = self._pause(stage)
-        if pause.until > self._monotonic():
+    async def _check_pause(self, stage: Stage) -> None:
+        if await self._pauses.paused(stage):
             raise StagePaused()
 
-    def _failed(self, stage: Stage) -> None:
-        pause = self._pause(stage)
-        pause.failures += 1
-        if pause.failures >= pause.after:
-            pause.until = self._monotonic() + pause.seconds
-            pause.failures = 0
+    async def _failed(self, stage: Stage) -> None:
+        await self._pauses.failed(stage)
 
-    def _worked(self, stage: Stage) -> None:
-        self._pause(stage).failures = 0
+    async def _worked(self, stage: Stage) -> None:
+        await self._pauses.worked(stage)

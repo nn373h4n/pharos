@@ -17,6 +17,7 @@ from pharos.core.config import get_settings
 from pharos.ingest import repository
 from pharos.llm import clustering, enrichment, insights, keytest
 from pharos.llm.errors import CallRateExceeded, LLMError
+from pharos.llm.events import DatabaseBudgetEvents
 from pharos.llm.factory import build_gateway
 from pharos.llm.usage import DatabaseUsageSink
 from pharos.workers.runtime import runtime
@@ -45,7 +46,13 @@ def test_key_task(test_id: str) -> None:
         redis = aioredis.from_url(settings.redis_url.get_secret_value())
         try:
             try:
-                gateway = build_gateway(settings, redis, DatabaseUsageSink(engine), SystemClock())
+                gateway = build_gateway(
+                    settings,
+                    redis,
+                    DatabaseUsageSink(engine),
+                    SystemClock(),
+                    on_event=DatabaseBudgetEvents(engine),
+                )
             except Exception:  # a provider named without a key, or without LiteLLM
                 outcome = "not_configured"
             else:
@@ -101,7 +108,13 @@ def enrich_sweep_task() -> None:
             try:
                 clock = SystemClock()
                 try:
-                    gateway = build_gateway(settings, redis, DatabaseUsageSink(engine), clock)
+                    gateway = build_gateway(
+                        settings,
+                        redis,
+                        DatabaseUsageSink(engine),
+                        clock,
+                        on_event=DatabaseBudgetEvents(engine),
+                    )
                 except Exception:  # a provider named without a key, or without LiteLLM
                     logger.warning("enrichment: the model layer is not configured")
                     return
@@ -156,7 +169,11 @@ def embed_sweep_task() -> None:
             try:
                 try:
                     gateway = build_gateway(
-                        settings, redis, DatabaseUsageSink(engine), SystemClock()
+                        settings,
+                        redis,
+                        DatabaseUsageSink(engine),
+                        SystemClock(),
+                        on_event=DatabaseBudgetEvents(engine),
                     )
                 except Exception:  # a provider named without a key, or without LiteLLM
                     logger.warning("embedding: the model layer is not configured")
@@ -228,7 +245,13 @@ def insight_task(self: Any, item_id: str, profession: str, language: str) -> Non
         redis = aioredis.from_url(settings.redis_url.get_secret_value())
         try:
             try:
-                gateway = build_gateway(settings, redis, DatabaseUsageSink(engine), SystemClock())
+                gateway = build_gateway(
+                    settings,
+                    redis,
+                    DatabaseUsageSink(engine),
+                    SystemClock(),
+                    on_event=DatabaseBudgetEvents(engine),
+                )
             except Exception:  # a provider named without a key, or without LiteLLM
                 logger.warning("insight: the model layer is not configured")
                 return False

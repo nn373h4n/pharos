@@ -31,5 +31,18 @@ async def get_insight(
     uow: UnitOfWorkDep,
     accept_language: Annotated[str | None, Header()] = None,
 ) -> InsightOut:
-    """The stored insight, or `pending` after asking the worker to make it, or `unavailable`."""
-    return await service.get(uow, who, item_id, accept_language)
+    """The stored insight, `pending` while the worker makes it, `absent` if nobody asked, or
+    `unavailable`. Never asks the worker."""
+    return await service.read(uow, who, item_id, accept_language)
+
+
+@router.post("/items/{item_id}/insight")
+async def ask_insight(
+    item_id: uuid.UUID,
+    who: Anyone,
+    service: Service,
+    uow: UnitOfWorkDep,
+    accept_language: Annotated[str | None, Header()] = None,
+) -> InsightOut:
+    """As GET, but asks the worker to make the insight when there is none (CSRF-checked)."""
+    return await service.ask(uow, who, item_id, accept_language)

@@ -58,6 +58,9 @@ class AuditAction(StrEnum):
     SOURCE_DELETED = "source.deleted"
     SOURCE_TEST_FETCH = "source.test_fetch_requested"
     LLM_KEY_TESTED = "llm.key_test_requested"
+    # Written by the worker as the system, naming only the organization (F-39, migration 0013).
+    LLM_BUDGET_WARNING = "llm.budget_warning"
+    LLM_BUDGET_EXHAUSTED = "llm.budget_exhausted"
     AI_TOOL_CREATED = "ai_tool.created"
     AI_TOOL_UPDATED = "ai_tool.updated"
     AI_TOOL_DELETED = "ai_tool.deleted"

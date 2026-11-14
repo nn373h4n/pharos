@@ -15,6 +15,7 @@ from pharos.llm.embedding import DemoEmbedder, EmbeddingProvider
 from pharos.llm.errors import LLMNotConfigured
 from pharos.llm.gateway import Event, GatewayConfig, LLMGateway
 from pharos.llm.litellm_provider import LiteLLMProvider, local_model_url
+from pharos.llm.pauses import RedisPauses
 from pharos.llm.provider import DemoProvider, Provider
 from pharos.llm.types import Stage
 from pharos.llm.usage import UsageSink
@@ -83,7 +84,7 @@ def build_gateway(
     usage: UsageSink,
     clock: Clock,
     *,
-    on_event: Event | None = None,
+    on_event: Event,  # required: every gateway the worker builds writes the budget events (F-39)
 ) -> LLMGateway:
     budget = Budget(redis, clock, daily_cap_micro_usd=settings.llm_daily_budget_micro_usd)
     return LLMGateway(
@@ -94,4 +95,5 @@ def build_gateway(
         clock,
         on_event=on_event,
         embedder=build_embedder(settings),
+        pauses=RedisPauses(redis),  # a new gateway per task: the rest is shared (F-40 c)
     )

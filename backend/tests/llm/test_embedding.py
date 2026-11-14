@@ -6,6 +6,7 @@ from typing import Any
 
 import pytest
 
+from pharos.llm import pauses
 from pharos.llm.embedding import (
     DEMO_DIM,
     DemoEmbedder,
@@ -217,7 +218,7 @@ class TestTheCall:
 
     async def test_a_stage_that_keeps_failing_rests(self) -> None:
         rig = harness(Scripted(ProviderRejected()))
-        for _ in range(rig.gateway._pause(Stage.EMBEDDING).after):
+        for _ in range(pauses.AFTER):
             with pytest.raises(ProviderRejected):
                 await rig.gateway.embed(org_id=ORG, article=article())
         with pytest.raises(StagePaused):
