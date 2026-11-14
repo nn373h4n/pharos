@@ -1,6 +1,6 @@
 # 0017. The worker writes what the model said, and may hold an article as low quality
 
-- Status: Proposed
+- Status: Accepted (by the maintainer, 2026-11-14, gate G1)
 - Date: 2026-11-01
 
 ## Context

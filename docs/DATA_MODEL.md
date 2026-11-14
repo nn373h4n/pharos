@@ -148,5 +148,5 @@ Validated by the connector of the type, stored as small JSON, and checked again 
 ## Open items
 
 - Final embedding model and similarity threshold (ADR-0007, ADR-0021): the mechanism is built and the model is the operator's choice; the choice itself waits for the Azerbaijani evaluation (F-36).
-- Retention defaults are built (M5-09, ADR-0025, `Proposed`); the pilot organization's own policy replaces them by setting.
+- Retention defaults are built (M5-09, ADR-0025); the pilot organization's own policy replaces them by setting.
 - Anonymous idea pool design (phase 2): the "admins cannot see authors" claim is not made until it is proven by design and tests.

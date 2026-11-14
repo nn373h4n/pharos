@@ -1,6 +1,6 @@
 # 0019. Model text is validated plain text; the Content-Security-Policy is strict
 
-- Status: Proposed
+- Status: Accepted (by the maintainer, 2026-11-14, gate G1)
 - Date: 2026-11-01
 
 ## Context

@@ -99,12 +99,9 @@ All ten tasks were merged through pull requests. The pipeline arrived with M1-09
 
 ## Decisions waiting for the maintainer
 
-- Accept or change ADR-0015 (what may reach a model, the limits on the answer, the cache key) and ADR-0016 (LLM budget and cost accounting), both written for M4 on 2026-10-31; ADR-0014 (the worker reads the state of an account, M3); ADR-0007 (embeddings) and ADR-0009 (output sanitization and a strict CSP, F-03) before the tasks that need them.
-- Accept or change ADR-0013 (test fetch: results from the worker reach the API through Redis, M3), ADR-0012 (worker identity and ingestion boundaries, M3), ADR-0011 (sessions, CSRF, identity-provider trust, organization resolution; implemented and reviewed in M2), ADR-0006 (connector plugins), ADR-0007 (embeddings; needs the Azerbaijani evaluation), ADR-0009 (output sanitization, adds `nh3`), ADR-0010 (network topology) and ADR-0021 (near-duplicate clusters, M4-05). All are `Proposed`.
+- Gate G1 passed on 2026-11-14: the maintainer accepted ADR-0006, 0009, 0010 to 0019 and 0022 to 0025 and confirmed the ADR-0005 amendment, so M5-03, M5-05 and M5-06 can start. Still `Proposed`, each to be decided on its own: ADR-0007 (embeddings; waits for the Azerbaijani evaluation, F-36), ADR-0020 (local model profile), ADR-0021 (near-duplicate clusters), ADR-0026 (approved AI tools), ADR-0027 (the shared Home-feed ranking) and ADR-0029 below.
 - Accept, change or refuse [ADR-0029](docs/adr/0029-the-worker-gets-its-own-redis-so-it-cannot-fill-the-apis.md) (F-27, proposed 2026-11-14: the worker and the queue move to a second Redis, so a compromised worker cannot fill the memory that sign-in needs; one more container and secret). ADR-0028 (F-24) was accepted on 2026-11-14 and built.
-- ADR-0005 was amended during the M1-05 review (separate read and write policies on content tables); confirm the amendment.
 - Questions 7-12 in `docs/ARCHITECTURE_PROPOSAL.md` section 16 (team size, pilot professions, card format, retention, fully local mode, source list).
-- Accept or change ADR-0022 to ADR-0025 (backup, egress control, release, retention and deletion; drafted in M5-01, all `Proposed`) together with the older Proposed ADRs that the pilot runs on (decision D1 of the [M5 plan](docs/plans/m5-pilot-readiness.md); gate G1). The M5-03, M5-05 and M5-06 amendments wait for it.
 - The open part of decision D9 of the M5 plan: the approved AI tools (M5-07, gate G9) and the raters and their bar (gate G3).
 - Pilot professions: answered as SAP Basis and HR. The seeded profession list (migration 0002) has `hr_specialist` but no SAP Basis profession (it has `sap_consultant`); M5-01 settles this before the corpus is exported.
 

@@ -1,6 +1,6 @@
 # 0006. Connector plugins and mandatory SafeHttpClient
 
-- Status: Proposed
+- Status: Accepted (by the maintainer, 2026-11-14, gate G1)
 - Date: 2026-10-26
 
 ## Context

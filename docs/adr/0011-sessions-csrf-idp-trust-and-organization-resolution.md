@@ -1,6 +1,6 @@
 # 0011. Sessions, CSRF, identity-provider trust and organization resolution
 
-- Status: Proposed
+- Status: Accepted (by the maintainer, 2026-11-14, gate G1)
 - Date: 2026-10-27
 
 ## Context
