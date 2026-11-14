@@ -162,14 +162,18 @@ def test_the_worker_and_the_api_connect_to_the_database_as_different_roles() -> 
 def test_the_scheduler_has_no_route_to_the_internet() -> None:
     compose = (DEPLOY / "docker-compose.yml").read_text()
 
-    def networks_of(service: str, end: str) -> str:
+    def networks_of(service: str, end: str) -> list[str]:
+        """The networks of a service, written as a list or as a mapping (one name per line)."""
         section = compose[compose.index(f"\n  {service}:\n") : compose.index(end)]
-        match = re.search(r"^\s+networks: (\[.*\])$", section, re.MULTILINE)
-        assert match, f"{service} has no networks line"
-        return match.group(1)
+        listed = re.search(r"^    networks: \[(.*)\]$", section, re.MULTILINE)
+        if listed:
+            return [name.strip() for name in listed.group(1).split(",")]
+        mapped = re.search(r"^    networks:\n((?:      [^\n]*\n)+)", section, re.MULTILINE)
+        assert mapped, f"{service} has no networks"
+        return re.findall(r"^      ([a-z]+):", mapped.group(1), re.MULTILINE)
 
-    assert networks_of("beat", "# One-shot job") == "[data]"
-    assert "egress" in networks_of("worker", "\n  beat:\n")  # positive control
+    assert networks_of("beat", "# One-shot job") == ["data"]
+    assert "egress" in networks_of("worker", "\n  ollama-init:\n")  # positive control
 
 
 def test_the_worker_and_the_api_connect_to_redis_as_different_users() -> None:
