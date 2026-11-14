@@ -5,6 +5,7 @@ pipeline's SQL stays inside what it may do: it cannot touch `status` or `hold_re
 item, nor create a hidden one.
 """
 
+import asyncio
 import time
 import tracemalloc
 import uuid
@@ -14,12 +15,13 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from pharos.ingest import pipeline, repository
 from pharos.ingest.dispatcher import dispatch
 from pharos.ingest.feed import RawEntry, parse_feed
 
 from ..ingest import feeds
 from .ingestion_support import Org, sha
-from .test_ingest_scheduler import (  # noqa: F401  (fixtures used by name)
+from .test_ingest_scheduler import (
     T0,
     Clock,
     FakeConnector,
@@ -404,3 +406,115 @@ async def test_a_feed_of_ten_thousand_entries_becomes_two_hundred_items_within_t
     assert time.perf_counter() - started < 20
     assert peak < 300 * 1024 * 1024
     assert len(await items(owner_engine)) == 200
+
+
+# --- F-24: two fetches that share links at the same moment ------------------------------------------
+
+
+async def test_two_fetches_that_share_links_in_opposite_order_do_not_deadlock(
+    worker_engine: AsyncEngine, owner_engine: AsyncEngine, alpha: Org, slug: str
+) -> None:
+    """Two sources report the same new articles at the same moment, one feed newest first and the
+    other oldest first. Each statement locks the rows it inserts in its own order; without a
+    common order the two meet in the middle and PostgreSQL kills one with a deadlock (checked by
+    removing the sort in `candidates`: five runs of five deadlocked). With the sort, both commit, and the
+    articles are one item each with two links."""
+    sources = [await make_source(owner_engine, alpha, key) for key in ("left", "right")]
+    for round_ in range(3):
+        shared = [article(n, f"https://news.example/r{round_}/{n}") for n in range(400)]
+
+        async def store(source: uuid.UUID, entries: list[RawEntry], ready: asyncio.Barrier) -> int:
+            async with worker_engine.begin() as connection:
+                await repository.enter_org(connection, alpha.id)
+                await ready.wait()  # both transactions are open before either statement runs
+                return await pipeline.store_items(connection, alpha.id, source, None, entries)
+
+        ready = asyncio.Barrier(2)
+        created = await asyncio.gather(
+            store(sources[0], shared, ready), store(sources[1], shared[::-1], ready)
+        )
+        assert sorted(created) == [0, 400]  # one of them made the items, the other found them
+        links = await table(
+            owner_engine,
+            "SELECT count(*) AS n FROM item_sources s JOIN items i ON i.id = s.item_id "
+            "WHERE i.canonical_url LIKE :prefix",
+            prefix=f"https://news.example/r{round_}/%",
+        )
+        assert links[0].n == 800
+
+
+def _scans(plan: Any) -> list[tuple[str, str]]:
+    """Every (node type, relation) of a JSON plan."""
+    found = [(plan.get("Node Type", ""), plan.get("Relation Name", ""))]
+    for child in plan.get("Plans", []):
+        found += _scans(child)
+    return found
+
+
+async def test_the_lookups_of_a_fetch_use_indexes_in_a_large_organization(
+    worker_engine: AsyncEngine, owner_engine: AsyncEngine, alpha: Org, slug: str
+) -> None:
+    """F-24: 60,000 items with 120,000 links from 20 sources. Who reported an item first (asked
+    for every link that exists already) and the items of a batch of links are found through the
+    indexes, as the worker sees them under row-level security; a batch of 200 links that all exist
+    already is stored well inside a second."""
+    sources = [await make_source(owner_engine, alpha, f"big{n}") for n in range(20)]
+    async with owner_engine.begin() as connection:
+        await connection.execute(
+            text(
+                "INSERT INTO items (org_id, canonical_url, url_hash, title, content_sha256) "
+                "SELECT :org, u, encode(sha256(convert_to(u, 'UTF8')), 'hex'), 'Story ' || n, "
+                "encode(sha256(convert_to(n::text, 'UTF8')), 'hex') "
+                "FROM generate_series(1, 60000) AS n, LATERAL (SELECT 'https://big.example/' || n) "
+                "AS l(u)"
+            ),
+            {"org": alpha.id},
+        )
+    async with owner_engine.begin() as connection:
+        # Before the links: their trigger looks each item up, and a plan made while the table still
+        # looked empty would read all 60,000 items for each of the 120,000 links.
+        await connection.execute(text("ANALYZE items"))
+        await connection.execute(
+            text(
+                "INSERT INTO item_sources (org_id, item_id, source_id) "
+                "SELECT i.org_id, i.id, (CAST(:sources AS uuid[]))[1 + k + "
+                "(abs(hashtext(i.url_hash)) % 10) * 2] "
+                "FROM items i CROSS JOIN generate_series(0, 1) AS k WHERE i.org_id = :org"
+            ),
+            {"org": alpha.id, "sources": sources},
+        )
+        await connection.execute(text("ANALYZE item_sources"))
+    async with worker_engine.begin() as connection:
+        await repository.enter_org(connection, alpha.id)
+        item = (
+            await connection.execute(
+                text("SELECT id FROM items WHERE canonical_url = 'https://big.example/777'")
+            )
+        ).scalar_one()
+        first = await connection.execute(
+            text(
+                "EXPLAIN (FORMAT JSON) SELECT s.source_id FROM item_sources s "
+                "WHERE s.org_id = :org AND s.item_id = :item "
+                "ORDER BY s.first_seen_at, s.source_id LIMIT 1"
+            ),
+            {"org": alpha.id, "item": item},
+        )
+        hashes = [sha(f"https://big.example/{n}") for n in range(1000, 1200)]
+        batch = await connection.execute(
+            text(
+                "EXPLAIN (FORMAT JSON) SELECT t.id FROM items t WHERE t.org_id = :org "
+                "AND t.owner_user_id IS NULL AND t.url_hash = ANY(CAST(:hashes AS text[]))"
+            ),
+            {"org": alpha.id, "hashes": hashes},
+        )
+        for plan in (first.scalar_one()[0]["Plan"], batch.scalar_one()[0]["Plan"]):
+            scans = _scans(plan)
+            assert not [scan for scan in scans if scan[0] == "Seq Scan"], scans
+    entries = [article(n, f"https://big.example/{n}") for n in range(1000, 1200)]
+    async with worker_engine.begin() as connection:
+        await repository.enter_org(connection, alpha.id)
+        started = time.perf_counter()
+        created = await pipeline.store_items(connection, alpha.id, sources[0], None, entries)
+        elapsed = time.perf_counter() - started
+    assert created == 0
+    assert elapsed < 1.0, elapsed
