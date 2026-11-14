@@ -267,8 +267,12 @@ async def reset(
         return int(deleted.rowcount or 0), int(cleared.rowcount or 0)
 
 
-async def status(engine: AsyncEngine, org: uuid.UUID) -> dict[str, int]:
-    """Counts only: vectors, clustered articles, clusters, and the largest cluster."""
+async def status(
+    engine: AsyncEngine, org: uuid.UUID, *, model: str | None = None
+) -> dict[str, int]:
+    """Counts only: vectors, clustered articles, clusters, and the largest cluster. Given the
+    configured model, also `other_models`: the vectors of any other model. They are left after a
+    change of model without a reset, and so are the clusters they made (F-42)."""
     async with engine.begin() as connection:
         await _enter(connection, org)
         row = (
@@ -286,12 +290,21 @@ async def status(engine: AsyncEngine, org: uuid.UUID) -> dict[str, int]:
                 {"org": org},
             )
         ).one()
-    return {
-        "vectors": int(row.vectors),
-        "clustered": int(row.clustered),
-        "clusters": int(row.clusters),
-        "largest": int(row.largest),
-    }
+        counts = {
+            "vectors": int(row.vectors),
+            "clustered": int(row.clustered),
+            "clusters": int(row.clusters),
+            "largest": int(row.largest),
+        }
+        if model is not None:
+            other = await connection.execute(
+                text(
+                    "SELECT count(*) FROM item_embeddings WHERE org_id = :org AND model <> :model"
+                ),
+                {"org": org, "model": model},
+            )
+            counts["other_models"] = int(other.scalar_one())
+    return counts
 
 
 async def sweep(

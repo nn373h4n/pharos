@@ -17,6 +17,9 @@
 #              its content: rehearse scripts/restore.sh
 #   retention  days since prune-audit and fold-interactions last ran with --confirm (from the audit
 #              log); WARN after 40 days, or when they never ran on an installation older than that
+#   clusters   vectors of an embedding model other than the configured one (F-42): after a change of
+#              model without `python -m pharos.llm.clusters reset --confirm` the old clusters stay
+#              in place; WARN when there are any, PASS when embeddings are off
 #   disk       free space on the disk that holds Docker's data
 # It does NOT check: that the sources fetch, that the model answers, the budget, or that a dump can
 # be restored (rehearse scripts/restore.sh). Those are on the admin pages and in the runbook.
@@ -247,6 +250,18 @@ else
     report PASS retention "${summary%;}"
   fi
 fi
+
+# --- clusters ---------------------------------------------------------------------------------
+# A read-only operator command in the worker's container (it holds the role that reads vectors);
+# only `name=value` lines are taken.
+clusters=$(compose exec -T worker python -m pharos.llm.clusters status --report 2>/dev/null || true)
+other=$(grep -E '^other_model_vectors=([0-9]{1,12}|off)$' <<<"$clusters" | head -n 1 | cut -d= -f2 || true)
+case "$other" in
+  "") report "NOT CHECKED" clusters "the worker's container did not report its vectors" ;;
+  off) report PASS clusters "embeddings are off" ;;
+  0) report PASS clusters "every vector is of the configured embedding model" ;;
+  *) report WARN clusters "$other vectors of another embedding model; their clusters are still in place: run python -m pharos.llm.clusters reset --confirm in the worker (DEPLOYMENT, embeddings)" ;;
+esac
 
 # --- disk -------------------------------------------------------------------------------------
 root=$(docker info --format '{{.DockerRootDir}}' 2>/dev/null || true)
