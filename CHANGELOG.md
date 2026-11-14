@@ -6,6 +6,7 @@ All notable changes are listed here, newest first. The format follows [Keep a Ch
 
 ### Added
 
+- `PHAROS_MASTER_PROMPT.en.md`: an English translation of the project's working rules for contributors; the Azerbaijani `PHAROS_MASTER_PROMPT.md` stays the original (F-12).
 - When a source edits an article into text a hold rule flags, the article keeps its earlier text as before, and the fetch now counts the refused edit: the run history of a source or a personal feed shows it, with a note to check the source (F-24, ADR-0028). Migration 0012 adds `fetch_runs.edits_refused`.
 - `scripts/status.sh` warns (`clusters`) when vectors of an embedding model other than the configured one are left, because their clusters stay in place until `python -m pharos.llm.clusters reset --confirm`; `clusters status` counts them and `status --report` prints them for the script (F-42).
 - `python -m pharos.cli list-people` (read-only, as the application role): the organization's people with the identifier that `delete-person --user-id` takes, how they sign in, role, status, last sign-in, name and e-mail, 100 at a time; characters that could drive the terminal are escaped (F-57).
