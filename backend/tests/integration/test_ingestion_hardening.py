@@ -306,7 +306,7 @@ async def test_the_worker_has_exactly_these_ingestion_privileges(
         | {("fetch_runs", c, "INSERT") for c in ("org_id", "source_id", "outcome")}
         | {("fetch_runs", c, "UPDATE") for c in (
             "finished_at", "outcome", "error_code", "http_status", "duration_ms", "bytes_fetched",
-            "items_seen", "items_new")}
+            "items_seen", "items_new", "edits_refused")}  # edits_refused: 0012, ADR-0028
         | {("raw_items", c, "INSERT") for c in (
             "org_id", "source_id", "external_id", "title", "excerpt", "url", "published_at",
             "content_sha256")}

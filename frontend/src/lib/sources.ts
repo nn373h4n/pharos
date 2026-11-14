@@ -38,6 +38,8 @@ export type Run = {
   bytes_fetched: number | null;
   items_seen: number | null;
   items_new: number | null;
+  /** Edits a hold rule refused in this fetch (ADR-0028); null before it was counted. */
+  edits_refused: number | null;
 };
 
 export type TestSample = { title: string; url: string; published_at: string | null };
@@ -123,7 +125,8 @@ export function isRun(value: unknown): value is Run {
     countOrNull(value.duration_ms) &&
     countOrNull(value.bytes_fetched) &&
     countOrNull(value.items_seen) &&
-    countOrNull(value.items_new)
+    countOrNull(value.items_new) &&
+    countOrNull(value.edits_refused)
   );
 }
 

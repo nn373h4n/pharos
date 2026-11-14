@@ -90,6 +90,7 @@ describe("isSourcePage, isRun, isTestAnswer, isTestStarted", () => {
     bytes_fetched: 2048,
     items_seen: 3,
     items_new: 1,
+    edits_refused: 0,
   };
   const found = {
     status: "done",
@@ -105,6 +106,7 @@ describe("isSourcePage, isRun, isTestAnswer, isTestStarted", () => {
   it("accepts what the backend sends", () => {
     expect(isSourcePage({ items: [source()], total: 1 })).toBe(true);
     expect(isRun(run)).toBe(true);
+    expect(isRun({ ...run, edits_refused: null })).toBe(true);
     expect(isTestAnswer(found)).toBe(true);
     expect(isTestAnswer({ ...found, status: "pending", outcome: null, sample: [] })).toBe(true);
     expect(isTestStarted({ test_id: TEST, retry_after_seconds: 30 })).toBe(true);
@@ -123,6 +125,9 @@ describe("isSourcePage, isRun, isTestAnswer, isTestStarted", () => {
     { ...run, outcome: null },
     { ...run, items_seen: -1 },
     { ...run, http_status: "200" },
+    { ...run, edits_refused: -1 },
+    { ...run, edits_refused: "1" },
+    (({ edits_refused: _, ...rest }) => rest)(run), // a reader of a backend before ADR-0028
   ])("refuses the run %j", (value) => {
     expect(isRun(value)).toBe(false);
   });

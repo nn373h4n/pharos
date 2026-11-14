@@ -81,6 +81,7 @@ class RunOut(BaseModel):
     bytes_fetched: int | None
     items_seen: int | None
     items_new: int | None
+    edits_refused: int | None  # edits a hold rule refused (ADR-0028); None before 0012
 
 
 class RunListOut(BaseModel):

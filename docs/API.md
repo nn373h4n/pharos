@@ -155,7 +155,7 @@ Administrators and editors read; administrators alone create, change and delete 
 | GET | `/api/sources/{id}` | admin, editor | One source. |
 | PATCH | `/api/sources/{id}` | admin | Change `name`, `config`, `interval_seconds` or `enabled` (at least one, never `null`). The type never changes. |
 | DELETE | `/api/sources/{id}` | admin | Delete the source with its runs, raw entries and links (`204`). Its items stay; retention removes them in time. |
-| GET | `/api/sources/{id}/runs` | admin, editor | The latest fetch runs, newest first. `limit` (1-50, default 20). |
+| GET | `/api/sources/{id}/runs` | admin, editor | The latest fetch runs, newest first. `limit` (1-50, default 20). Each run has `edits_refused`: edits of articles that a hold rule refused (ADR-0028; `null` when nothing new was fetched). |
 | POST | `/api/sources/{id}/test-fetch` | admin | One trial fetch by the worker, to see whether a source works before enabling it. Answers `202 {test_id, retry_after_seconds}`. |
 | GET | `/api/sources/{id}/test-fetch/{test_id}` | admin | The answer of that trial. |
 | GET | `/api/llm/status` | admin | Provider, model per stage, daily cap, spent today, warned and exhausted flags, the last key check (one word and a time), seven days of usage by stage and `insights_left` (below). Never the key. |
@@ -200,7 +200,7 @@ Every signed-in person, whatever their role, can follow up to five RSS or Atom f
 | GET | `/api/me/feeds/{id}` | One feed: `id`, `name`, `url`, `enabled`, `interval_seconds`, `next_fetch_at`, `last_fetched_at`, `last_success_at`, `consecutive_failures`, `last_error_code`, `created_at`, `updated_at`. |
 | PATCH | `/api/me/feeds/{id}` | Change `name`, `url`, `interval_seconds` or `enabled`. |
 | DELETE | `/api/me/feeds/{id}` | Delete the feed with its fetch history. Its articles stay in the table, reachable by nobody, until retention removes them. |
-| GET | `/api/me/feeds/{id}/runs` | The latest fetches (`limit` 1-50, default 20), newest first. |
+| GET | `/api/me/feeds/{id}/runs` | The latest fetches (`limit` 1-50, default 20), newest first, with `edits_refused` as for sources. |
 | GET | `/api/me/feeds/{id}/items` | The articles of this feed, newest first (`limit` 1-100, default 20, `offset`), with `status` and `hold_reason`. Nobody reviews a personal article: a flag only tells the owner that a rule matched. |
 
 The address is checked with the rules of the sources (`pharos.ingest.sourceconfig`): `http` or `https` only, no credentials, nothing inside the network (`localhost`, private and link-local addresses, odd spellings such as `127.1`, `2130706433`, `0x7f.1`, `[::ffff:7f00:1]`, and the address of this installation). A refused address answers `422 validation_failed` with `errors: [{"loc": ["body", "url"], "type": "url_not_allowed"}]` and leaves an audit entry (`source.created` or `source.updated`, outcome `failure`, reason `url_not_allowed`, scope `personal`; the address itself is not recorded). Ten new addresses an hour per person (a feed added, or the address of one changed) are allowed; more answers `429 rate_limited` with `Retry-After`. The sixth feed answers `409 source_limit`; the same feed twice (whatever its spelling) answers `409 source_conflict`. A feed is fetched at most once an hour. There is no trial fetch for a personal feed.

@@ -827,3 +827,46 @@ async def test_migration_0004_takes_the_workers_view_of_accounts_away_when_rever
     finally:
         await asyncio.to_thread(command.upgrade, database.alembic, "head")
     assert await worker_reads_status() is True
+
+
+async def test_migration_0012_counts_refused_edits_and_goes_down_and_up_again(
+    database: TestDatabase, owner_engine: AsyncEngine
+) -> None:
+    """ADR-0028: the worker may write `edits_refused`, the application role may only read it, and
+    the column cannot hold a negative count."""
+
+    async def rights() -> tuple[bool, bool, bool] | None:
+        async with owner_engine.connect() as connection:
+            exists = await connection.execute(
+                text(
+                    "SELECT 1 FROM information_schema.columns "
+                    "WHERE table_name = 'fetch_runs' AND column_name = 'edits_refused'"
+                )
+            )
+            if exists.first() is None:
+                return None
+            row = await connection.execute(
+                text(
+                    "SELECT has_column_privilege('pharos_worker', 'public.fetch_runs', "
+                    "'edits_refused', 'UPDATE'), has_column_privilege('pharos_app', "
+                    "'public.fetch_runs', 'edits_refused', 'SELECT'), has_column_privilege("
+                    "'pharos_app', 'public.fetch_runs', 'edits_refused', 'UPDATE')"
+                )
+            )
+            return tuple(row.one())  # type: ignore[return-value]
+
+    assert await rights() == (True, True, False)
+    async with owner_engine.connect() as connection:
+        refused = await connection.execute(
+            text(
+                "SELECT pg_get_constraintdef(oid) FROM pg_constraint "
+                "WHERE conname = 'fetch_runs_edits_refused_check'"
+            )
+        )
+        assert refused.scalar_one() == "CHECK ((edits_refused >= 0))"
+    await asyncio.to_thread(command.downgrade, database.alembic, "0011")
+    try:
+        assert await rights() is None
+    finally:
+        await asyncio.to_thread(command.upgrade, database.alembic, "head")
+    assert await rights() == (True, True, False)

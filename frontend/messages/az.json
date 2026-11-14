@@ -408,7 +408,9 @@
       "result": "Nəticə",
       "http": "Cavab",
       "seen": "Görünən",
-      "added": "Yeni"
+      "added": "Yeni",
+      "refused": "Rədd edilib",
+      "refusedNote": "Bu çəkilişlərdə {count, plural, one {# düzəliş} other {# düzəliş}} rədd edildi: yeni mətni yoxlama qaydası işarələdi. Məqalələr əvvəlki mətnini saxlayır; mənbəni yoxlayın."
     },
     "outcome": {
       "running": "İşləyir",

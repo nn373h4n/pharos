@@ -506,13 +506,14 @@ async def test_the_runs_of_a_source_come_newest_first_and_are_bounded(
             await connection.execute(
                 text(
                     "INSERT INTO fetch_runs (org_id, source_id, started_at, finished_at, outcome, "
-                    "items_seen, items_new) VALUES (:org, :src, now() - make_interval(mins => :n), "
-                    "now(), 'ok', :n, 0)"
+                    "items_seen, items_new, edits_refused) VALUES (:org, :src, "
+                    "now() - make_interval(mins => :n), now(), 'ok', :n, 0, :n % 2)"
                 ),
                 {"org": stack.org_a, "src": source, "n": n},
             )
     runs = (await admin.client.get(f"/api/sources/{source}/runs")).json()["items"]
     assert len(runs) == 20 and [r["items_seen"] for r in runs][:3] == [0, 1, 2]
+    assert [r["edits_refused"] for r in runs][:3] == [0, 1, 0]  # ADR-0028
     assert set(runs[0]) == {
         "id",
         "started_at",
@@ -524,6 +525,7 @@ async def test_the_runs_of_a_source_come_newest_first_and_are_bounded(
         "bytes_fetched",
         "items_seen",
         "items_new",
+        "edits_refused",
     }
     assert (
         len(
