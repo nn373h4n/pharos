@@ -22,13 +22,14 @@ contract enforces it); code that fetches uses this class.
 """
 
 import asyncio
+import copy
 import ipaddress
 import logging
 import re
 import socket
 import ssl
 import time
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Awaitable, Callable, Iterable, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -72,6 +73,10 @@ RESPONSE_HEADERS = (
 )
 
 
+# The reason of the FetchError a politeness check raises when a host has asked to be left alone.
+HOST_HELD = "host_held"
+
+
 class FetchErrorKind(StrEnum):
     BLOCKED = "blocked"  # the URL or an address it leads to is not allowed
     TIMEOUT = "timeout"
@@ -89,6 +94,10 @@ class FetchError(Exception):
         self.kind = kind
         self.reason = reason
         self.retry_after = retry_after
+
+
+# Told the host of each request of a fetch before it is sent (see `SafeHttpClient.checking_hops`).
+HopCheck = Callable[[str], Awaitable[None]]
 
 
 class _Blocked(Exception):
@@ -359,6 +368,7 @@ class SafeHttpClient:
         self._max_bytes = max_bytes
         self._deadline = deadline_seconds
         self._max_redirects = max_redirects
+        self._hop: HopCheck | None = None
         own: OwnAddresses | None = None
         if resolver is None:
             the_resolver: Resolver = SystemResolver()
@@ -391,6 +401,15 @@ class SafeHttpClient:
     async def aclose(self) -> None:
         await self._client.aclose()
 
+    def checking_hops(self, hop: "HopCheck") -> "SafeHttpClient":
+        """The same client, telling `hop` the host of every request before it is sent, the first
+        included, so the caller can keep the politeness gate of a host reached by a redirect (F-23).
+        `hop` may wait or raise FetchError. The copy shares the connections: close only the
+        original."""
+        checking = copy.copy(self)
+        checking._hop = hop
+        return checking
+
     async def fetch(
         self,
         url: str,
@@ -417,6 +436,8 @@ class SafeHttpClient:
         current = url
         for _ in range(self._max_redirects + 1):
             target = check_url(current, self._blocked_hosts, self._extra_ports)
+            if self._hop is not None:
+                await self._hop(target.host)  # inside the deadline: a wait here counts
             hop_headers = dict(request_headers)
             if (
                 bearer is not None

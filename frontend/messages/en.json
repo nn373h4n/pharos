@@ -429,6 +429,7 @@
       "http_error": "The server refused the request.",
       "not_allowed": "The address is not allowed.",
       "redirects": "Too many redirects.",
+      "host_held": "The site a redirect led to asked us to wait; it will be tried again after that.",
       "timed_out": "The server did not answer in time.",
       "too_large": "The answer was too large.",
       "unexpected": "An unexpected error.",

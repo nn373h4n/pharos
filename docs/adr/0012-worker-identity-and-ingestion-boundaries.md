@@ -85,6 +85,24 @@ longer than the usual five-second gap changes nothing, and a later answer of the
 replaces an earlier one. If Redis cannot be written, the source's own backoff still obeys the
 host. The key holds no address (the host is hashed) and lives under the worker's own prefix.
 
+## Amendment (2026-11-13, F-23): a host reached by a redirect keeps its gate
+
+The gate was asked only for the host a source names. A feed that redirects (to a CDN, a mirror,
+a new domain) sent its request to a host whose gate nobody had asked, so many sources redirecting
+to one host could reach it more often than once in five seconds, and a "not now" from the host
+behind the redirect closed the gate of the source's own host instead. Now `SafeHttpClient` can be
+given, for one fetch, a check that it calls with the host of every request before sending it
+(`checking_hops`); the fetcher and the trial use it. The source's own host passed the gate before
+the fetch began; every other host passes its gate the first time the fetch meets it. A gate closed
+for the usual gap is waited for, inside the fetch's 20-second deadline; a gate the host closed for
+longer ends the fetch as `bad_status` with the code `host_held` and that wait as its
+`Retry-After`, so the source waits as long as the host asked, and nothing is sent to that host. A
+"not now" closes the gate of the host that said it: the host of the last redirect, or the source's
+own host when the chain ends there. The check is a politeness measure and changes nothing about
+which addresses may be reached: every hop is still validated by the client. The client is given no
+new authority; the copy shares its connections and only adds the call. If Redis fails during the
+check, the fetch fails as `unexpected`, like any other error of the worker.
+
 ## References
 
 - [0005 Tenancy and RLS](0005-tenancy-and-rls.md),
