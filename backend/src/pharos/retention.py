@@ -202,12 +202,13 @@ async def delete_person(
                         "(SELECT count(*) FROM items "
                         "WHERE org_id = :org AND owner_user_id = :id), "
                         "(SELECT count(*) FROM audit_logs WHERE org_id = :org AND "
-                        "(target = :named OR (actor_id = :id AND ip_hash IS NOT NULL))), "
+                        "(target = :named OR (ip_hash IS NOT NULL AND (actor_id = :id "
+                        "OR (actor_id IS NULL AND target = :mine))))), "
                         "(SELECT (SELECT count(*) FROM sources WHERE org_id = :org "
                         "AND created_by = :id) + (SELECT count(*) FROM ai_tools "
                         "WHERE org_id = :org AND created_by = :id))"
                     ),
-                    {"org": org, "id": person, "named": named},
+                    {"org": org, "id": person, "named": named, "mine": f"user:{person}"},
                 )
             ).one()
             result = PersonDeleted(
@@ -227,13 +228,17 @@ async def delete_person(
             # into the target of an audit entry, the hash of the address of their own entries, and
             # the `created_by` marks that point at them.
             # The hash first: it is found through the username, which the next statement removes.
-            # Refused sign-ins that named the person have no actor but carry the hash too.
+            # Refused sign-ins that named the person have no actor but carry the hash too, and so
+            # does the entry the system wrote when their first single sign-on made the account
+            # (target `user:<id>`, no actor). An entry another person wrote about them keeps its
+            # hash: that address is the other person's.
             await connection.execute(
                 text(
                     "UPDATE audit_logs SET ip_hash = NULL WHERE org_id = :org "
-                    "AND ip_hash IS NOT NULL AND (actor_id = :id OR target = :named)"
+                    "AND ip_hash IS NOT NULL AND (actor_id = :id OR target = :named "
+                    "OR (actor_id IS NULL AND target = :mine))"
                 ),
-                {"org": org, "id": person, "named": named},
+                {"org": org, "id": person, "named": named, "mine": f"user:{person}"},
             )
             if local:
                 await connection.execute(

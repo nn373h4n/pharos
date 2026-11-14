@@ -38,6 +38,23 @@ async def test_hosts_are_compared_without_regard_to_case() -> None:
     assert await gate.enter("news.example") is False
 
 
+@pytest.mark.parametrize(
+    ("named", "reported"),
+    [
+        ("bücher.example", "xn--bcher-kva.example"),
+        ("BÜCHER.example", "xn--bcher-kva.example"),
+        ("news.example.", "news.example"),
+    ],
+)
+async def test_one_machine_has_one_gate_in_every_spelling(named: str, reported: str) -> None:
+    """The source's host and the host the client reports for a redirect are one gate."""
+    gate = HostGate(FakeRedis(), gap_seconds=5)
+    assert await gate.enter(named) is True
+    assert await gate.enter(reported) is False
+    await gate.hold(reported, 600)
+    assert await gate.wait_seconds(named) == 600
+
+
 async def test_the_key_is_under_the_workers_own_prefix_and_expires() -> None:
     redis = FakeRedis()
     await HostGate(redis, gap_seconds=7).enter("news.example")

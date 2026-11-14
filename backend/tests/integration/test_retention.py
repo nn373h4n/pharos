@@ -448,6 +448,58 @@ async def test_a_person_from_the_identity_provider_needs_the_reprovision_flag(
     assert await one(stack, "SELECT count(*) FROM users WHERE id = :i", i=sso) == 0
 
 
+async def test_the_address_of_a_single_sign_on_persons_first_sign_in_is_cleared_too(
+    make_stack: MakeStack, database: TestDatabase
+) -> None:
+    """M5-13 review: the system writes `user.created` with no actor, the target `user:<id>` and
+    the address hash when a first single sign-on makes the account; deleting the person must clear
+    that hash too, and leave the hash of an administrator who acted on them."""
+    stack: Stack = await make_stack("on")
+    admin = await person(stack, "admin")
+    async with stack.owner.begin() as connection:
+        sso = (
+            await connection.execute(
+                text(
+                    "INSERT INTO users (org_id, issuer, subject, display_name, role) "
+                    "VALUES (:o, 'https://idp.example.org/', 'xyz', 'Someone', 'member') "
+                    "RETURNING id"
+                ),
+                {"o": stack.org_a},
+            )
+        ).scalar_one()
+        for actor_type, actor, action in (
+            ("system", None, "user.created"),  # their first sign-in made the account
+            ("user", admin.id, "user.role_changed"),  # an administrator acted on them
+        ):
+            await connection.execute(
+                text(
+                    "INSERT INTO audit_logs (org_id, actor_type, actor_id, action, target, "
+                    "outcome, ip_hash) VALUES (:o, :at, :a, :act, :t, 'success', :h)"
+                ),
+                {
+                    "o": stack.org_a,
+                    "at": actor_type,
+                    "a": actor,
+                    "act": action,
+                    "t": f"user:{sso}",
+                    "h": sha(f"{action}:198.51.100.7"),
+                },
+            )
+    slug = await slug_of(stack)
+    dry = await retention.delete_person(
+        database.owner_url, org_slug=slug, user_id=sso, confirm=False, allow_reprovision=True
+    )
+    assert dry.audit_rows_cleared == 1  # the count says what the run will clear
+    await retention.delete_person(
+        database.owner_url, org_slug=slug, user_id=sso, confirm=True, allow_reprovision=True
+    )
+    rows = {
+        e["action"]: e["ip_hash"] for e in await audit_rows(stack) if e["target"] == f"user:{sso}"
+    }
+    assert rows["user.created"] is None
+    assert rows["user.role_changed"] is not None  # the administrator's own address
+
+
 async def test_the_same_username_in_two_organizations_is_deleted_in_one_only(
     make_stack: MakeStack, database: TestDatabase
 ) -> None:
