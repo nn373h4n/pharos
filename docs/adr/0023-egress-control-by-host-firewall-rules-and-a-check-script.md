@@ -54,6 +54,31 @@ ADR-0010 stays.
 - Follow-up: M5-03 builds the rules and the script; the threat model's residual list is updated;
   gate G7 is the check on the pilot host, passed by the maintainer or the pilot organization's IT.
 
+## Implementation (2026-11-14, M5-03)
+
+- `deploy/egress/pharos-egress.sh print|apply|remove`: two chains of its own, `PHAROS-EGRESS` from
+  `DOCKER-USER` and `PHAROS-EGRESS-HOST` from `INPUT`, from the fixed `egress` range (ADR-0010
+  amendment). Answers to allowed connections pass; the host's resolvers are allowed on port 53
+  before the private ranges are dropped, because Docker's resolver may ask them from the container's
+  own namespace and a company resolver is often private; then the RFC 6890 ranges that are not the
+  internet are dropped, `api` may use TCP 443 and `worker` TCP 80 and 443, and everything else is
+  dropped. `apply` replaces earlier rules; nothing is saved across a reboot (the operator persists).
+- `scripts/egress-check.sh`: from inside `api` and `worker`, the controls (public 443, DNS, public
+  80 for the worker) and the refusals (port 25, a private address, the metadata address, the host's
+  gateway address, where the script opens a listener for a moment).
+- `scripts/egress-netns-test.sh` proves the rules against real packets in network namespaces, with a
+  listener on every target, in three phases (no rules: all open; rules: the matrix; removed: all
+  open), and removes everything; it never changes the host's firewall. Recorded on 2026-11-14:
+  39 of 39 PASS; six mutations of the rules, each caught by a named test.
+- After the security review of 2026-11-14: the host is guarded from all four Pharos ranges, not only
+  `egress` (an internal network reaches the host through its gateway; `data` gets a fixed range for
+  this); Azure's WireServer (168.63.129.16) is dropped (and refused by `SafeHttpClient`); a
+  resolver on an address of the host is allowed on 53 in the host chain; `apply` hooks new chains in
+  before it unhooks the old ones and removes jumps of any former range; the check validates every
+  range before deriving a gateway from it, and probes each network's gateway. The namespace test now
+  has a second network and WireServer listener: 52 of 52 PASS; four more mutations caught.
+- Not proven here: Docker's own rules and DNS forwarding on a real host. That is gate G7.
+
 ## References
 
 - F-04, F-06, F-21 in `TASKS.md`; ADR-0010; `docs/THREAT_MODEL.md` residual risks;

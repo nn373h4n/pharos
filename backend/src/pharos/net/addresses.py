@@ -28,6 +28,7 @@ _DENIED: tuple[str, ...] = (
     "192.168.0.0/16",
     "198.18.0.0/15",  # benchmarking
     "198.51.100.0/24",
+    "168.63.129.16/32",  # Azure's WireServer: global, but the VM agent's and the platform's DNS
     "203.0.113.0/24",
     "224.0.0.0/4",  # multicast
     "240.0.0.0/4",  # reserved, includes the broadcast address
