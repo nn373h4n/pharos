@@ -34,6 +34,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 from pharos.core import folding
 from pharos.ingest.feed import RawEntry
 from pharos.ingest.links import safe_link
+from pharos.ingest.sourceconfig import ascii_host
 
 _TRACKING_PARAMETERS = frozenset({"fbclid", "gclid"})
 _TRACKING_PREFIX = "utm_"
@@ -97,18 +98,43 @@ def canonical_url(url: str) -> str | None:
     except ValueError:
         return None
     scheme = parts.scheme.lower()
-    host = (parts.hostname or "").rstrip(".")  # "example.com." is the same host
-    if scheme not in _DEFAULT_PORTS or not host:
+    raw_host = (parts.hostname or "").rstrip(".")  # "example.com." is the same host
+    if scheme not in _DEFAULT_PORTS or not raw_host:
         return None
-    # IPv6 literals need their brackets back; hostname strips them (and lowercases the name).
-    netloc = f"[{host}]" if ":" in host else host
-    if port is not None and port != _DEFAULT_PORTS[scheme]:
-        netloc = f"{netloc}:{port}"
-    path = parts.path or "/"
-    canonical = urlunsplit((scheme, netloc, path, _query(parts.query), ""))
-    # The result must be storable too: it is checked again, because dropping parameters can only
-    # shorten a link, but the host and path rules above are not the feed parser's.
-    return canonical if safe_link(canonical) == canonical else None
+    path = _escapes(parts.path) or "/"
+    query = _escapes(_query(parts.query))
+    # The host as the client connects to it (F-24): `bücher.example` and `xn--bcher-kva.example`
+    # are one machine. A name that cannot be written in ASCII, or whose ASCII form makes the link
+    # too long to store, stays as it was.
+    for host in dict.fromkeys((ascii_host(raw_host) or raw_host, raw_host)):
+        # IPv6 literals need their brackets back; hostname strips them (and lowercases the name).
+        netloc = f"[{host}]" if ":" in host else host
+        if port is not None and port != _DEFAULT_PORTS[scheme]:
+            netloc = f"{netloc}:{port}"
+        canonical = urlunsplit((scheme, netloc, path, query, ""))
+        # The result must be storable too: it is checked again, because dropping parameters can
+        # only shorten a link, but the host and path rules above are not the feed parser's.
+        if safe_link(canonical) == canonical:
+            return canonical
+    return None
+
+
+_ESCAPE = re.compile(r"%([0-9A-Fa-f]{2})")
+_UNRESERVED = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
+
+
+def _escapes(raw: str) -> str:
+    """One spelling of each escape (RFC 3986, 6.2.2): an escaped letter, digit or `-._~` is the
+    character itself (`%7E` is `~`), and the hex digits of any other escape are upper case (`%2f`
+    is `%2F`). Both are equal links to every server. Nothing gets longer, and an escape that means
+    something else (`%2F` against `/`, `%FF` against `%FE`) stays as it was. The order of the
+    query's parameters is kept: some sites read it."""
+
+    def one(match: re.Match[str]) -> str:
+        character = chr(int(match.group(1), 16))
+        return character if character in _UNRESERVED else f"%{match.group(1).upper()}"
+
+    return _ESCAPE.sub(one, raw)
 
 
 def _query(raw: str) -> str:
