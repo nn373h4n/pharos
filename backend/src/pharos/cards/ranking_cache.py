@@ -21,6 +21,7 @@ numbers.
 """
 
 import asyncio
+import contextlib
 import json
 import logging
 import re
@@ -170,6 +171,8 @@ class RankingCache:
         self._clock = clock
         # key -> (when the copy is dropped, on `clock`; the ranking)
         self._local: OrderedDict[str, tuple[float, Ranking]] = OrderedDict()
+        # Rankings being made after the request that started them was answered (F-61).
+        self._background: set[asyncio.Task[None]] = set()
 
     @property
     def size(self) -> int:
@@ -197,13 +200,18 @@ class RankingCache:
         *,
         make: bool = True,
         stand_in: str | None = None,
+        rank_later: Callable[[int], Awaitable[list[Candidate]]] | None = None,
     ) -> tuple[Ranking, bool] | None:
         """`get_or_rank`, and the key of a ranking that may stand in for this one (F-50).
 
         While another request is making the ranking under `key`, the one under `stand_in` (the
         previous period's, for a first page) is answered at once if it is kept, instead of waiting
         up to `WAIT_SECONDS` holding a database connection. The flag says it stood in: the caller
-        must then rank at the stand-in's moment."""
+        must then rank at the stand-in's moment.
+
+        With `rank_later` (a `rank` that opens its own transaction), the request that would make
+        the ranking is answered from the stand-in as well, and the ranking is made after it, in
+        the background (F-61): nobody waits for it. Without a stand-in it is made at once."""
         try:
             found = await self._read(key)
             if found is not None:
@@ -213,13 +221,18 @@ class RankingCache:
             lock = f"{key}:lock"
             token = uuid.uuid4().hex
             if await self._redis.set(lock, token, nx=True, ex=LOCK_SECONDS):
+                previous = None
+                if stand_in is not None and rank_later is not None:
+                    previous = await self._read(stand_in)
+                if previous is not None and rank_later is not None:
+                    task = asyncio.create_task(self._make_later(key, lock, token, rank_later))
+                    self._background.add(task)
+                    task.add_done_callback(self._background.discard)
+                    return previous, True
                 try:
                     return await self._make(key, rank), False
                 finally:
-                    # Only the one that took the lock lets it go: after LOCK_SECONDS it may be
-                    # somebody else's.
-                    if await self._redis.get(lock) in (token, token.encode()):
-                        await self._redis.delete(lock)
+                    await self._let_go(lock, token)
             if stand_in is not None:
                 previous = await self._read(stand_in)
                 if previous is not None:
@@ -238,6 +251,32 @@ class RankingCache:
         except (RedisError, OSError, TimeoutError):
             logger.warning("feed ranking cache unavailable; ranking without it")
             return None
+
+    async def _let_go(self, lock: str, token: str) -> None:
+        # Only the one that took the lock lets it go: after LOCK_SECONDS it may be somebody else's.
+        if await self._redis.get(lock) in (token, token.encode()):
+            await self._redis.delete(lock)
+
+    async def _make_later(
+        self, key: str, lock: str, token: str, rank: Callable[[int], Awaitable[list[Candidate]]]
+    ) -> None:
+        """Make the ranking after the request was answered; any trouble only means that the next
+        request makes it (or waits for it) as before."""
+        try:
+            await self._make(key, rank)
+        except Exception as error:
+            logger.warning(
+                "feed ranking cache: a ranking made in the background failed",
+                extra={"error": type(error).__name__},
+            )
+        finally:
+            with contextlib.suppress(RedisError, OSError, TimeoutError):  # it runs out by itself
+                await self._let_go(lock, token)
+
+    async def wait_for_background(self) -> None:
+        """Let the rankings being made finish (tests, and the end of the process)."""
+        while self._background:
+            await asyncio.gather(*list(self._background), return_exceptions=True)
 
     async def _read(self, key: str) -> Ranking | None:
         kept = self._local.get(key)

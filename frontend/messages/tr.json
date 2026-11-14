@@ -429,6 +429,7 @@
       "http_error": "Sunucu isteği reddetti.",
       "not_allowed": "Adrese izin verilmiyor.",
       "redirects": "Çok fazla yönlendirme.",
+      "host_held": "Yönlendirmenin götürdüğü site beklememizi istedi; süre dolunca yeniden denenecek.",
       "timed_out": "Sunucu zamanında yanıt vermedi.",
       "too_large": "Yanıt çok büyüktü.",
       "unexpected": "Beklenmeyen bir hata.",

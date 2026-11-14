@@ -12,6 +12,8 @@ from dataclasses import replace
 from datetime import datetime, timedelta
 from urllib.parse import urlsplit
 
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
 from pharos.cards import cursor as cursors
 from pharos.cards import repository
 from pharos.cards.ranking import (
@@ -35,6 +37,7 @@ from pharos.core.clock import Clock
 from pharos.core.errors import ApiError, ErrorCode, not_found
 from pharos.core.principal import Principal, Role
 from pharos.core.ratelimit import RateLimiter, rate_limited
+from pharos.core.rls import tenant_session
 from pharos.core.unit_of_work import UnitOfWork
 from pharos.profile.service import ProfileService
 
@@ -58,11 +61,14 @@ class CardService:
         clock: Clock,
         limiter: RateLimiter | None = None,
         cache: RankingCache | None = None,
+        sessions: async_sessionmaker[AsyncSession] | None = None,
     ) -> None:
         self._profile = profile
         self._clock = clock
         self._limiter = limiter
         self._cache = cache
+        # To make a ranking after the request is answered, in a transaction of its own (F-61).
+        self._sessions = sessions
 
     async def cards(
         self,
@@ -158,11 +164,26 @@ class CardService:
                     uow.session, uow.org_id, profession=profession, as_of=moment, limit=count
                 )
 
+            rank_later = None
+            sessions = self._sessions
+            if sessions is not None and after is None:
+                org = uow.org_id
+
+                async def later(count: int) -> list[repository.Candidate]:
+                    # The request is over by now: its own transaction, for the same organization.
+                    async with tenant_session(sessions, org) as session:
+                        return await repository.ranked_candidates(
+                            session, org, profession=profession, as_of=moment, limit=count
+                        )
+
+                rank_later = later
+
             found = await self._cache.lookup(
                 key,
                 rank,
                 make=current,
                 stand_in=key_for(uow.org_id, profession, previous) if after is None else None,
+                rank_later=rank_later,
             )
             if found is not None and found[1]:
                 as_of = previous
@@ -263,6 +284,11 @@ class CardService:
         await repository.act_as(uow.session, actor.user_id)
         await repository.delete_interaction(uow.session, uow.org_id, actor.user_id, item_id, kind)
         await uow.commit()
+
+    async def wait_for_rankings(self) -> None:
+        """Let rankings being made in the background finish (the end of the process, tests)."""
+        if self._cache is not None:
+            await self._cache.wait_for_background()
 
     async def summary(self, uow: UnitOfWork) -> InteractionSummaryOut:
         found = await repository.counts(uow.session, SUMMARY_DAYS)

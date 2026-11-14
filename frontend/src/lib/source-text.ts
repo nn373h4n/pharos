@@ -27,6 +27,7 @@ export const ERROR_WORDS = [
   "http_error",
   "not_allowed",
   "redirects",
+  "host_held",
   "timed_out",
   "too_large",
   "unexpected",

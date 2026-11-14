@@ -22,7 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from pharos.ingest import repository, testfetch
 from pharos.ingest.connectors.base import Connector, ConnectorError, FetchState
-from pharos.ingest.hostgate import HostGate
+from pharos.ingest.hostgate import Hops, HostGate
 from pharos.net.safe_http import SafeHttpClient
 
 logger = logging.getLogger(__name__)
@@ -109,13 +109,15 @@ async def _fetch(
     host = connector.politeness_host(checked)
     if host is not None and not await gate.enter(host):
         return _answer(test_id, source_id, "host_busy")
+    hops = Hops(gate)  # a host reached by a redirect keeps its gate too (F-23)
     try:
-        outcome = await connector.fetch(checked, FetchState(), http, clock())
+        outcome = await connector.fetch(checked, FetchState(), http.checking_hops(hops), clock())
     except ConnectorError as error:
         if error.retry_after and host is not None:
-            # A "not now" heard by a trial counts like one heard by a scheduled fetch (F-27).
+            # A "not now" heard by a trial counts like one heard by a scheduled fetch (F-27),
+            # against the host that said it.
             try:
-                await gate.hold(host, error.retry_after)
+                await gate.hold(hops.answered or host, error.retry_after)
             except Exception:  # the answer is still given; the source's own backoff is untouched
                 logger.warning("test fetch: could not hold the host gate")
         return _answer(

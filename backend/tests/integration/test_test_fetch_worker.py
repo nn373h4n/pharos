@@ -19,7 +19,7 @@ from pharos.ingest.feed import RawEntry
 from pharos.ingest.hostgate import HostGate
 from pharos.ingest.testrun import run_test_fetch
 
-from .ingestion_support import Org, sha
+from .ingestion_support import NoHttp, Org, sha
 from .test_ingest_scheduler import (
     Clock,
     FakeConnector,
@@ -64,7 +64,7 @@ async def trial(
         source_id=source,
         test_id=test_id,
         connectors=connectors if connectors is not None else {"rss": connector},
-        http=None,  # type: ignore[arg-type]
+        http=NoHttp(),  # type: ignore[arg-type]
         gate=gate or OpenGate(),  # type: ignore[arg-type]
         store=store,
         clock=Clock(),
@@ -184,7 +184,7 @@ async def test_a_stored_configuration_that_is_not_valid_is_not_used(
     worker_engine: AsyncEngine, owner_engine: AsyncEngine, alpha: Org, slug: str, config: str
 ) -> None:
     source = await make_source(owner_engine, alpha, "a", config=config)
-    # the real connector: its rules decide, and it would fail on `http=None` if it were asked to fetch
+    # the real connector: its rules decide, and it would fail on `NoHttp` if it were asked to fetch
     result, _, _ = await trial(
         worker_engine, slug, source, FakeConnector(), connectors={"rss": RssConnector()}
     )
@@ -306,3 +306,33 @@ async def test_a_trial_on_a_held_host_is_not_sent(
     connector = FakeConnector(ok(entry(1)))
     result, _, _ = await trial(worker_engine, slug, source, connector, gate=gate)  # type: ignore[arg-type]
     assert result.outcome == "host_busy" and connector.calls == []
+
+
+# --- F-23: a trial keeps the gate of a host a redirect leads to -----------------------------------
+
+
+async def test_a_trial_redirected_to_a_host_that_says_not_now_holds_that_host(
+    worker_engine: AsyncEngine, owner_engine: AsyncEngine, alpha: Org, slug: str
+) -> None:
+    source = await make_source(owner_engine, alpha, "a")
+    gate = OpenGate()
+    failure = ConnectorError("bad_status", "http_error", http_status=429, retry_after=900)
+    connector = FakeConnector(failure)
+    connector.redirects = ["cdn.example"]
+    result, _, _ = await trial(worker_engine, slug, source, connector, gate=gate)
+    assert (result.outcome, result.http_status) == ("bad_status", 429)
+    assert gate.hops == ["cdn.example"]
+    assert gate.holds == [("cdn.example", 900)]
+
+
+async def test_a_trial_redirected_to_a_held_host_is_not_sent_there(
+    worker_engine: AsyncEngine, owner_engine: AsyncEngine, alpha: Org, slug: str
+) -> None:
+    source = await make_source(owner_engine, alpha, "a")
+    gate = OpenGate()
+    gate.held["cdn.example"] = 3000
+    connector = FakeConnector(ok(entry(1)))
+    connector.redirects = ["cdn.example"]
+    result, _, _ = await trial(worker_engine, slug, source, connector, gate=gate)
+    assert (result.outcome, result.error_code) == ("bad_status", "host_held")
+    assert connector.results == [ok(entry(1))]

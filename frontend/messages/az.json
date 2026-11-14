@@ -429,6 +429,7 @@
       "http_error": "Server sorğunu rədd etdi.",
       "not_allowed": "Ünvana icazə verilmir.",
       "redirects": "Çox sayda yönləndirmə.",
+      "host_held": "Yönləndirmənin apardığı sayt gözləməyimizi istədi; vaxt bitəndən sonra yenidən yoxlanılacaq.",
       "timed_out": "Server vaxtında cavab vermədi.",
       "too_large": "Cavab çox böyük idi.",
       "unexpected": "Gözlənilməz xəta.",

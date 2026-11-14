@@ -185,6 +185,53 @@ async def test_a_redirect_to_a_safe_place_is_followed() -> None:
 
 
 @pytest.mark.anyio
+async def test_a_caller_checking_hops_is_told_every_host_before_its_request() -> None:
+    client, script, _ = make(
+        redirect("/again", 301),
+        redirect("https://other.example/new"),
+        response(200, b"moved"),
+        response(200, b"plain"),
+    )
+    told: list[tuple[str, int]] = []
+
+    async def hop(host: str) -> None:
+        told.append((host, len(script.connects)))  # before the request to that host
+
+    result = await client.checking_hops(hop).fetch("http://Feed.Example/old")
+    assert result.body == b"moved"
+    assert told == [("feed.example", 0), ("feed.example", 1), ("other.example", 2)]
+    await client.fetch("http://feed.example/")  # the original client tells nobody
+    assert len(told) == 3
+
+
+@pytest.mark.anyio
+async def test_a_hop_the_caller_refuses_is_never_requested() -> None:
+    client, script, _ = make(redirect("https://other.example/new"), response(200, b"never"))
+
+    async def hop(host: str) -> None:
+        if host == "other.example":
+            raise FetchError(FetchErrorKind.BAD_STATUS, "host_held", retry_after=60)
+
+    with pytest.raises(FetchError) as caught:
+        await client.checking_hops(hop).fetch("http://feed.example/old")
+    assert (caught.value.reason, caught.value.retry_after) == ("host_held", 60)
+    assert script.connects == [(PUBLIC, 80)]
+
+
+@pytest.mark.anyio
+async def test_a_wait_at_a_hop_counts_against_the_deadline() -> None:
+    client, _, _ = make(redirect("https://other.example/new"), deadline_seconds=0.3)
+
+    async def hop(host: str) -> None:
+        if host == "other.example":
+            await asyncio.sleep(5)
+
+    with pytest.raises(FetchError) as caught:
+        await client.checking_hops(hop).fetch("http://feed.example/old")
+    assert caught.value.kind is FetchErrorKind.TIMEOUT
+
+
+@pytest.mark.anyio
 async def test_a_relative_redirect_stays_on_the_same_host() -> None:
     client, script, _ = make(redirect("/other?x=1", 301), response(200, b"ok"))
     result = await client.fetch("http://feed.example/old")
