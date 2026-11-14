@@ -588,7 +588,7 @@ async def test_the_worker_can_run_the_pipeline_and_nothing_beyond_it(
             alpha,
             url="https://example.com/new",
             status="held",
-            hold_reason="suspicious_link",
+            hold_reason="link_ip_host",  # a reason of the ingestion rules (migration 0014)
         )
         await connection.execute(
             text("INSERT INTO item_sources (org_id, item_id, source_id) VALUES (:o, :i, :s)"),
