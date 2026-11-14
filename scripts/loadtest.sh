@@ -26,6 +26,9 @@ PROJECT=pharos-load
 TAG=loadtest
 HTTP_PORT=${PHAROS_LOAD_HTTP_PORT:-19280}
 HTTPS_PORT=${PHAROS_LOAD_HTTPS_PORT:-19643}
+# The generated env file is the only source of settings (scripts/lib/throwaway-env.sh).
+source scripts/lib/throwaway-env.sh
+drop_installation_env PHAROS_LOAD_HTTP_PORT PHAROS_LOAD_HTTPS_PORT
 PUBLIC="https://localhost:$HTTPS_PORT"
 ORG_SLUG=load
 STEPS=${LOAD_STEPS:-50}   # people at work at the same time, one run of k6 for each, the first is the D5 target
@@ -42,9 +45,10 @@ KEYCLOAK="https://auth.localhost:$HTTPS_PORT"
 SSO_PASSWORD=$(openssl rand -hex 16)   # one throwaway password for the synthetic Keycloak users of this run
 WORK=$(mktemp -d)
 ENV_FILE="$WORK/env"
-# The k6 container runs as an unprivileged user: it reads the files in $WORK (the env file with the
-# passwords stays private, mode 600) and may write only the summary files made for it, below.
-chmod 755 "$WORK"
+# k6 runs as the user who runs this script (`--user` below), so $WORK and every file in it stay
+# private to that user: the sessions are valid sign-ins for the stack on 127.0.0.1, which every
+# local user can reach, and the summaries decide the verdict (M5-13 review).
+chmod 700 "$WORK"
 mkdir -p "$OUT"
 
 secret() { openssl rand -hex 24; }
@@ -162,8 +166,8 @@ if [ "$SCENARIO" = sso ]; then
     if [ "$code" != 201 ]; then echo "FAIL  Keycloak user load-$id: HTTP $code"; exit 1; fi
   done
   echo "users in Keycloak: $BURST"
-  cp scripts/loadtest/sso.js "$WORK/sso.js" && chmod 644 "$WORK/sso.js"
-  # Mode 600: read by the docker CLI (`--env-file`), not by k6's unprivileged user, and not in `docker run`'s arguments.
+  cp scripts/loadtest/sso.js "$WORK/sso.js" && chmod 600 "$WORK/sso.js"
+  # Mode 600, read by the docker CLI (`--env-file`), so the password is not in `docker run`'s arguments.
   printf 'SSO_PASSWORD=%s\n' "$SSO_PASSWORD" > "$WORK/k6.env"
   # Positive control: one person (not part of the burst) signs in with the script's own steps, so the
   # run below measures sign-ins and not a wall of refusals. Done with curl, as a browser would.
@@ -188,12 +192,12 @@ echo "seeded in $(( $(date +%s) - started )) s"
 org_id=$(psql_cmd -c "SELECT id FROM organizations WHERE slug = '$ORG_SLUG'")
 { echo "$org_id"; psql_cmd -c "SELECT id FROM users WHERE subject LIKE 'load-%' ORDER BY subject"; } > "$WORK/ids.txt"
 compose exec -T api python -c "$(cat scripts/loadtest/sessions.py)" < "$WORK/ids.txt" > "$WORK/sessions.txt" || { echo "FAIL  sessions"; exit 1; }
-chmod 644 "$WORK/sessions.txt"
-cp scripts/loadtest/feed.js "$WORK/feed.js" && chmod 644 "$WORK/feed.js"
-cp scripts/loadtest/insights.js "$WORK/insights.js" && chmod 644 "$WORK/insights.js"
+chmod 600 "$WORK/sessions.txt"
+cp scripts/loadtest/feed.js "$WORK/feed.js" && chmod 600 "$WORK/feed.js"
+cp scripts/loadtest/insights.js "$WORK/insights.js" && chmod 600 "$WORK/insights.js"
 # One article for each person (the newest ones): the burst asks for $BURST different insights.
 psql_cmd -c "SELECT id FROM items WHERE title LIKE 'Load %' ORDER BY published_at DESC, id LIMIT $BURST" > "$WORK/items.txt"
-chmod 644 "$WORK/items.txt"
+chmod 600 "$WORK/items.txt"
 echo "sessions: $(wc -l < "$WORK/sessions.txt") (people $(( $(wc -l < "$WORK/ids.txt") - 1 )))"
 if [ "$(wc -l < "$WORK/sessions.txt")" -ne "$PEOPLE" ]; then echo "FAIL  expected $PEOPLE sessions"; exit 1; fi
 
@@ -222,8 +226,9 @@ sso_env_file=()
 if [ "$SCENARIO" = sso ]; then script=sso.js; sso_env_file=(--env-file "$WORK/k6.env"); fi
 for people in ${STEPS//,/ }; do
   echo "== k6 ($SCENARIO): $people people"
-  touch "$WORK/summary-$people.json" && chmod 666 "$WORK/summary-$people.json"
-  docker run --rm --network host -v "$WORK:/work" ${sso_env_file[@]+"${sso_env_file[@]}"} \
+  touch "$WORK/summary-$people.json" && chmod 600 "$WORK/summary-$people.json"
+  docker run --rm --network host --user "$(id -u):$(id -g)" -v "$WORK:/work" \
+    ${sso_env_file[@]+"${sso_env_file[@]}"} \
     -e BASE_URL="$PUBLIC" -e COOKIE_NAME=__Host-pharos_session \
     -e VUS="$people" -e DURATION="$DURATION" -e THINK="$THINK" -e RAMP="$RAMP" \
     "$K6_IMAGE" run --quiet --summary-export="/work/summary-$people.json" "/work/$script" 2>&1 | tee -a "$WORK/k6.txt"

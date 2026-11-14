@@ -9,6 +9,7 @@ against a broken copy of the script, to show that it would catch the break.
 import json
 import os
 import re
+import shutil
 import subprocess
 import time
 from pathlib import Path
@@ -135,6 +136,7 @@ def broken_copy(tmp_path: Path, old: str, new: str) -> Path:
     copy.parent.mkdir(parents=True, exist_ok=True)
     copy.write_text(text.replace(old, new))
     copy.chmod(0o755)
+    shutil.copytree(ROOT / "scripts/lib", copy.parent / "lib", dirs_exist_ok=True)
     return copy
 
 
@@ -356,7 +358,7 @@ def test_a_copy_that_ignores_a_failing_source_is_caught(tmp_path: Path) -> None:
 
 
 def test_a_copy_that_keeps_the_exported_settings_is_caught(tmp_path: Path) -> None:
-    copy = broken_copy(tmp_path, '  unset "$name"\n', "  :\n")
+    copy = broken_copy(tmp_path, "\ndrop_installation_env\n", "\n:\n")
     result, _, _ = run(tmp_path, [source("Alpha")], script=copy, env={"PHAROS_IMAGE_TAG": "local"})
     assert result.returncode == 0
     assert set((tmp_path / "calls.log.env").read_text().splitlines()) == {"PHAROS_IMAGE_TAG leaked"}

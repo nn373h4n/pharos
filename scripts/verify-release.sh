@@ -10,8 +10,9 @@
 # and have been issued to GitHub Actions for a push of that repository. With the optional commit
 # the certificate must also name that commit: the release notes state it, and it is the only check
 # that notices a tag that was deleted and recreated on another commit. Without it the commit is
-# NOT checked. The script prints the digest of each image; pull and run by that digest, never by
-# the tag (ADR-0024).
+# NOT checked. Run from a git checkout, a given commit must also be the checkout's own (its Compose
+# files and scripts are what runs next). The script prints the digest of each image; pull and run by
+# that digest, never by the tag (ADR-0024).
 #
 # With --backend and --web (the references an operator is about to run, in the digest form
 # ghcr.io/<owner>/pharos-<name>@sha256:<64 hex>) the script also compares each one with the digest it
@@ -67,6 +68,26 @@ for expected in "$expect_backend" "$expect_web"; do
     || { echo "not a ghcr.io digest reference: $expected" >&2; usage; }
 done
 
+# The Compose files and scripts the operator runs next come from the checkout this script is in.
+# With a commit given, that checkout must be the commit the release was built from (M5-13 review):
+# a tag that was moved to other code, without new images, passes the image checks below but would
+# run other scripts. The git environment variables are dropped so they cannot point elsewhere.
+checkout=$(cd "$(dirname "$0")/.." && pwd)
+checkout_compared=
+if [ -n "$sha" ] && [ -e "$checkout/.git" ]; then
+  head=$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_CEILING_DIRECTORIES \
+    git -C "$checkout" rev-parse --verify -q 'HEAD^{commit}' 2>/dev/null) || {
+    echo "FAIL: cannot read the commit of the checkout in $checkout (is git installed?)" >&2
+    exit 1
+  }
+  if [ "$head" != "$sha" ]; then
+    echo "FAIL: this checkout is at $head, the release was built from $sha:" \
+      "check out the release's commit before you run its scripts and Compose files" >&2
+    exit 1
+  fi
+  checkout_compared=yes
+fi
+
 owner=$(printf '%s' "${repo%%/*}" | tr '[:upper:]' '[:lower:]')
 # What the certificate must say: this repository's release workflow, for this tag, started by a push
 # (not a pull request or a manual run), and, when given, built from this commit.
@@ -100,6 +121,11 @@ for name in backend web; do
 done
 if [ -z "$sha" ]; then
   echo "NOTE: no commit given, so the commit that was built is NOT checked." >&2
+elif [ -z "$checkout_compared" ]; then
+  echo "NOTE: not run from a git checkout, so the scripts and Compose files were NOT compared" \
+    "with the commit." >&2
+else
+  echo "OK: this checkout is the release's commit"
 fi
 if [ -z "$expect_backend" ] || [ -z "$expect_web" ]; then
   echo "NOTE: no --backend and --web given, so the references you run were NOT compared." >&2

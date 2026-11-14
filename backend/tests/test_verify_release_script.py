@@ -9,6 +9,7 @@ workflow proves them in the pipeline).
 """
 
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -35,8 +36,14 @@ exit 0
 
 
 def run(
-    tmp_path: Path, *args: str, env: dict[str, str] | None = None
+    tmp_path: Path, *args: str, env: dict[str, str] | None = None, checkout: Path | None = None
 ) -> tuple[subprocess.CompletedProcess[str], list[str]]:
+    """Runs a copy of the script in `checkout/scripts/` (by default a folder that is no git
+    checkout, so the commit of the checkout is not compared unless a test makes one)."""
+    root = checkout or tmp_path / "release"
+    (root / "scripts").mkdir(parents=True, exist_ok=True)
+    script = root / "scripts" / SCRIPT.name
+    shutil.copy2(SCRIPT, script)
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir(exist_ok=True)
     docker = bin_dir / "docker"
@@ -52,7 +59,7 @@ def run(
         **(env or {}),
     }
     result = subprocess.run(  # noqa: S603
-        [str(SCRIPT), *args], env=full_env, capture_output=True, text=True, timeout=60
+        [str(script), *args], env=full_env, capture_output=True, text=True, timeout=60
     )
     return result, log.read_text().splitlines()
 
@@ -258,3 +265,59 @@ def test_a_flag_without_a_value_is_refused(tmp_path: Path) -> None:
     result, calls = run(tmp_path, "Acme-Org/pharos", "v0.1.0", "--web")
     assert result.returncode == 2
     assert calls == []
+
+
+# --- the checkout is the release's commit (M5-13 review) -----------------------------------------
+
+GIT = shutil.which("git") or "git"
+
+
+def git_checkout(path: Path, content: str = "release") -> str:
+    """A checkout with one commit; returns its sha (the content makes the sha differ)."""
+    path.mkdir(parents=True)
+    git = [GIT, "-C", str(path), "-c", "user.name=t", "-c", "user.email=t@example.test"]
+    subprocess.run([*git[:3], "init", "-q"], check=True)  # noqa: S603
+    (path / "README").write_text(f"{content}\n")
+    subprocess.run([*git, "add", "README"], check=True)  # noqa: S603
+    subprocess.run([*git, "commit", "-q", "-m", "release"], check=True)  # noqa: S603
+    return subprocess.run(  # noqa: S603
+        [GIT, "-C", str(path), "rev-parse", "HEAD"], check=True, capture_output=True, text=True
+    ).stdout.strip()
+
+
+def test_a_checkout_at_the_release_commit_is_accepted(tmp_path: Path) -> None:
+    sha = git_checkout(tmp_path / "pharos")
+    result, calls = run(tmp_path, "Acme-Org/pharos", "v0.1.0", sha, checkout=tmp_path / "pharos")
+    assert result.returncode == 0, result.stderr
+    assert "OK: this checkout is the release's commit" in result.stdout
+    assert len([c for c in calls if c.startswith("run ")]) == 4
+
+
+def test_a_checkout_at_another_commit_is_refused_before_any_image_check(tmp_path: Path) -> None:
+    git_checkout(tmp_path / "pharos")
+    other = "0123456789abcdef0123456789abcdef01234567"
+    result, calls = run(tmp_path, "Acme-Org/pharos", "v0.1.0", other, checkout=tmp_path / "pharos")
+    assert result.returncode == 1
+    assert "this checkout is at" in result.stderr and other in result.stderr
+    assert calls == []  # nothing was asked of Docker
+
+
+def test_git_variables_cannot_point_the_comparison_at_another_repository(tmp_path: Path) -> None:
+    sha = git_checkout(tmp_path / "elsewhere", "another repository")
+    git_checkout(tmp_path / "pharos")
+    result, _ = run(
+        tmp_path,
+        "Acme-Org/pharos",
+        "v0.1.0",
+        sha,
+        checkout=tmp_path / "pharos",
+        env={"GIT_DIR": str(tmp_path / "elsewhere" / ".git")},
+    )
+    assert result.returncode == 1  # the checkout's own commit was read, not the other one
+
+
+def test_outside_a_checkout_the_script_says_the_files_were_not_compared(tmp_path: Path) -> None:
+    sha = "0123456789abcdef0123456789abcdef01234567"
+    result, _ = run(tmp_path, "Acme-Org/pharos", "v0.1.0", sha)
+    assert result.returncode == 0
+    assert "Compose files were NOT compared" in result.stderr

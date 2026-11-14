@@ -417,6 +417,11 @@ refuses), and the time to copy a dump off the host.
 
 ## Retention and deleting a person
 
+**A restore brings deleted people back.** A dump made before `delete-person` still holds the person.
+After every restore from such a dump, run `delete-person` again for everybody deleted since that
+dump was made. Keep the identifiers you deleted (the `--user-id` values, nothing else) in the
+operator's private notes until the oldest dump has expired (M5-13 review).
+
 Three commands do this work. They run as the **database owner** in the `operator` service, which is
 never started by `up` and holds only the owner's address, the organization, the API's Redis user
 (to end sessions) and the retention defaults; it has no root key, no identity-provider secret, no

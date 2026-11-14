@@ -62,7 +62,9 @@ scripts/verify-release.sh <owner>/<repo> vX.Y.Z <commit-from-the-notes> \
 ```
 
 If a variable is still commented out, the `sed` prints nothing and the script answers with its
-usage text; if one is set twice, it prints two lines and the script fails. If it fails, stop. A
+usage text; if one is set twice, it prints two lines and the script fails. Run from the checkout
+with the commit given, the script also fails if the checkout is not that commit (its Compose files
+and scripts are what you run next). If it fails, stop. A
 passing check says the images were signed by this repository's release
 workflow for this tag and commit; it does not say the commit is on `main`, that the SBOM is
 complete, or that the images have no vulnerability.
@@ -105,6 +107,16 @@ both lines in the profile of the user who runs them, not only in the current she
 profile and cannot hold a shell function, so scheduled jobs spell the commands out; step 8 shows
 them.)
 
+Before anything starts, check that Compose will run exactly the images you verified:
+
+```bash
+pharos config --images | grep /pharos- | sort -u   # must print exactly the two references in deploy/.env
+```
+
+If it prints anything else, a `PHAROS_BACKEND_IMAGE` or `PHAROS_WEB_IMAGE` exported in the shell
+wins over `deploy/.env`: `unset` both, remove them from the shell profile, and check again. Never
+export them (M5-13 review).
+
 ```bash
 pharos run --rm migrate python -m pharos.cli create-org --slug default --name "Your organization"
 pharos exec api python -m pharos.cli create-admin --username admin   # asks for a password, 15 characters or more
@@ -129,7 +141,11 @@ it does not check that sources fetch or that a model answers (steps 3 and 4).
 - **Administrators, by password (break-glass):** open `https://<your host>`, use the password form
   with the account from `create-admin`. After repeated wrong passwords an account waits longer; clear
   it with `pharos exec api python -m pharos.cli unlock --username admin`. A forgotten password is
-  changed with `set-password`.
+  changed with `set-password`. Know what this sign-in is: a password alone, reachable from wherever
+  the site is, outside the identity provider's multi-factor authentication and conditional access,
+  slowed down after wrong passwords but never locked. Give each administrator a long, unique
+  password kept in a password manager, and, if the pilot organization's network allows it, let only
+  its addresses reach the site (M5-13 review).
 - **Everyone else, by single sign-on:** configure `PHAROS_OIDC_*` (or the Entra preset), run
   `pharos up -d` to apply it, and sign in with a test account first. Test that a person from
   the identity provider gets an account at the first sign-in, and that you can still get in by
@@ -378,7 +394,8 @@ passwords).
 1. Read the new release's notes and the upgrade notes in `CHANGELOG.md`. Take a backup (step 8)
    and copy it off the server.
 2. `git fetch --tags && git checkout vX.Y.Z`, put the new release's two digests into `deploy/.env`,
-   and run `scripts/verify-release.sh` as in step 1. Do not continue if it fails.
+   and run `scripts/verify-release.sh` as in step 1, with the commit. Then `pharos config --images |
+   grep /pharos- | sort -u` must print exactly those two references. Do not continue if either fails.
 3. `pharos up -d`. With `PHAROS_MIGRATE_ON_START=true` the database is migrated when the API
    starts. `deploy/.env.example` suggests `false` in production; if you set it so, apply the
    migrations yourself first, after reading them:
@@ -407,7 +424,7 @@ Decide first, with the people who own the data, whether anything is kept. Then, 
 Tick each line yourself and write PASS, FAIL or NOT RUN next to it. A line nobody ran is NOT RUN,
 never PASS.
 
-- [ ] `scripts/verify-release.sh` passed for the exact digests in `deploy/.env`.
+- [ ] `scripts/verify-release.sh` passed for the exact digests in `deploy/.env`, with the commit, from the checkout of that commit; `pharos config --images | grep /pharos-` shows exactly those digests.
 - [ ] `deploy/.env` is mode 600, not in git, and a copy is kept apart from the dumps.
 - [ ] `PHAROS_ENVIRONMENT=production`; valid TLS; `PHAROS_PUBLIC_URL` is https.
 - [ ] `PHAROS_LOCAL_LOGIN=break-glass`; single sign-on tested with a test account; two administrators.

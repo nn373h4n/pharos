@@ -22,6 +22,7 @@ import math
 from collections.abc import Awaitable, Callable
 from typing import Any, Protocol
 
+from pharos.ingest.sourceconfig import ascii_host
 from pharos.net.safe_http import HOST_HELD, FetchError, FetchErrorKind
 
 KEY_PREFIX = "pharos:worker:host:"
@@ -35,7 +36,11 @@ class AsyncRedis(Protocol):
 
 
 def _name(host: str) -> str:
-    return KEY_PREFIX + hashlib.sha256(host.lower().encode()).hexdigest()[:24]
+    # One machine, one key: the source names its host in Unicode (`bücher.example`) and the client
+    # reports a redirect's host in the ASCII form it connects to (`xn--bcher-kva.example`); both
+    # become the ASCII form here (M5-13 review). A name with no ASCII form keeps its own spelling.
+    spelling = ascii_host(host) or host.lower()
+    return KEY_PREFIX + hashlib.sha256(spelling.encode()).hexdigest()[:24]
 
 
 class HostGate:
