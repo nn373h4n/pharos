@@ -325,7 +325,12 @@ def test_its_ports_and_subnets_are_used_by_no_other_script() -> None:
     ports = set(re.findall(r"PORT:-(\d+)\}", text))
     subnets = set(re.findall(r"172\.28\.\d+\.0/24", text))
     assert ports == {"19880", "19843"}
-    assert subnets == {"172.28.36.0/24", "172.28.37.0/24", "172.28.46.0/24"}  # 46: egress
+    assert subnets == {
+        "172.28.36.0/24",
+        "172.28.37.0/24",
+        "172.28.46.0/24",
+        "172.28.56.0/24",
+    }  # egress, data
     for name, used in sibling_settings(r"PORT:-(\d+)\}").items():
         assert not ports & used, name
     for name, used in sibling_settings(r"172\.28\.\d+\.0/24").items():
