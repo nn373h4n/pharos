@@ -14,9 +14,11 @@
 #   EGRESS_NAME       a public name that must resolve (default example.com)
 #   EGRESS_PRIVATE    a private address (default 10.255.255.1)
 #   EGRESS_METADATA   the cloud metadata address (169.254.169.254)
-#   EGRESS_GATEWAY    the host's address on the egress network (default: the first of the range);
-#                     the script listens there for a moment, on EGRESS_GATEWAY_PORT, and first
-#                     checks from the host that the listener answers
+#   EGRESS_GATEWAYS   the host's address on each network a service is on, as name=address words
+#                     (default: the first address of the egress, app, data and llm ranges); the
+#                     script listens on each for a moment, on EGRESS_GATEWAY_PORT, and first checks
+#                     from the host that the listener answers. A container on an internal network
+#                     still reaches the host through that network's gateway, so each is probed.
 # On a real host the private and metadata calls usually find nothing listening: then "refused" says
 # little, and the line says so. scripts/egress-netns-test.sh proves those rules with listeners.
 #
@@ -33,19 +35,33 @@ read_env() {
   fi
   printf '%s' "${value:-$default}"
 }
-SUBNET=$(read_env PHAROS_EGRESS_SUBNET 172.28.40.0/24)
 PUBLIC=${EGRESS_PUBLIC:-1.1.1.1}
 NAME=${EGRESS_NAME:-example.com}
 PRIVATE=${EGRESS_PRIVATE:-10.255.255.1}
 METADATA=${EGRESS_METADATA:-169.254.169.254}
-base=${SUBNET%/*}
-GATEWAY=${EGRESS_GATEWAY:-${base%.*}.$(( ${base##*.} + 1 ))}
 GATEWAY_PORT=${EGRESS_GATEWAY_PORT:-18999}
-LISTENERS=${EGRESS_LISTENERS:-}  # "yes" when every target has a listener (the namespace test)
+LISTENERS=${EGRESS_LISTENERS:-} # "yes" when every target has a listener (the namespace test)
 
 octet='(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])'
-for address in "$PUBLIC" "$PRIVATE" "$METADATA" "$GATEWAY"; do
-  [[ $address =~ ^$octet\.$octet\.$octet\.$octet$ ]] || { echo "not an IPv4 address: $address" >&2; exit 2; }
+ipv4="^$octet\.$octet\.$octet\.$octet\$"
+# The first address of a range, which Docker gives the host. Validated before any arithmetic.
+gateway_of() {
+  local range=$1 base
+  [[ ${range%/*} =~ $ipv4 && ${range#*/} =~ ^([8-9]|[12][0-9]|30)$ ]] \
+    || { echo "not an IPv4 range: $range" >&2; exit 2; }
+  base=${range%/*}
+  echo "${base%.*}.$((${base##*.} + 1))"
+}
+GATEWAYS=${EGRESS_GATEWAYS:-"egress=$(gateway_of "$(read_env PHAROS_EGRESS_SUBNET 172.28.40.0/24)") app=$(gateway_of "$(read_env PHAROS_APP_SUBNET 172.28.20.0/24)") data=$(gateway_of "$(read_env PHAROS_DATA_SUBNET 172.28.50.0/24)") llm=$(gateway_of "$(read_env PHAROS_OLLAMA_SUBNET 172.28.30.0/24)")"}
+declare -A GATEWAY=()
+for word in $GATEWAYS; do
+  GATEWAY[${word%%=*}]=${word#*=}
+done
+for address in "$PUBLIC" "$PRIVATE" "$METADATA" "${GATEWAY[@]}"; do
+  [[ $address =~ $ipv4 ]] || { echo "not an IPv4 address: $address" >&2; exit 2; }
+done
+for name in "${!GATEWAY[@]}"; do
+  [[ $name =~ ^(egress|app|data|llm)$ ]] || { echo "not a network: $name" >&2; exit 2; }
 done
 [[ $NAME =~ ^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$ ]] || { echo "not a host name: $NAME" >&2; exit 2; }
 [[ $GATEWAY_PORT =~ ^[0-9]{4,5}$ ]] || { echo "not a port: $GATEWAY_PORT" >&2; exit 2; }
@@ -103,31 +119,40 @@ expect() {
   fi
 }
 
-# A short listener on the host's address on the egress network, so the gateway rule has something to
-# refuse; checked from the host first.
+# Short listeners on the host's address on each network, so the host rule has something to refuse;
+# each is checked from the host first.
 gateway_listener=
 if [ -z "${EGRESS_RUN_API:-}" ] && command -v python3 >/dev/null; then
   python3 -c "
 import socket, time
-s = socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-s.bind(('$GATEWAY', $GATEWAY_PORT)); s.listen(8); s.settimeout(1)
-end = time.time() + 120
-while time.time() < end:
+socks = []
+for address in '${GATEWAY[*]}'.split():
     try:
-        s.accept()[0].close()
+        s = socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        s.bind((address, $GATEWAY_PORT)); s.listen(8); s.settimeout(0.2); socks.append(s)
     except OSError:
-        pass
+        pass  # this network does not exist on the host: its line says NOT CHECKED
+until = time.time() + 120
+while time.time() < until:
+    for s in socks:
+        try:
+            s.accept()[0].close()
+        except OSError:
+            pass
 " 2>/dev/null &
   gateway_listener=$!
   trap 'kill "$gateway_listener" 2>/dev/null' EXIT
   sleep 1
 fi
-gateway_control=no
-if [ -n "${EGRESS_RUN_API:-}" ] || python3 -c "
-import socket; socket.create_connection(('$GATEWAY', $GATEWAY_PORT), timeout=3).close()
+declare -A CONTROL=()
+for name in "${!GATEWAY[@]}"; do
+  CONTROL[$name]=no
+  if [ -n "${EGRESS_RUN_API:-}" ] || python3 -c "
+import socket; socket.create_connection(('${GATEWAY[$name]}', $GATEWAY_PORT), timeout=3).close()
 " 2>/dev/null; then
-  gateway_control=yes
-fi
+    CONTROL[$name]=yes
+  fi
+done
 
 for service in api worker; do
   # Controls: what the rules must let through.
@@ -147,8 +172,9 @@ for service in api worker; do
   if [ "$LISTENERS" = yes ]; then
     expect "$service" "$PRIVATE" 80 closed "no private address"
     expect "$service" "$METADATA" 80 closed "no cloud metadata"
+    expect "$service" 168.63.129.16 80 closed "not Azure's WireServer"
   else
-    for target in "$PRIVATE" "$METADATA"; do
+    for target in "$PRIVATE" "$METADATA" 168.63.129.16; do
       got=$(connect "$service" "$target" 80)
       if [ "$got" = closed ]; then
         report PASS "$service" "$target:80 closed (nothing may listen there on this host; proven with listeners by scripts/egress-netns-test.sh)"
@@ -157,11 +183,15 @@ for service in api worker; do
       fi
     done
   fi
-  if [ "$gateway_control" = yes ]; then
-    expect "$service" "$GATEWAY" "$GATEWAY_PORT" closed "not the host, not the bridge gateway"
-  else
-    report "NOT CHECKED" "$service" "$GATEWAY:$GATEWAY_PORT: no listener could be opened on the host"
-  fi
+  if [ "$service" = api ]; then networks="egress app data"; else networks="egress data llm"; fi
+  for name in $networks; do
+    [ -n "${GATEWAY[$name]:-}" ] || continue
+    if [ "${CONTROL[$name]}" = yes ]; then
+      expect "$service" "${GATEWAY[$name]}" "$GATEWAY_PORT" closed "not the host, through the $name network"
+    else
+      report "NOT CHECKED" "$service" "${GATEWAY[$name]}:$GATEWAY_PORT ($name): no listener could be opened on the host"
+    fi
+  done
 done
 
 exit "$failed"

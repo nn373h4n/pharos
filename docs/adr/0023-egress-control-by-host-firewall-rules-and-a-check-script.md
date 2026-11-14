@@ -70,6 +70,13 @@ ADR-0010 stays.
   listener on every target, in three phases (no rules: all open; rules: the matrix; removed: all
   open), and removes everything; it never changes the host's firewall. Recorded on 2026-11-14:
   39 of 39 PASS; six mutations of the rules, each caught by a named test.
+- After the security review of 2026-11-14: the host is guarded from all four Pharos ranges, not only
+  `egress` (an internal network reaches the host through its gateway; `data` gets a fixed range for
+  this); Azure's WireServer (168.63.129.16) is dropped (and refused by `SafeHttpClient`); a
+  resolver on an address of the host is allowed on 53 in the host chain; `apply` hooks new chains in
+  before it unhooks the old ones and removes jumps of any former range; the check validates every
+  range before deriving a gateway from it, and probes each network's gateway. The namespace test now
+  has a second network and WireServer listener: 52 of 52 PASS; four more mutations caught.
 - Not proven here: Docker's own rules and DNS forwarding on a real host. That is gate G7.
 
 ## References

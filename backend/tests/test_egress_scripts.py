@@ -50,10 +50,16 @@ def test_the_rules_allow_https_for_the_api_and_http_for_the_worker_and_nothing_e
     first_allow = next(i for i, line in enumerate(chain) if " -s " in line)
     last_drop = max(i for i, line in enumerate(chain) if " -d " in line and "DROP" in line)
     assert last_drop < first_allow
-    assert "-A PHAROS-EGRESS-HOST -j DROP" in out  # the host and its bridge gateway
-    assert out[-2:] == [
+    assert "168.63.129.16/32" in drops  # Azure's WireServer
+    assert "-A PHAROS-EGRESS-HOST -j DROP" in out  # the host and its bridge gateways
+    # The host is guarded from every Pharos network, not only egress: an internal network still
+    # reaches it through its gateway (review of 2026-11-14).
+    assert out[-5:] == [
         "-I DOCKER-USER 1 -s 172.28.40.0/24 -j PHAROS-EGRESS",
         "-I INPUT 1 -s 172.28.40.0/24 -j PHAROS-EGRESS-HOST",
+        "-I INPUT 1 -s 172.28.20.0/24 -j PHAROS-EGRESS-HOST",
+        "-I INPUT 1 -s 172.28.50.0/24 -j PHAROS-EGRESS-HOST",
+        "-I INPUT 1 -s 172.28.30.0/24 -j PHAROS-EGRESS-HOST",
     ]
 
 
@@ -65,6 +71,9 @@ def test_resolvers_are_allowed_on_53_before_the_private_ranges_and_loopback_ones
     udp = lines.index("-A PHAROS-EGRESS -d 10.1.1.53 -p udp --dport 53 -j RETURN")
     assert "-A PHAROS-EGRESS -d 10.1.1.53 -p tcp --dport 53 -j RETURN" in lines
     assert udp < lines.index("-A PHAROS-EGRESS -d 10.0.0.0/8 -j DROP")
+    # A resolver on an address of the host itself is reached through INPUT.
+    host_dns = lines.index("-A PHAROS-EGRESS-HOST -d 10.1.1.53 -p udp --dport 53 -j RETURN")
+    assert host_dns < lines.index("-A PHAROS-EGRESS-HOST -j DROP")
     assert "127.0.0.53" not in out
     (tmp_path / "resolv.conf").write_text("nameserver 192.168.5.1\nnameserver ::1\n")
     from_file = rules(tmp_path, "print").stdout
@@ -79,9 +88,14 @@ def test_the_addresses_come_from_the_environment(tmp_path: Path) -> None:
             "PHAROS_EGRESS_SUBNET": "10.99.0.0/24",
             "PHAROS_EGRESS_API_IP": "10.99.0.250",
             "PHAROS_EGRESS_WORKER_IP": "10.99.0.251",
+            "PHAROS_APP_SUBNET": "10.98.0.0/24",
+            "PHAROS_DATA_SUBNET": "10.97.0.0/24",
+            "PHAROS_OLLAMA_SUBNET": "10.96.0.0/24",
         },
     ).stdout
     assert "-I DOCKER-USER 1 -s 10.99.0.0/24 -j PHAROS-EGRESS" in out
+    for range_ in ("10.99.0.0/24", "10.98.0.0/24", "10.97.0.0/24", "10.96.0.0/24"):
+        assert f"-I INPUT 1 -s {range_} -j PHAROS-EGRESS-HOST" in out
     assert "-s 10.99.0.250 -p tcp --dport 443" in out and "-s 10.99.0.251 -p tcp" in out
 
 
@@ -94,6 +108,9 @@ def test_the_addresses_come_from_the_environment(tmp_path: Path) -> None:
         {"PHAROS_EGRESS_WORKER_IP": "$(reboot)"},
         {"PHAROS_EGRESS_DNS": "10.0.0.1 -j ACCEPT"},
         {"PHAROS_EGRESS_FORWARD_CHAIN": "FORWARD -j ACCEPT"},
+        {"PHAROS_DATA_SUBNET": "172.28.50.0/24 -j ACCEPT"},
+        {"PHAROS_APP_SUBNET": "$(id)"},
+        {"PHAROS_EGRESS_API_IP": "10.0.0.5"},  # not inside the egress range
     ],
 )
 def test_anything_that_is_not_an_address_is_refused_before_a_rule_is_made(
@@ -103,31 +120,78 @@ def test_anything_that_is_not_an_address_is_refused_before_a_rule_is_made(
     assert result.returncode == 2 and result.stdout == ""
 
 
-def iptables_stub(tmp_path: Path, chains: str = "DOCKER-USER INPUT") -> dict[str, str]:
+def iptables_stub(
+    tmp_path: Path, chains: str = "DOCKER-USER INPUT", rules: str = "", fail_on: str = "__never__"
+) -> dict[str, str]:
+    """A fake iptables: knows the chains named, prints `rules` for -S, fails on one rule."""
     stub = tmp_path / "iptables"
     stub.write_text(
         "#!/usr/bin/env bash\n"
         'echo "$*" >> "$STUB_LOG"\n'
         'if [ "$2" = -n ] && [ "$3" = -L ]; then [[ " $STUB_CHAINS " == *" $4 "* ]]; exit; fi\n'
-        'if [ "$2" = -D ]; then exit 1; fi\n'  # nothing to delete
+        'if [ "$2" = -S ]; then printf "%b" "$STUB_RULES" | grep -- "^-A $3 " || true; exit 0; fi\n'
+        '[[ "$*" == *"$STUB_FAIL_ON"* ]] && exit 1\n'
         "exit 0\n"
     )
     stub.chmod(0o755)
     log = tmp_path / "iptables.log"
     log.write_text("")
-    return {"PHAROS_IPTABLES": str(stub), "STUB_LOG": str(log), "STUB_CHAINS": chains}
+    return {
+        "PHAROS_IPTABLES": str(stub),
+        "STUB_LOG": str(log),
+        "STUB_CHAINS": chains,
+        "STUB_RULES": rules,
+        "STUB_FAIL_ON": fail_on,
+    }
 
 
-def test_apply_replaces_earlier_rules_then_writes_them_in_order(tmp_path: Path) -> None:
-    env = iptables_stub(tmp_path)
+OLD = (
+    "-A DOCKER-USER -s 172.28.99.0/24 -j PHAROS-EGRESS\\n"  # a former run, another range
+    "-A INPUT -s 172.28.99.0/24 -j PHAROS-EGRESS-HOST\\n"
+    "-A INPUT -s 10.0.0.0/8 -j ACCEPT\\n"  # somebody else's rule: never touched
+)
+
+
+def test_apply_hooks_the_new_rules_in_before_it_unhooks_the_old_ones(tmp_path: Path) -> None:
+    env = iptables_stub(
+        tmp_path, chains="DOCKER-USER INPUT PHAROS-EGRESS PHAROS-EGRESS-HOST", rules=OLD
+    )
     result = rules(tmp_path, "apply", env=env)
     assert result.returncode == 0, result.stderr
+    calls = [c.removeprefix("-w ") for c in (tmp_path / "iptables.log").read_text().splitlines()]
+    assert calls[0] == "-n -L DOCKER-USER"  # Docker's chain must be there
+    written = [c for c in calls if c.startswith(("-N ", "-A ", "-I "))]
+    expected = rules(tmp_path, "print").stdout.replace("PHAROS-EGRESS", "PHAROS-EGRESS-NEW")
+    expected = expected.replace("PHAROS-EGRESS-NEW-HOST", "PHAROS-EGRESS-HOST-NEW")
+    assert written == expected.splitlines()
+    last_hook = max(i for i, c in enumerate(calls) if c.startswith("-I "))
+    unhooked = [i for i, c in enumerate(calls) if c.startswith("-D ")]
+    # The old jumps go, whatever range they named, and only after every new jump is in place.
+    assert [calls[i] for i in unhooked] == [
+        "-D DOCKER-USER -s 172.28.99.0/24 -j PHAROS-EGRESS",
+        "-D INPUT -s 172.28.99.0/24 -j PHAROS-EGRESS-HOST",
+    ]
+    assert min(unhooked) > last_hook
+    assert calls[-2:] == [
+        "-E PHAROS-EGRESS-NEW PHAROS-EGRESS",
+        "-E PHAROS-EGRESS-HOST-NEW PHAROS-EGRESS-HOST",
+    ]
+    assert not any("10.0.0.0/8 -j ACCEPT" in c for c in calls if c.startswith("-D "))
+
+
+def test_a_failure_while_applying_leaves_the_old_rules_in_place(tmp_path: Path) -> None:
+    env = iptables_stub(
+        tmp_path,
+        chains="DOCKER-USER INPUT PHAROS-EGRESS PHAROS-EGRESS-HOST PHAROS-EGRESS-NEW",
+        rules=OLD,
+        fail_on="--dport 443 -j RETURN",
+    )
+    result = rules(tmp_path, "apply", env=env)
+    assert result.returncode != 0 and "earlier rules, if any, are still in place" in result.stderr
     calls = (tmp_path / "iptables.log").read_text().splitlines()
-    assert calls[0] == "-w -n -L DOCKER-USER"  # Docker's chain must be there
-    removing = [c for c in calls if " -D " in c]
-    assert removing and calls.index(removing[0]) < calls.index("-w -N PHAROS-EGRESS")
-    written = [c.removeprefix("-w ") for c in calls if c.startswith(("-w -N", "-w -A", "-w -I"))]
-    assert written == rules(tmp_path, "print").stdout.splitlines()
+    assert not any(" -E " in c for c in calls)
+    assert not any("-D DOCKER-USER -s 172.28.99.0/24" in c for c in calls)  # old jump kept
+    assert any("-X PHAROS-EGRESS-NEW" in c for c in calls)  # the half-built chain removed
 
 
 def test_apply_refuses_a_host_without_docker(tmp_path: Path) -> None:
@@ -136,6 +200,16 @@ def test_apply_refuses_a_host_without_docker(tmp_path: Path) -> None:
     assert result.returncode == 1 and "is Docker running" in result.stderr
     calls = (tmp_path / "iptables.log").read_text().splitlines()
     assert not any(" -A " in c or " -N " in c for c in calls)
+
+
+def test_remove_takes_every_jump_and_chain_out(tmp_path: Path) -> None:
+    env = iptables_stub(
+        tmp_path, chains="DOCKER-USER INPUT PHAROS-EGRESS PHAROS-EGRESS-HOST", rules=OLD
+    )
+    assert rules(tmp_path, "remove", env=env).returncode == 0
+    calls = (tmp_path / "iptables.log").read_text().splitlines()
+    assert "-w -D DOCKER-USER -s 172.28.99.0/24 -j PHAROS-EGRESS" in calls
+    assert "-w -X PHAROS-EGRESS" in calls and "-w -X PHAROS-EGRESS-HOST" in calls
 
 
 # --- the check -------------------------------------------------------------------------------
@@ -163,7 +237,7 @@ def check(tmp_path: Path, **stub: str) -> subprocess.CompletedProcess[str]:
         "EGRESS_RUN_API": f"{runner} api",
         "EGRESS_RUN_WORKER": f"{runner} worker",
         "EGRESS_PUBLIC": "198.51.100.10",
-        "EGRESS_GATEWAY": "172.28.40.1",
+        "EGRESS_GATEWAYS": "egress=172.28.40.1 data=172.28.50.1",
         "EGRESS_LISTENERS": "yes",
         "PHAROS_EGRESS_SUBNET": "172.28.40.0/24",
         "STUB_OPEN": GOOD_OPEN,
@@ -183,7 +257,7 @@ def levels(result: subprocess.CompletedProcess[str]) -> list[str]:
 def test_rules_that_hold_pass_every_line(tmp_path: Path) -> None:
     result = check(tmp_path)
     assert result.returncode == 0, result.stdout
-    assert set(levels(result)) == {"PASS"} and len(levels(result)) == 14
+    assert set(levels(result)) == {"PASS"} and len(levels(result)) == 18
 
 
 @pytest.mark.parametrize(
@@ -194,6 +268,8 @@ def test_rules_that_hold_pass_every_line(tmp_path: Path) -> None:
         ("worker:10.255.255.1:80", "10.255.255.1:80 is open"),
         ("api:169.254.169.254:80", "169.254.169.254:80 is open"),
         ("worker:172.28.40.1:18999", "172.28.40.1:18999 is open"),
+        ("api:172.28.50.1:18999", "172.28.50.1:18999 is open"),  # through the data network
+        ("worker:168.63.129.16:80", "168.63.129.16:80 is open"),
     ],
 )
 def test_a_call_the_rules_should_refuse_fails_the_check(
@@ -223,7 +299,8 @@ def test_a_service_that_cannot_be_asked_is_not_checked_not_passed(tmp_path: Path
 @pytest.mark.parametrize(
     "env",
     [{"EGRESS_PUBLIC": "1.1.1.1; rm -rf /"}, {"EGRESS_NAME": "a.example'); print('x"},
-     {"EGRESS_GATEWAY_PORT": "80 or 1"}],
+     {"EGRESS_GATEWAY_PORT": "80 or 1"}, {"EGRESS_GATEWAYS": "egress=1.2.3.4');x('"},
+     {"EGRESS_GATEWAYS": "evil=1.2.3.4"}],
 )  # fmt: skip
 def test_targets_that_are_not_addresses_are_refused(tmp_path: Path, env: dict[str, str]) -> None:
     result = check(tmp_path, **env)
@@ -240,4 +317,20 @@ def test_the_rules_hold_against_real_packets_in_network_namespaces() -> None:
     )
     assert result.returncode == 0, result.stdout + result.stderr
     assert "FAIL" not in result.stdout
-    assert len(re.findall(r"^PASS", result.stdout, re.MULTILINE)) == 39
+    assert len(re.findall(r"^PASS", result.stdout, re.MULTILINE)) == 52
+
+
+def test_a_range_is_validated_before_any_arithmetic(tmp_path: Path) -> None:
+    """Review of 2026-11-14: `$(( ... ))` on an unchecked range ran a command substitution."""
+    marker = tmp_path / "ran"
+    result = subprocess.run(  # noqa: S603
+        [str(CHECK)],
+        env={
+            "PATH": os.environ["PATH"],
+            "PHAROS_EGRESS_SUBNET": f"1.2.3.a[$(touch {marker})0]/24",
+        },
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert result.returncode == 2 and not marker.exists()

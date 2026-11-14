@@ -155,13 +155,16 @@ Compose alone does not restrict which hosts the egress services reach, so Pharos
 rules for them: `deploy/egress/pharos-egress.sh`. The `egress` network has a fixed range and `api`
 and `worker` fixed addresses on it (`PHAROS_EGRESS_SUBNET`, `PHAROS_EGRESS_DYNAMIC_RANGE`,
 `PHAROS_EGRESS_API_IP`, `PHAROS_EGRESS_WORKER_IP`; the defaults are `172.28.40.0/24`, `.250` and
-`.251`); `beat` is not on it. From that range:
+`.251`); `beat` is not on it. The `data` network has a fixed range too (`PHAROS_DATA_SUBNET`,
+`172.28.50.0/24`), and `app` and `llm` had one already, because a container on an internal
+network still reaches the host through that network's gateway. The rules:
 
 | From | Allowed | Dropped |
 | --- | --- | --- |
 | `api` | TCP 443 to public addresses (the identity provider, Microsoft Graph) | everything else |
 | `worker` | TCP 80 and 443 to public addresses (feeds, the model provider) | everything else |
-| both | the host's resolvers on port 53, answers to allowed connections | private, loopback, link-local (cloud metadata), shared and multicast ranges; the host itself and its bridge gateway |
+| both | the host's resolvers on port 53, answers to allowed connections | private, loopback, link-local (cloud metadata), shared and multicast ranges, Azure's WireServer (168.63.129.16) |
+| every Pharos network (`egress`, `app`, `data`, `llm`) | answers, the host's resolvers on port 53 | the host itself: each network's gateway address and every other address of the host, so a service that listens on all interfaces (SSH, a proxy, the Docker API) is out of reach |
 
 ```bash
 sudo deploy/egress/pharos-egress.sh print    # read them first
@@ -185,6 +188,11 @@ sudo deploy/egress/pharos-egress.sh remove   # to take them out
   itself and its DNS forwarding are not part of that test: on the pilot host, `apply` and
   `scripts/egress-check.sh` are gate G7.
 - IPv6 is off on Pharos's networks. If you switch it on, write the same rules for `ip6tables` first.
+- `apply` builds the new chains beside the old ones and hooks them in before it unhooks the old
+  ones (whatever ranges a former run named), so a change of range leaves nothing behind and a
+  failure on the way leaves the earlier rules in place.
+- Not covered: the `edge` network (Caddy, with the published ports) has no fixed range; Caddy is
+  the one service on it, holds no secret of the application and is not on `data`.
 - Hosts with `ufw`, `firewalld` or a cloud security group: the rules use plain `iptables` chains
   (nftables backend works); check with `scripts/egress-check.sh` that your firewall manager does not
   flush them.

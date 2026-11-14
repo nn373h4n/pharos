@@ -2,6 +2,7 @@
 # Proves deploy/egress/pharos-egress.sh in network namespaces, never on this host's own firewall
 # (ADR-0023, M5-03). Needs root, ip, iptables and python3. It builds, for a few seconds:
 #
+#   (api and worker are also on a second network, 172.28.50.0/24, where the host is 172.28.50.1)
 #   <p>-api     172.28.40.250 \                                  / 198.51.100.10 (public: 80, 443, 25)
 #                              > <p>-host (router, the bridge   <  10.255.255.1 (private: 80)
 #   <p>-worker  172.28.40.251 /    gateway 172.28.40.1:18999)    \ 169.254.169.254 (metadata: 80)
@@ -51,8 +52,16 @@ in_ns "$HOST" sysctl -qw net.ipv4.ip_forward=1
 ip -n "$HOST" link add br0 type bridge
 ip -n "$HOST" addr add 172.28.40.1/24 dev br0
 ip -n "$HOST" link set br0 up
-for pair in "api:$API:172.28.40.250" "worker:$WORKER:172.28.40.251"; do
-  IFS=: read -r name ns address <<<"$pair"
+# A second network (as `data`): the host has an address on it too, which the rules must guard.
+ip -n "$HOST" link add br1 type bridge
+ip -n "$HOST" addr add 172.28.50.1/24 dev br1
+ip -n "$HOST" link set br1 up
+for pair in "api:$API:172.28.40.250:172.28.50.10" "worker:$WORKER:172.28.40.251:172.28.50.11"; do
+  IFS=: read -r name ns address data <<<"$pair"
+  ip -n "$HOST" link add "d-$name" type veth peer name eth1 netns "$ns"
+  ip -n "$HOST" link set "d-$name" master br1 up
+  ip -n "$ns" addr add "$data/24" dev eth1
+  ip -n "$ns" link set eth1 up
   ip -n "$HOST" link add "v-$name" type veth peer name eth0 netns "$ns"
   ip -n "$HOST" link set "v-$name" master br0 up
   ip -n "$ns" addr add "$address/24" dev eth0
@@ -70,7 +79,7 @@ ip -n "$HOST" link set v-net up
 ip -n "$NET" addr add 192.0.2.2/30 dev eth0
 ip -n "$NET" link set eth0 up
 ip -n "$NET" route add "$SUBNET" via 192.0.2.1
-for address in 198.51.100.10 10.255.255.1 169.254.169.254 10.255.255.53; do
+for address in 198.51.100.10 10.255.255.1 169.254.169.254 168.63.129.16 10.255.255.53; do
   ip -n "$NET" addr add "$address/32" dev lo
   ip -n "$HOST" route add "$address/32" via 192.0.2.2
 done
@@ -83,7 +92,7 @@ ip netns exec "$NET" python3 -c '
 import selectors, socket
 sel = selectors.DefaultSelector()
 for host, port in [("198.51.100.10", 80), ("198.51.100.10", 443), ("198.51.100.10", 25),
-                   ("10.255.255.1", 80), ("169.254.169.254", 80)]:
+                   ("10.255.255.1", 80), ("169.254.169.254", 80), ("168.63.129.16", 80)]:
     s = socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     s.bind((host, port)); s.listen(16); s.setblocking(False)
     sel.register(s, selectors.EVENT_READ)
@@ -112,16 +121,18 @@ while time.time() < until:
 ' &
 pids+=($!)
 ip netns exec "$HOST" python3 -c '
-import socket
-s = socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-s.bind(("172.28.40.1", 18999)); s.listen(16); s.settimeout(1)
-import time
+import socket, time
+socks = []
+for address in ("172.28.40.1", "172.28.50.1"):
+    s = socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    s.bind((address, 18999)); s.listen(16); s.settimeout(0.2); socks.append(s)
 until = time.time() + 300  # a second guard: gone after five minutes whatever happens
 while time.time() < until:
-    try:
-        s.accept()[0].close()
-    except OSError:
-        pass
+    for s in socks:
+        try:
+            s.accept()[0].close()
+        except OSError:
+            pass
 ' &
 pids+=($!)
 sleep 1
@@ -144,7 +155,7 @@ all_open() {
   local phase=$1 ns target
   for ns in "$API" "$WORKER"; do
     for target in 198.51.100.10:443 198.51.100.10:80 198.51.100.10:25 10.255.255.1:80 \
-      169.254.169.254:80 172.28.40.1:18999; do
+      169.254.169.254:80 168.63.129.16:80 172.28.40.1:18999 172.28.50.1:18999; do
       if [ "$(probe "$ns" "${target%:*}" "${target#*:}")" = open ]; then
         printf '%-12s %-7s %s\n' PASS "${ns#"$P"-}" "$target open ($phase)"
       else
@@ -157,15 +168,20 @@ all_open() {
 
 check() {
   EGRESS_RUN_API="ip netns exec $API" EGRESS_RUN_WORKER="ip netns exec $WORKER" \
-    EGRESS_PUBLIC=198.51.100.10 EGRESS_PRIVATE=10.255.255.1 EGRESS_GATEWAY=172.28.40.1 \
+    EGRESS_PUBLIC=198.51.100.10 EGRESS_PRIVATE=10.255.255.1 \
+    EGRESS_GATEWAYS="egress=172.28.40.1 data=172.28.50.1" \
     EGRESS_GATEWAY_PORT=18999 EGRESS_LISTENERS=yes EGRESS_NAME=example.com \
-    PHAROS_EGRESS_SUBNET="$SUBNET" scripts/egress-check.sh
+    PHAROS_EGRESS_SUBNET="$SUBNET" PHAROS_DATA_SUBNET=172.28.50.0/24 scripts/egress-check.sh
 }
 
 echo "== phase 1: no rules, every call connects (controls)"
 all_open "no rules"
 
 echo "== phase 2: the rules"
+# First as if the range had been another one: the next apply must leave no jump of the old range.
+in_ns "$HOST" env PHAROS_EGRESS_DNS=10.255.255.53 PHAROS_EGRESS_SUBNET=172.28.99.0/24 \
+  PHAROS_EGRESS_API_IP=172.28.99.250 PHAROS_EGRESS_WORKER_IP=172.28.99.251 \
+  deploy/egress/pharos-egress.sh apply >/dev/null
 in_ns "$HOST" env PHAROS_EGRESS_DNS=10.255.255.53 PHAROS_EGRESS_SUBNET="$SUBNET" \
   PHAROS_EGRESS_API_IP=172.28.40.250 PHAROS_EGRESS_WORKER_IP=172.28.40.251 \
   deploy/egress/pharos-egress.sh apply
@@ -174,16 +190,25 @@ in_ns "$HOST" env PHAROS_EGRESS_DNS=10.255.255.53 PHAROS_EGRESS_SUBNET="$SUBNET"
   PHAROS_EGRESS_API_IP=172.28.40.250 PHAROS_EGRESS_WORKER_IP=172.28.40.251 \
   deploy/egress/pharos-egress.sh apply >/dev/null
 jumps=$(in_ns "$HOST" iptables -w -S DOCKER-USER | grep -c -- "-j PHAROS-EGRESS" || true)
-if [ "$jumps" = 1 ]; then
-  printf '%-12s %-7s %s\n' PASS host "applied twice, one jump in DOCKER-USER"
+stale=$(in_ns "$HOST" iptables -w -S | grep -c -- "172.28.99" || true)
+chains=$(in_ns "$HOST" iptables -w -S | grep -c -- "^-N PHAROS" || true)
+if [ "$jumps" = 1 ] && [ "$stale" = 0 ] && [ "$chains" = 2 ]; then
+  printf '%-12s %-7s %s\n' PASS host "applied three times, the last with a changed range: one jump, two chains, nothing of the old range"
 else
-  printf '%-12s %-7s %s\n' FAIL host "applied twice, $jumps jumps in DOCKER-USER"
+  printf '%-12s %-7s %s\n' FAIL host "after three applies: $jumps jumps, $chains chains, $stale lines of the old range"
   failed=1
 fi
 check || failed=1
 
 echo "== phase 3: the rules removed, every call connects again"
 in_ns "$HOST" env PHAROS_EGRESS_SUBNET="$SUBNET" deploy/egress/pharos-egress.sh remove >/dev/null
+left=$(in_ns "$HOST" iptables -w -S | grep -c -- "PHAROS" || true)
+if [ "$left" = 0 ]; then
+  printf '%-12s %-7s %s\n' PASS host "removed: no chain and no jump left"
+else
+  printf '%-12s %-7s %s\n' FAIL host "removed, but $left lines of the rules are left"
+  failed=1
+fi
 all_open "rules removed"
 
 exit "$failed"

@@ -37,6 +37,11 @@ networks:
           ip_range: ${PHAROS_APP_DYNAMIC_RANGE:-172.28.20.0/25}
   data:
     internal: true
+    # Fixed, so the host rules can keep its containers away from the host's own services, which an
+    # internal network still reaches through its gateway (ADR-0023, review of 2026-11-14).
+    ipam:
+      config:
+        - subnet: ${PHAROS_DATA_SUBNET:-172.28.50.0/24}
   # Fixed, so host firewall rules can name api and worker by address (ADR-0023, M5-03). Both take
   # high addresses outside ip_range, as Caddy does on app. Change all four when the range clashes.
   egress:
