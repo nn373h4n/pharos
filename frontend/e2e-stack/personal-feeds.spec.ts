@@ -83,6 +83,18 @@ test("a person adds a feed of their own and the worker fetches it", async ({ bro
   await page.getByRole("button", { name: en.Sources.form.save }).click();
   await expect(page.getByRole("heading", { level: 3, name: FEED })).toBeVisible();
 
+  // A new personal feed is first due an hour later (F-31, migration 0014), not at once.
+  const minutes = sqlNumber(
+    `SELECT round(extract(epoch FROM next_fetch_at - now()) / 60) FROM sources WHERE ${aliceFeeds()}`,
+  );
+  expect(minutes).toBeGreaterThanOrEqual(58);
+  expect(minutes).toBeLessThanOrEqual(60);
+  expect(
+    sqlNumber(
+      `SELECT count(*) FROM fetch_runs WHERE source_id IN (SELECT id FROM sources WHERE ${aliceFeeds()})`,
+    ),
+  ).toBe(0);
+  makeDue(aliceFeeds()); // the hour, passed by the test
   await waitForRuns(aliceFeeds(), 1);
   await page.reload();
   const card = page.getByRole("article").filter({ hasText: FEED });
