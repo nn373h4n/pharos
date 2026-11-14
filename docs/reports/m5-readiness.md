@@ -8,24 +8,26 @@
 
 ## Verdict
 
-**Not pilot ready yet.** The code side is in place except for three tasks that wait for gate G1:
-M5-03 (egress), M5-05 (the worker boundary) and M5-06 (model-layer leftovers). Every gate from G1
-to G11 needs people and is NOT RUN. Acceptance criteria 2, 4 and 6 are not met, because they
-depend on those tasks, on a disposable host, or on a published release. No open P0 or P1 finding
-was found.
+**Not pilot ready yet.** The code of M5 is complete since 2026-11-14: gate G1 passed and M5-03
+(egress), M5-05 (the worker boundary) and M5-06 (model-layer leftovers) were built, reviewed and
+merged (#159 to #162). What is left is people's work: gates G2 to G11, the release tag that
+acceptance criterion 6 needs, and two decisions on findings (F-64, F-65). No open P0 or P1 finding.
+
+*Updated 2026-11-14, after G1. The first version of this report, written before G1, said criteria
+2 and 4 were not met; both are now met (below).*
 
 ## The pilot-ready checklist ([M5 plan](../plans/m5-pilot-readiness.md#gates-kind-b-passed-by-people-never-by-a-code-change))
 
 | # | Check | Result |
 | --- | --- | --- |
-| 1 | M5 acceptance criteria 1 to 10 | **FAIL**: 1, 3, 5, 7, 8, 9 and 10 PASS; 2 partly; 4 and 6 NOT RUN (see below) |
+| 1 | M5 acceptance criteria 1 to 10 | **FAIL** only on 6 (NOT RUN: no release tag yet); 1 to 5 and 7 to 10 PASS (see below) |
 | 2 | G1: the Proposed ADRs of D1 accepted | PASS (2026-11-14, after this report was first written: the maintainer accepted them; M5-03, M5-05 and M5-06 can start) |
 | 3 | G2: internal approval and the pilot teams (M0-01) | NOT RUN |
 | 4 | G3: F-36, the evaluation bar met in Azerbaijani per pilot profession by two native raters | NOT RUN |
 | 5 | G4: F-01, the az wording reviewed by a native speaker (now including the hold phrases of F-24 and the master prompt's translation) | NOT RUN |
 | 6 | G5: Entra ID registration and the real sign-in checklist on the pilot server | NOT RUN |
 | 7 | G6: pilot server and domain; v0.1.0 installed by the runbook, valid TLS, `/readyz` green | NOT RUN (no release tag yet) |
-| 8 | G7: egress rules on the pilot host, `scripts/egress-check.sh` PASS there | NOT RUN (M5-03 waits for G1) |
+| 8 | G7: egress rules on the pilot host, `scripts/egress-check.sh` PASS there | NOT RUN (the rules and the check exist since M5-03 and are proven in network namespaces; the pilot host, with Docker, is the maintainer's) |
 | 9 | G8: backups scheduled on the pilot server, an off-host copy, one restore rehearsed there | NOT RUN |
 | 10 | G9: pilot key, budget and approved AI tool entered; "test the key" PASS | NOT RUN |
 | 11 | G10: professions and sources; first fetches succeed; at least 20 cards per pilot profession | NOT RUN |
@@ -37,9 +39,9 @@ was found.
 | # | Criterion | Result | Evidence |
 | --- | --- | --- | --- |
 | 1 | `make lint`, `test`, `test-integration`, `test-compose`, `test-stack-e2e`, `test-sso-dev` green locally and in CI | PASS | CI requires 14 checks on `main`, among them Docker Compose, Single sign-on stack and Stack end-to-end, and every pull request merged on 2026-11-13 and 2026-11-14 passed them. Locally on 2026-11-14: `make lint` PASS, backend unit tests 3177 passed, the whole integration suite 1256 passed, front end 820 passed, `make test-compose` 180 PASS. Locally, `make test-stack-e2e` (130 tests) and `make test-sso-dev` (35 checks) last ran on 2026-11-07 (M5-12); since then they run only in CI |
-| 2 | Each named mutation makes a named test fail, recorded in the pull request | **PARTLY**: PASS for 4 of 11; 5 NOT RUN; 2 not itemized | PASS: unpin a base image (PR #108, 14 mutations); an unsigned or tampered image passes verification (PR #110: fails for an unsigned image, a wrong key and a moved tag in the local rehearsal; PR #111: comparison disabled and digest pattern loosened, both caught); the retention job's boundary (PR #88, 22 mutations of `test_retention.py`); skip the dump check (PR #85: three mutations on the real stack, among them a restore that restores nothing). Not itemized: "restore without the roles" and "leave a person's interactions after deletion". PR #85 and #88 record rounds of mutations without naming these two. NOT RUN, because the code is not built (waits for G1): remove a firewall rule (M5-03), drop the F-33 policy and make a new personal feed due at once (M5-05), let GET queue an insight and skip a budget audit event (M5-06) |
+| 2 | Each named mutation makes a named test or check fail (recorded in the pull request) | PASS | All eleven: restore without the roles (`scripts/restore.sh` refuses a database without both roles: 2 tests of `test_backup_scripts.py` fail when the check is removed, 2026-11-14); skip the dump check (PR #85, three mutations on the real stack); remove a firewall rule (PR #162, ten mutations of `deploy/egress/pharos-egress.sh`, each against real packets in network namespaces); drop the F-33 policy and make a new personal feed due at once (PR #161, five mutations of migration 0014); let GET queue an insight and skip a budget audit event (PR #160: GET that asks fails `test_get_only_reads_and_never_asks_the_worker`; a trigger that allows any action fails `test_budget_events.py`, and `build_gateway` cannot be built without its event sink); unpin a base image (PR #108, 14 mutations); an unsigned or tampered image passes verification (PR #110, #111); skip the retention job's boundary (PR #88, 22 mutations); leave a person's interactions after deletion (the cascade of `interactions_user_fkey` changed: `test_deleting_a_person_removes_everything_that_is_theirs_and_nothing_else` fails, 2026-11-14) |
 | 3 | The restore rehearsal of M5-02 passes, with its time recorded | PASS | `make test-compose` backs up, destroys and restores a stack with synthetic data on every pull request. Backup and restore took 1 to 2 seconds on the small test database (PR #85); that says nothing about a large one |
-| 4 | The egress check passes with positive controls on a disposable host | NOT RUN | M5-03 waits for G1; it stays gate G7 |
+| 4 | The egress check passes with positive controls on a disposable host | PASS in network namespaces | `scripts/egress-netns-test.sh` (PR #162): a router, api, worker and an "internet" namespace with a listener on every target and two networks; without rules every call connects (the controls), with them the matrix of `scripts/egress-check.sh` holds (public 443 for both, 80 for the worker, DNS; port 25, a private address, the metadata address, Azure's WireServer and the host through each network's gateway refused), after `remove` everything connects again: 52 of 52 PASS, the host's own firewall untouched. With Docker on the pilot host: gate G7 |
 | 5 | The load targets of D5 met on the stated hardware; the resilience checks of M5-08 pass | PASS | 50 people for 10 minutes, 30,000 articles, 2 CPU threads: first page p95 134 ms, second page 85 ms, 0 failed (after F-49). After F-61, steps of 3 minutes with a period boundary inside: 300 people p95 140 ms, p99 707 ms, 0 failed. Resilience: the 10,000-entry feed with the worker's peak at 215 MiB (limit 300 MiB); a worker killed mid-fetch loses and doubles nothing. Insight burst: 100 of 100 ready, no 5xx. SSO burst: 100 of 100 within 100 s from one address, no 429 or 5xx (development Keycloak). Not proven: 30,000 users; Entra ID |
 | 6 | A fresh install of v0.1.0 by the runbook alone works in a throwaway environment, time recorded against the two-hour target | NOT RUN | There is no tag yet. The runbook was rehearsed on images built from the branch: about 2 minutes of command time, no command failed. Reading time, DNS, certificates and SSO were not measured |
 | 7 | Approved tools: Copy only by default; "Open in" only to a listed address; four locales, axe clean, keyboard | PASS | M5-07 (PR #86): the list is empty by default and the card offers Copy only. A link goes only to a listed https address, which is checked in the service, the database and the browser. Four locales; axe 4 × 2 × 2; keyboard tests. The 2026-11-14 review found nothing |
@@ -83,6 +85,22 @@ Both reviews also list what they checked and found sound. They looked at:
 - the release chain's permissions and pins;
 - the Compose hardening.
 
+## The review of 2026-11-14 after G1 (M5-03, M5-05, M5-06)
+
+A separate read-only agent with the same instructions reviewed the three changes made after G1.
+
+| Finding | Severity | What was done |
+| --- | --- | --- |
+| The host was reachable through the gateways of `app`, `data` and `llm`: the rules guarded the egress range only | P1 | Fixed in PR #162: input to the host is dropped from all four ranges (`data` got a fixed range), each gateway is probed; proven in namespaces with a second network |
+| A taken-over worker can still change the text of a held, hidden or approved article (a grant of 0003) | P2 | **Open as F-64.** A fix was built and withdrawn: five tests pin the opposite, intended behaviour ("a later fetch may change the text but never a decision"). The maintainer chooses |
+| Azure's WireServer (168.63.129.16) was reachable | P2 | Fixed in PR #162: dropped by the rules and refused by `SafeHttpClient` |
+| A command substitution in a bad range ran in `scripts/egress-check.sh` | P3 | Fixed: every range is validated first; test |
+| `apply` was not atomic and left jumps of a former range | P3 | Fixed: new chains are hooked in before the old ones go; jumps of any range are removed; tests and a namespace phase |
+| A resolver on an address of the host was dropped | P3 | Fixed: allowed on 53 in the host chain |
+| Forged budget events are unbounded | P3 | **Open as F-65** (a unique index, a migration) |
+
+The fixes of that review were not reviewed again. No P0 or P1 is open.
+
 ## What M5 does not prove
 
 As the plan says: the pilot's usefulness ratio, onboarding completion, weekly use and time saved;
@@ -94,19 +112,12 @@ as configured.
 ## Open work, by owner
 
 - **The maintainer (gates and decisions):**
-  - G1 to G11;
-  - the release tag (M5-10, F-07);
-  - D1 (accept the Proposed ADRs), then M5-03, M5-05 and M5-06;
-  - ADR-0029 (a second Redis for the worker);
+  - G2 to G11;
+  - the release tag (M5-10, F-07; acceptance criterion 6);
+  - F-64 (decided text) and F-65 (bounded budget events);
+  - ADR-0029 (a second Redis for the worker) and the other `Proposed` ADRs (0007, 0020, 0021, 0026, 0027);
   - approvals for F-26 (an index migration), F-34 (a migration), F-43 (minimatch) and F-58 (a pinned shellcheck image);
   - the open Dependabot pull requests;
-  - F-56 (a) and (c) (the tag ruleset; requiring the release dry run).
-- **People:**
-  - F-01 (native-speaker review);
-  - F-36 (raters);
-  - F-19 (an IPv6 host);
-  - F-28 (screen readers).
-- **The assistant, after decisions:**
-  - M5-03, M5-05 and M5-06 once G1 passes;
-  - F-62 and F-63;
-  - the rest of the follow-ups in `TASKS.md` (P3, none blocking).
+  - F-56 (a) and (c).
+- **People:** F-01 (native-speaker review), F-36 (raters), F-19 (an IPv6 host), F-28 (screen readers).
+- **The assistant, after decisions:** F-62, F-63, F-64 and F-65 once decided; the remaining P3 follow-ups in `TASKS.md`.
