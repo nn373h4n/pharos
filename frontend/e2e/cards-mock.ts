@@ -107,7 +107,11 @@ export async function handleCards(
     return true;
   }
   const insight = /^\/api\/items\/([^/]+)\/insight$/.exec(path);
-  if (insight && method === "GET") {
+  if (insight && method === "POST" && request.headers()["x-csrf-token"] === undefined) {
+    await route.fulfill(problem(403, "csrf_failed"));
+    return true;
+  }
+  if (insight && (method === "GET" || method === "POST")) {
     state.insightReads += 1;
     const mode = options.insight ?? "ready";
     const body =

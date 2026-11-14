@@ -32,6 +32,8 @@ export type Insight = {
 export type InsightAnswer =
   | { status: "ready"; reason: null; insight: Insight }
   | { status: "pending"; reason: null; insight: null }
+  // Nobody has asked yet, or the ask ran out without an answer: ask with POST (F-40 b).
+  | { status: "absent"; reason: null; insight: null }
   | { status: "unavailable"; reason: "off" | "rejected" | "invalid"; insight: null };
 
 export type InteractionKind = "view" | "save" | "useful" | "not_useful" | "tried" | "time_saved";
@@ -96,7 +98,9 @@ function isInsight(value: unknown): value is Insight {
 export function isInsightAnswer(value: unknown): value is InsightAnswer {
   if (!record(value)) return false;
   if (value.status === "ready") return value.reason === null && isInsight(value.insight);
-  if (value.status === "pending") return value.reason === null && value.insight === null;
+  if (value.status === "pending" || value.status === "absent") {
+    return value.reason === null && value.insight === null;
+  }
   if (value.status === "unavailable") {
     return (
       (value.reason === "off" || value.reason === "rejected" || value.reason === "invalid") &&
@@ -120,9 +124,19 @@ export async function listCards(cursor?: string | null): Promise<CardPage> {
   return read(await request(cardsPath(cursor)), isCardPage);
 }
 
+/** What there is for this article; never asks for an insight to be made (GET only reads). */
 export async function getInsight(itemId: string): Promise<InsightAnswer> {
   if (!isIdentifier(itemId)) throw new Error("malformed_identifier");
   return read(await request(`/api/items/${itemId}/insight`), isInsightAnswer);
+}
+
+/** Asks for the insight to be made if there is none yet: a POST, with the CSRF token (F-40 b). */
+export async function askInsight(itemId: string, csrf: string): Promise<InsightAnswer> {
+  if (!isIdentifier(itemId)) throw new Error("malformed_identifier");
+  return read(
+    await request(`/api/items/${itemId}/insight`, { method: "POST", csrf }),
+    isInsightAnswer,
+  );
 }
 
 function interactionPath(itemId: string, kind: InteractionKind): string {

@@ -234,6 +234,7 @@ async def privileges(
 ) -> tuple[set[tuple[str, str]], set[tuple[str, str, str]]]:
     tables = (
         "sources", "fetch_runs", "raw_items", "items", "item_sources", "item_professions", "professions", "item_insights", "item_embeddings",
+        "audit_logs",
     )  # fmt: skip
     async with engine.connect() as connection:
         table_rows = (
@@ -277,9 +278,12 @@ async def test_the_application_has_exactly_these_ingestion_privileges(
         ("sources", "SELECT"), ("sources", "DELETE"), ("fetch_runs", "SELECT"),
         ("items", "SELECT"), ("item_sources", "SELECT"), ("item_professions", "SELECT"),
         ("professions", "SELECT"), ("item_insights", "SELECT"),
+        ("audit_logs", "SELECT"),  # append-only: read and insert, never change (0002)
     }  # fmt: skip
     assert columns == (
-        {("sources", c, "INSERT") for c in (
+        {("audit_logs", c, "INSERT") for c in (
+            "org_id", "actor_type", "actor_id", "action", "target", "outcome", "ip_hash", "details")}
+        | {("sources", c, "INSERT") for c in (
             "org_id", "owner_user_id", "type", "name", "config", "dedupe_key", "enabled",
             "interval_seconds", "created_by")}
         | {("sources", c, "UPDATE") for c in (
@@ -330,6 +334,8 @@ async def test_the_worker_has_exactly_these_ingestion_privileges(
         | {("item_insights", c, "INSERT") for c in (
             "org_id", "item_id", "profession_code", "language", "prompt_version", "status",
             "summary", "how_to_apply", "try_prompt", "safety_note")}
+        # The two budget events and nothing else, as the system (F-39, migration 0013).
+        | {("audit_logs", c, "INSERT") for c in ("org_id", "actor_type", "action", "outcome")}
     )  # fmt: skip
 
 

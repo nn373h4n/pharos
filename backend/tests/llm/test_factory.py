@@ -61,8 +61,32 @@ def test_the_models_prices_and_limits_come_from_the_settings() -> None:
 
 @pytest.mark.anyio
 async def test_a_gateway_without_a_provider_refuses_every_call() -> None:
+    async def nowhere(name: str, org: object) -> None:
+        return None
+
     gateway = build_gateway(
-        settings(), Redis.from_url("redis://127.0.0.1:1/0"), MemoryUsage(), FixedClock()
+        settings(),
+        Redis.from_url("redis://127.0.0.1:1/0"),
+        MemoryUsage(),
+        FixedClock(),
+        on_event=nowhere,
     )
     with pytest.raises(LLMDisabled):
         await gateway.generate(task=Task.ENRICH, org_id=ORG, article=article(), schema=Answer)
+
+
+def test_the_workers_gateway_keeps_the_rest_of_a_failing_stage_in_redis() -> None:
+    """A gateway is built for every task, so its pause must live outside it (F-40 c)."""
+    from pharos.llm.pauses import RedisPauses
+
+    async def nowhere(name: str, org: object) -> None:
+        return None
+
+    gateway = build_gateway(
+        settings(),
+        Redis.from_url("redis://127.0.0.1:1/0"),
+        MemoryUsage(),
+        FixedClock(),
+        on_event=nowhere,
+    )
+    assert isinstance(gateway._pauses, RedisPauses)

@@ -18,12 +18,14 @@ class InsightRow:
 
 
 async def item_is_readable(session: AsyncSession, org: uuid.UUID, item: uuid.UUID) -> bool:
-    """An organization article that is current: the only kind a model has read and a person may
-    be shown. A held, hidden or personal article, or another organization's, is not."""
+    """An organization article that is current and that the filter has read: the only kind a
+    person has a card for (F-40 a: the same conditions as the cards). A held, hidden, personal or
+    unread article, or another organization's, is not."""
     row = await session.execute(
         text(
             "SELECT 1 FROM items WHERE org_id = :org AND id = :id "
-            "AND owner_user_id IS NULL AND status = 'new'"
+            "AND owner_user_id IS NULL AND status = 'new' "
+            "AND enriched_at IS NOT NULL AND summary IS NOT NULL"
         ),
         {"org": org, "id": item},
     )

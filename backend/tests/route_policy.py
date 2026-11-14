@@ -108,6 +108,7 @@ ROLE_MATRIX: dict[Route, Rule] = {
     ("GET", "/api/items"): Rule(_ALL_ROLES, _ITEMS_TEST),
     ("GET", "/api/items/{item_id}"): Rule(_ALL_ROLES, _ITEMS_TEST),
     ("GET", "/api/items/{item_id}/insight"): Rule(_ALL_ROLES, _INSIGHTS_TEST),
+    ("POST", "/api/items/{item_id}/insight"): Rule(_ALL_ROLES, _INSIGHTS_TEST),
     ("GET", "/api/cards"): Rule(_ALL_ROLES, _CARDS_TEST),
     ("PUT", "/api/items/{item_id}/interactions/{kind}"): Rule(_ALL_ROLES, _CARDS_TEST),
     ("DELETE", "/api/items/{item_id}/interactions/{kind}"): Rule(_ALL_ROLES, _CARDS_TEST),

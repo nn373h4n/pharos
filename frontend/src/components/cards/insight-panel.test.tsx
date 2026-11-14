@@ -6,7 +6,8 @@ import { ApiProblem } from "@/lib/api";
 import type { AiTool } from "@/lib/ai-tools";
 import type { InsightAnswer, InteractionKind } from "@/lib/cards";
 
-const getInsight = vi.fn<(id: string) => Promise<InsightAnswer>>();
+// GET and POST of the insight, in one record: ("GET", id) or ("POST", id, csrf).
+const fetchInsight = vi.fn<(method: string, id: string, csrf?: string) => Promise<InsightAnswer>>();
 const putInteraction =
   vi.fn<(id: string, kind: InteractionKind, csrf: string, minutes?: number) => Promise<void>>();
 
@@ -18,7 +19,8 @@ vi.mock("@/lib/ai-tools", async (original) => ({
 }));
 vi.mock("@/lib/cards", async (original) => ({
   ...(await original<typeof import("@/lib/cards")>()),
-  getInsight: (id: string) => getInsight(id),
+  getInsight: (id: string) => fetchInsight("GET", id),
+  askInsight: (id: string, csrf: string) => fetchInsight("POST", id, csrf),
   putInteraction: (id: string, kind: InteractionKind, csrf: string, minutes?: number) =>
     putInteraction(id, kind, csrf, minutes),
 }));
@@ -56,7 +58,7 @@ async function tick(ms: number) {
 
 beforeEach(() => {
   vi.useFakeTimers();
-  getInsight.mockResolvedValue(ready);
+  fetchInsight.mockResolvedValue(ready);
   putInteraction.mockResolvedValue(undefined);
   approvedTools.mockResolvedValue([]);
 });
@@ -72,7 +74,7 @@ describe("the suggestion", () => {
     show();
     expect(screen.getByText(en.Cards.insight.loading)).toBeDefined();
     await tick(0);
-    expect(getInsight).toHaveBeenCalledWith(ID);
+    expect(fetchInsight).toHaveBeenCalledWith("POST", ID, "token-1"); // asked with the CSRF token
     expect(screen.getByText("It shortens the month-end.")).toBeDefined();
     expect(screen.getAllByRole("listitem").map((li) => li.textContent)).toEqual([
       "Open the ledger.",
@@ -86,35 +88,35 @@ describe("the suggestion", () => {
   });
 
   it("waits while it is made, asks again every few seconds and gives up after a minute and a half", async () => {
-    getInsight.mockResolvedValue(pending);
+    fetchInsight.mockResolvedValue(pending);
     show();
     await tick(0);
     expect(screen.getByText(en.Cards.insight.pending)).toBeDefined();
     await tick(3000);
-    expect(getInsight).toHaveBeenCalledTimes(2);
-    getInsight.mockResolvedValue(ready);
+    expect(fetchInsight).toHaveBeenCalledTimes(2);
+    fetchInsight.mockResolvedValue(ready);
     await tick(3000);
     expect(screen.getByText("It shortens the month-end.")).toBeDefined();
-    const calls = getInsight.mock.calls.length;
+    const calls = fetchInsight.mock.calls.length;
     await tick(30_000);
-    expect(getInsight).toHaveBeenCalledTimes(calls); // it stops asking once it has the answer
+    expect(fetchInsight).toHaveBeenCalledTimes(calls); // it stops asking once it has the answer
   });
 
   it("gives up with words, not silence", async () => {
-    getInsight.mockResolvedValue(pending);
+    fetchInsight.mockResolvedValue(pending);
     show();
     await tick(0);
     await tick(93_000);
     expect(screen.getByText(en.Cards.insight.gaveUp)).toBeDefined();
-    const calls = getInsight.mock.calls.length;
+    const calls = fetchInsight.mock.calls.length;
     await tick(10_000);
-    expect(getInsight).toHaveBeenCalledTimes(calls);
+    expect(fetchInsight).toHaveBeenCalledTimes(calls);
   });
 
   it.each(["off", "rejected", "invalid"] as const)(
     "says why there is none (%s)",
     async (reason) => {
-      getInsight.mockResolvedValue({ status: "unavailable", reason, insight: null });
+      fetchInsight.mockResolvedValue({ status: "unavailable", reason, insight: null });
       show();
       await tick(0);
       expect(screen.getByText(en.Cards.insight.unavailable[reason])).toBeDefined();
@@ -123,27 +125,51 @@ describe("the suggestion", () => {
   );
 
   it("tells a failure in words and stops asking", async () => {
-    getInsight.mockRejectedValue(new ApiProblem(503, "service_unavailable"));
+    fetchInsight.mockRejectedValue(new ApiProblem(503, "service_unavailable"));
     show();
     await tick(0);
     expect(screen.getByRole("alert").textContent).toBe(en.Problems.unavailable);
     await tick(10_000);
-    expect(getInsight).toHaveBeenCalledTimes(1);
+    expect(fetchInsight).toHaveBeenCalledTimes(1);
   });
 
   it("stops asking when it is closed", async () => {
-    getInsight.mockResolvedValue(pending);
+    fetchInsight.mockResolvedValue(pending);
     const { unmount } = show();
     await tick(0);
     unmount();
     await tick(10_000);
-    expect(getInsight).toHaveBeenCalledTimes(1);
+    expect(fetchInsight).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("asking and reading (F-40 b)", () => {
+  it("asks once with POST, then only reads with GET while it is made", async () => {
+    fetchInsight.mockResolvedValue(pending);
+    show();
+    await tick(0);
+    await tick(3000);
+    await tick(3000);
+    expect(fetchInsight.mock.calls.map((call) => call[0])).toEqual(["POST", "GET", "GET"]);
+  });
+
+  it("asks again when a read finds that nothing was asked, or the ask ran out", async () => {
+    const absent: InsightAnswer = { status: "absent", reason: null, insight: null };
+    fetchInsight
+      .mockResolvedValueOnce(pending) // POST
+      .mockResolvedValueOnce(absent) // GET: the ask ran out
+      .mockResolvedValueOnce(pending) // POST again
+      .mockResolvedValue(ready); // GET
+    show();
+    for (let n = 0; n < 4; n += 1) await tick(3000);
+    expect(fetchInsight.mock.calls.map((call) => call[0])).toEqual(["POST", "GET", "POST", "GET"]);
+    expect(screen.getByText("It shortens the month-end.")).toBeDefined();
   });
 });
 
 describe("text a model wrote", () => {
   it("stays text: no element, no link, whatever it contains", async () => {
-    getInsight.mockResolvedValue({
+    fetchInsight.mockResolvedValue({
       status: "ready",
       reason: null,
       insight: {
@@ -258,7 +284,7 @@ describe("Open in an approved tool", () => {
   });
 
   it("does not ask for the tools before there is a prompt to open them with", async () => {
-    getInsight.mockResolvedValue(pending);
+    fetchInsight.mockResolvedValue(pending);
     show();
     await tick(0);
     expect(approvedTools).not.toHaveBeenCalled();

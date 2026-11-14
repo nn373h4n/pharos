@@ -1,8 +1,9 @@
 // The insight burst (M5-08, D5). Run by scripts/loadtest.sh with LOAD_SCENARIO=insights.
 //
 // Every person opens "Try this" on a card at about the same time (the starts are spread over RAMP
-// seconds). The first answer is `pending` (the worker is asked); the person then looks again every
-// POLL seconds until the insight is `ready` or `unavailable`. What this measures: the API never
+// seconds). The first look asks with POST and the session's CSRF token, as the page does (F-40 b),
+// and answers `pending`; the person then reads with GET every POLL seconds until the insight is
+// `ready` or `unavailable`, and asks again with POST if a read says `absent`. What this measures: the API never
 // answers with a server error while the queue is full, and the worker (with the stack's fake
 // provider: no model, no key) drains it. Each person asks for another article.
 import http from "k6/http";
@@ -61,15 +62,21 @@ export default function () {
   sleep(Math.random() * RAMP);
   const headers = { Cookie: `${COOKIE}=${sessions[(__VU - 1) % sessions.length]}` };
   const item = items[(__VU - 1) % items.length];
+  // The CSRF token of this session, as the page reads it; POST also needs the site's own origin.
+  const me = http.get(`${BASE}/api/me`, { headers, tags: { name: "me" } });
+  const asking = { ...headers, Origin: BASE, "X-CSRF-Token": me.json("csrf_token") };
+  const url = `${BASE}/api/items/${item}/insight`;
   const began = Date.now();
+  let post = true;
   while ((Date.now() - began) / 1000 < GIVE_UP_SECONDS) {
-    const response = http.get(`${BASE}/api/items/${item}/insight`, {
-      headers,
-      tags: { name: "insight" },
-    });
+    const response = post
+      ? http.post(url, null, { headers: asking, tags: { name: "insight" } })
+      : http.get(url, { headers, tags: { name: "insight" } });
     count(response);
+    post = false;
     if (response.status === 200) {
       const status = response.json("status");
+      post = status === "absent";
       if (status === "ready" || status === "unavailable") {
         (status === "ready" ? finished.ready : finished.unavailable).add(1);
         secondsToFinish.add(Date.now() - began);

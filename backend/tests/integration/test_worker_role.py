@@ -38,6 +38,9 @@ ALLOWED: dict[str, set[str]] = {
     "users": set(),
     # The record of model calls: the worker may only add rows, by column (ADR-0016).
     "llm_usage": set(),
+    # The two budget events, by column, checked by a trigger (F-39, migration 0013); pinned
+    # column by column in test_ingestion_hardening.py.
+    "audit_logs": set(),
 }
 # Tables the worker reaches by column only, pinned column by column in test_ingestion_hardening.py:
 # the list of professions the model may choose from (ADR-0017).

@@ -63,9 +63,10 @@ describe("the shape of a card", () => {
 });
 
 describe("the shape of an insight answer", () => {
-  it("accepts the three kinds", () => {
+  it("accepts the four kinds", () => {
     expect(isInsightAnswer({ status: "ready", reason: null, insight })).toBe(true);
     expect(isInsightAnswer({ status: "pending", reason: null, insight: null })).toBe(true);
+    expect(isInsightAnswer({ status: "absent", reason: null, insight: null })).toBe(true);
     for (const reason of ["off", "rejected", "invalid"]) {
       expect(isInsightAnswer({ status: "unavailable", reason, insight: null })).toBe(true);
     }
@@ -79,6 +80,8 @@ describe("the shape of an insight answer", () => {
     { status: "ready", reason: null, insight: { ...insight, try_prompt: undefined } },
     { status: "pending", reason: null, insight },
     { status: "pending", reason: "off", insight: null },
+    { status: "absent", reason: null, insight },
+    { status: "absent", reason: "off", insight: null },
     { status: "unavailable", reason: "because", insight: null },
     { status: "unavailable", reason: null, insight: null },
     { status: "maybe", reason: null, insight: null },

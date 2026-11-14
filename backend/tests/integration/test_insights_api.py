@@ -15,7 +15,7 @@ from sqlalchemy import text
 from pharos.core.errors import DependencyUnavailable
 from pharos.insights import service as insight_service
 
-from .test_items_api import make_item
+from .test_items_api import make_item as make_any_item
 from .test_local_auth import MakeStack, Stack, make_stack  # noqa: F401
 from .test_sources_api import _remove_what_the_test_made  # noqa: F401
 from .test_user_admin import Person, person
@@ -102,7 +102,28 @@ async def write_insight(
         )
 
 
+async def make_item(stack: Stack, **item: Any) -> uuid.UUID:
+    """An article the filter has read (it has a summary and `enriched_at`), as cards have."""
+    found = await make_any_item(stack, **item)
+    async with stack.owner.begin() as connection:
+        await connection.execute(
+            text(
+                "UPDATE items SET summary = 'A summary', category = 'news', quality = 3, "
+                "enriched_at = now(), enrichment_version = 'v1' WHERE id = :i"
+            ),
+            {"i": found},
+        )
+    return found
+
+
 def ask(who: Person, item: uuid.UUID, **kwargs: Any) -> Any:
+    """Asks for the insight: POST, with the person's CSRF token and origin (F-40 b)."""
+    headers = {**who.headers, **kwargs.pop("headers", {})}
+    return who.client.post(f"/api/items/{item}/insight", headers=headers, **kwargs)
+
+
+def look(who: Person, item: uuid.UUID, **kwargs: Any) -> Any:
+    """Reads what there is: GET, which never asks the worker."""
     return who.client.get(f"/api/items/{item}/insight", **kwargs)
 
 
@@ -135,6 +156,7 @@ async def test_an_administrator_never_gets_another_organizations_insight(
     theirs = await make_item(stack, org=stack.org_b)
     await write_insight(stack, theirs, org=stack.org_b)
     assert (await ask(admin, theirs)).status_code == 404
+    assert (await look(admin, theirs)).status_code == 404
     assert queue.sent == []
 
 
@@ -394,3 +416,67 @@ async def test_a_profession_whose_code_the_prompt_cannot_carry_is_unavailable_no
             text("DELETE FROM user_profiles WHERE user_id = :u"), {"u": who.id}
         )
         await connection.execute(text("DELETE FROM professions WHERE code = :c"), {"c": long_code})
+
+
+# --- F-40: only POST asks, and only for an article the filter has read -----------------------------
+
+
+@pytest.mark.anyio
+async def test_get_only_reads_and_never_asks_the_worker(make_stack: MakeStack) -> None:
+    stack, queue = await stack_with_queue(make_stack)
+    who = await person(stack, "member")
+    await set_profile(stack, who)
+    item = await make_item(stack)
+    for _ in range(3):
+        nothing = await look(who, item)
+        assert nothing.json() == {"status": "absent", "reason": None, "insight": None}
+    assert queue.sent == []  # a link or an image on another site can never spend the budget
+    assert (await ask(who, item)).json()["status"] == "pending"
+    assert (await look(who, item)).json()["status"] == "pending"  # the ask is under way
+    assert len(queue.sent) == 1
+    await write_insight(stack, item)
+    ready = (await look(who, item)).json()
+    assert ready["status"] == "ready" and ready["insight"]["summary"] == GOOD["summary"]
+    assert len(queue.sent) == 1
+
+
+@pytest.mark.anyio
+async def test_an_ask_without_the_csrf_token_or_from_another_site_is_refused(
+    make_stack: MakeStack,
+) -> None:
+    stack, queue = await stack_with_queue(make_stack)
+    who = await person(stack, "member")
+    await set_profile(stack, who)
+    item = await make_item(stack)
+    without_token = {k: v for k, v in who.headers.items() if k.lower() != "x-csrf-token"}
+    other_site = {**who.headers, "Origin": "https://attacker.example"}
+    for headers in (without_token, other_site):
+        refused = await who.client.post(f"/api/items/{item}/insight", headers=headers)
+        assert refused.status_code == 403
+    assert queue.sent == []
+    assert (await ask(who, item)).status_code == 200  # positive control
+    assert len(queue.sent) == 1
+
+
+@pytest.mark.anyio
+async def test_an_article_the_filter_has_not_read_has_no_insight(make_stack: MakeStack) -> None:
+    stack, queue = await stack_with_queue(make_stack)
+    who = await person(stack, "member")
+    await set_profile(stack, who)
+    unread = await make_any_item(stack)  # no summary, no enriched_at: no card either
+    assert (await ask(who, unread)).status_code == 404
+    assert (await look(who, unread)).status_code == 404
+    assert queue.sent == []
+    read = await make_item(stack)  # positive control
+    assert (await ask(who, read)).status_code == 200
+
+
+@pytest.mark.anyio
+async def test_with_the_model_off_get_says_so_too(make_stack: MakeStack) -> None:
+    stack, queue = await stack_with_queue(make_stack, provider="off")
+    who = await person(stack, "member")
+    await set_profile(stack, who)
+    item = await make_item(stack)
+    off = (await look(who, item)).json()
+    assert off == {"status": "unavailable", "reason": "off", "insight": None}
+    assert queue.sent == []

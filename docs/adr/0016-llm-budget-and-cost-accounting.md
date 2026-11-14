@@ -40,6 +40,26 @@ The cap is shared by every stage, so one member asking for many suggestions ("Tr
 
 Consequence: the 80% warning is reached by reading articles, not by suggestions alone.
 
+## Amendment (2026-11-14, M5-06: F-39, F-40 c, decision D8)
+
+- **The cap comes from the environment only** (`PHAROS_LLM_DAILY_BUDGET_MICRO_USD`), as built, not
+  from the admin page as the Decision above says (D8, the maintainer's answer). The admin page shows
+  it and the spending; changing it means changing `deploy/.env` and restarting, which is the
+  operator's act, recorded by the host, not by the audit log.
+- **The two events reach the audit log.** The worker books the budget, so the worker writes
+  `llm.budget_warning` (the day first crosses 80%) and `llm.budget_exhausted` (a call is first
+  refused at 100%), once a day each, through the gateway's `on_event`, which every gateway the
+  worker builds now has (`build_gateway` requires it). Migration 0013 lets the worker's role insert
+  into `audit_logs` the columns `org_id`, `actor_type`, `action` and `outcome` only, and a trigger
+  refuses from that role anything but these two actions as the system, with no actor, target,
+  address hash or details. The worker still cannot read, change or delete the audit log. A
+  compromised worker could add more of these two rows; retention removes them in time.
+- **A failing stage's rest is shared** (F-40 c). After five failures in a row a stage rests for 60
+  seconds. The worker builds a new gateway for every task, so the count and the rest now live in
+  Redis under the worker's prefix (`pharos:worker:llm:pause:<stage>`, `...:failures:<stage>`, the
+  count forgotten after 10 minutes without a failure), seen by every task and process; without
+  Redis each process falls back to its own count.
+
 ## References
 
 - ADR-0002, ADR-0013 (the pattern for results through Redis), ADR-0015; `docs/ARCHITECTURE_PROPOSAL.md` section 6 (cost model); `docs/plans/m4-llm-layer-and-personal-feed.md`
