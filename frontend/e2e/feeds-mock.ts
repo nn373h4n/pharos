@@ -207,6 +207,7 @@ export async function handleFeeds(
             bytes_fetched: found.consecutive_failures > 0 ? null : 2048,
             items_seen: found.consecutive_failures > 0 ? null : 12,
             items_new: found.consecutive_failures > 0 ? null : 3,
+            edits_refused: found.consecutive_failures > 0 ? null : 0,
           },
         ],
       },
