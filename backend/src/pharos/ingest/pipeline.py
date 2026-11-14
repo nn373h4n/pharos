@@ -193,18 +193,27 @@ def candidates(entries: Sequence[RawEntry]) -> list[Candidate]:
     return sorted(seen.values(), key=lambda candidate: candidate.url_hash)
 
 
+@dataclass(frozen=True, slots=True)
+class Stored:
+    """What `store_items` did: items made, and edits refused because a hold rule flagged them."""
+
+    created: int = 0
+    refused: int = 0
+
+
 async def store_items(
     connection: AsyncConnection,
     org: uuid.UUID,
     source: uuid.UUID,
     owner: uuid.UUID | None,
     entries: Sequence[RawEntry],
-) -> int:
+) -> Stored:
     """Create or refresh the items for these entries and link them to the source. Returns how many
-    items are new. Running it again with the same entries changes nothing and returns 0."""
+    items are new and how many edits were refused (ADR-0028). Running it again with the same entries
+    changes nothing and makes no item."""
     wanted = candidates(entries)
     if not wanted:
-        return 0
+        return Stored()
     arrays = {
         "urls": [c.canonical_url for c in wanted],
         "hashes": [c.url_hash for c in wanted],
@@ -242,6 +251,7 @@ async def store_items(
     created = sum(1 for row in inserted.all() if row.created)
     # Two statements instead of IS NOT DISTINCT FROM, which cannot use the unique index.
     same_owner = "t.owner_user_id IS NULL" if owner is None else "t.owner_user_id = :owner"
+    refused = await _refused_edits(connection, org, source, owner, same_owner, wanted)
     await connection.execute(
         text(
             "INSERT INTO item_sources (org_id, item_id, source_id) "  # noqa: S608 (same_owner is one of two constant fragments)
@@ -253,4 +263,40 @@ async def store_items(
         {"org": org, "source": source, "hashes": arrays["hashes"]}
         | ({"owner": owner} if owner is not None else {}),
     )
-    return created
+    return Stored(created, refused)
+
+
+async def _refused_edits(
+    connection: AsyncConnection,
+    org: uuid.UUID,
+    source: uuid.UUID,
+    owner: uuid.UUID | None,
+    same_owner: str,
+    wanted: Sequence[Candidate],
+) -> int:
+    """The flagged entries that would have replaced the text of an item, had they been clean: the
+    item exists, its text differs, and this source reported it first (the conditions of the update
+    above, but for the flag). Run before the links of this fetch are added, as the update was."""
+    # Only a flagged entry can be refused: a clean edit by the first reporter has been applied
+    # above, so its text equals the item's. Most fetches have none, and skip the query.
+    flagged = [c for c in wanted if c.hold_reason is not None]
+    if not flagged:
+        return 0
+    found = await connection.execute(
+        text(
+            "SELECT count(*) FROM items t "  # noqa: S608 (same_owner is one of two constant fragments)
+            "JOIN unnest(CAST(:hashes AS text[]), CAST(:contents AS text[])) AS c(hash, content) "
+            "ON t.url_hash = c.hash "
+            f"WHERE t.org_id = :org AND {same_owner} AND t.content_sha256 <> c.content "
+            "AND (SELECT s.source_id FROM item_sources s WHERE s.org_id = t.org_id "
+            "AND s.item_id = t.id ORDER BY s.first_seen_at, s.source_id LIMIT 1) = :source"
+        ),
+        {
+            "org": org,
+            "source": source,
+            "hashes": [c.url_hash for c in flagged],
+            "contents": [c.content_sha256 for c in flagged],
+        }
+        | ({"owner": owner} if owner is not None else {}),
+    )
+    return int(found.scalar_one())

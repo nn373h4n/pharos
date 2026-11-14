@@ -221,10 +221,12 @@ async def _write_success(
     started: datetime,
     finished: datetime,
 ) -> FetchReport:
-    new = 0
+    stored = pipeline.Stored()
     if outcome.kind == "ok":
         changed = await repository.store_raw_items(connection, org, source.id, outcome.entries)
-        new = await pipeline.store_items(connection, org, source.id, source.owner_user_id, changed)
+        stored = await pipeline.store_items(
+            connection, org, source.id, source.owner_user_id, changed
+        )
         await repository.mark_processed(connection, org, source.id, changed, finished)
     ours = await repository.record_success(
         connection,
@@ -245,6 +247,7 @@ async def _write_success(
         started=started,
         bytes_fetched=outcome.bytes_fetched,
         items_seen=outcome.entries_seen,
-        items_new=new,
+        items_new=stored.created,
+        edits_refused=stored.refused if outcome.kind == "ok" else None,
     )
-    return FetchReport(outcome.kind, items_new=new)
+    return FetchReport(outcome.kind, items_new=stored.created)
