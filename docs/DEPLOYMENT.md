@@ -149,15 +149,45 @@ services:
 `app` and `data` are Docker `internal: true` networks: no route to the internet. `caddy` and `web`
 are not on `data`, so they cannot connect to the database or to Redis.
 
-**Compose does not restrict which hosts the egress services can reach.** Until you add a host
-firewall rule or an outbound proxy for `api`, `worker` and `beat`, they can reach any internet
-host. Add that rule before storing real data.
+### Egress rules (ADR-0023, M5-03)
 
-**Host services.** Traffic from a container to the host's own bridge gateway address does not pass
-through the forwarding rules that make `internal` networks internal. A service that listens on all
-host interfaces (SSH, a proxy, a Docker TCP API) can therefore be reached from every container. Add
-a host firewall rule that drops input from the Docker subnets to anything the containers do not
-need. This was reasoned about from Docker's documentation, not tested.
+Compose alone does not restrict which hosts the egress services reach, so Pharos ships host firewall
+rules for them: `deploy/egress/pharos-egress.sh`. The `egress` network has a fixed range and `api`
+and `worker` fixed addresses on it (`PHAROS_EGRESS_SUBNET`, `PHAROS_EGRESS_DYNAMIC_RANGE`,
+`PHAROS_EGRESS_API_IP`, `PHAROS_EGRESS_WORKER_IP`; the defaults are `172.28.40.0/24`, `.250` and
+`.251`); `beat` is not on it. From that range:
+
+| From | Allowed | Dropped |
+| --- | --- | --- |
+| `api` | TCP 443 to public addresses (the identity provider, Microsoft Graph) | everything else |
+| `worker` | TCP 80 and 443 to public addresses (feeds, the model provider) | everything else |
+| both | the host's resolvers on port 53, answers to allowed connections | private, loopback, link-local (cloud metadata), shared and multicast ranges; the host itself and its bridge gateway |
+
+```bash
+sudo deploy/egress/pharos-egress.sh print    # read them first
+sudo deploy/egress/pharos-egress.sh apply    # in place; running it again replaces them
+scripts/egress-check.sh                      # with the stack running: every line must PASS
+sudo deploy/egress/pharos-egress.sh remove   # to take them out
+```
+
+- The rules sit in two chains of their own, reached from `DOCKER-USER` (which Docker keeps and
+  evaluates before its own forwarding rules) and from `INPUT`. They do **not** survive a reboot:
+  persist them the way your host does (`netfilter-persistent save`, a systemd unit that runs
+  `apply` after Docker starts), and run `scripts/egress-check.sh` after every boot and change.
+- The resolvers allowed on port 53 are those of the resolv.conf Docker uses, or
+  `PHAROS_EGRESS_DNS`. A resolver on a loopback address needs no rule.
+- A firewall cannot name the identity provider, so the API may reach any public address on 443; a
+  compromised worker may still call any public host on 80 and 443 (feed hosts cannot be named in
+  advance). Both are residual risks in `docs/THREAT_MODEL.md`.
+- The rules are proven against real packets in network namespaces by `scripts/egress-netns-test.sh`
+  (root; it never touches the host's own firewall): every call connects without them, the matrix
+  of `scripts/egress-check.sh` holds with them, and everything connects again after `remove`. Docker
+  itself and its DNS forwarding are not part of that test: on the pilot host, `apply` and
+  `scripts/egress-check.sh` are gate G7.
+- IPv6 is off on Pharos's networks. If you switch it on, write the same rules for `ip6tables` first.
+- Hosts with `ufw`, `firewalld` or a cloud security group: the rules use plain `iptables` chains
+  (nftables backend works); check with `scripts/egress-check.sh` that your firewall manager does not
+  flush them.
 
 The profiles `dev` and `observability` are reserved; their services arrive with the milestones
 that need them. The profile `local-llm` is described under "The local model" below.

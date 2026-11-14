@@ -214,7 +214,20 @@ def test_only_the_api_service_uses_the_full_environment() -> None:
     compose = (DEPLOY / "docker-compose.yml").read_text()
     beat = re.search(r"^  beat:\n(.*?)(?=^  \w)", compose, re.DOTALL | re.MULTILINE)
     assert beat
-    assert "environment: *worker-env" in beat.group(1)  # exactly the worker's, nothing added
+    # The scheduler has an environment of its own: Redis and nothing else (F-21).
+    assert "environment: *beat-env" in beat.group(1)
+    beat_env = re.search(r"^x-beat-env: &beat-env\n((?:  [^\n]*\n)+)", compose, re.MULTILINE)
+    assert beat_env
+    assert re.findall(r"^  (PHAROS_[A-Z_]+):", beat_env.group(1), re.MULTILINE) == [
+        "PHAROS_PROCESS",
+        "PHAROS_ENVIRONMENT",
+        "PHAROS_LOG_LEVEL",
+        "PHAROS_REDIS_URL",
+        "PHAROS_PUBLIC_URL",
+        "PHAROS_ORG_SLUG",
+    ]
+    assert "<<:" not in beat_env.group(1)  # inherits nothing, so no database address
+    assert "PHAROS_PROCESS: beat" in beat_env.group(1)
     # The worker is the worker's environment plus the optional GitHub token and model key.
     worker = re.search(
         r"^  worker:\n.*?^    environment:\n((?:      [^\n]*\n)+)",

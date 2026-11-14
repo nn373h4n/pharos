@@ -94,6 +94,15 @@ and exit. The development single sign-on overlay adds one more, `dev-ca-export`,
 `make test-compose` checks that Caddy's uid is not 0, that its effective capabilities are zero,
 that the helper exited 0 and that the certificate store belongs to Caddy's user.
 
+## Amendment (2026-11-14, M5-03): a fixed `egress` range
+
+The `egress` network gets a fixed range, and `api` and `worker` fixed addresses on it, outside its
+dynamic range (as Caddy on `app`), so the host rules of ADR-0023 can tell them apart. `beat` stays
+on `data` only and is now given no database address (F-21: `PHAROS_PROCESS=beat` refuses one in
+production, and the root key, the identity-provider secret, the GitHub token and the model key).
+The throwaway stacks of the scripts take ranges of their own (`172.28.41` to `172.28.46`), so they
+can run beside an installation.
+
 ## References
 
 - `docs/ARCHITECTURE_PROPOSAL.md` sections 3 (principles 4 and 5), 7, 9, 13 (M1-08)

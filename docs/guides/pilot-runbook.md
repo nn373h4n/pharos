@@ -6,9 +6,9 @@ and does not repeat it. Where something has been measured, the number is given; 
 the text says so.
 
 What this release is and is not: read "Not ready in this release" in [CHANGELOG.md](../../CHANGELOG.md)
-before you promise anything to anyone. In short, the egress rules for the containers are not built
-in (your host firewall is yours to set), and the pilot server, the egress check and the restore
-rehearsal on that server are gates only you can pass (G6 to G8 of the
+before you promise anything to anyone. In short, the egress rules for the containers ship as a script you apply on the host
+(`deploy/egress/pharos-egress.sh`, step 1), and the pilot server, the egress check on it and the
+restore rehearsal on that server are gates only you can pass (G6 to G8 of the
 [M5 plan](../plans/m5-pilot-readiness.md)).
 
 ## 0. Before you start
@@ -434,7 +434,7 @@ never PASS.
 - [ ] At least 20 cards for each pilot profession (G10).
 - [ ] Backups scheduled; off-server encrypted copy; one restore rehearsed on a spare machine (G8).
 - [ ] Retention commands scheduled; dry runs read.
-- [ ] Host firewall allows only what you intend; the egress rules and `scripts/egress-check.sh`
-      are **not part of this release** (M5-03), so write what you did here: ______ (G7).
+- [ ] Egress rules applied with `sudo deploy/egress/pharos-egress.sh apply`, persisted across a
+      reboot, and `scripts/egress-check.sh` all PASS on this host after a reboot (G7).
 - [ ] `scripts/status.sh --backups ...` all PASS.
 - [ ] Participants briefed (G11).
