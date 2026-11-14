@@ -28,7 +28,7 @@ from pharos.ingest.connectors.base import (
     FetchOutcome,
     FetchState,
 )
-from pharos.ingest.hostgate import HostGate
+from pharos.ingest.hostgate import Hops, HostGate
 from pharos.net.safe_http import SafeHttpClient
 
 logger = logging.getLogger(__name__)
@@ -121,10 +121,14 @@ async def fetch_source(
     run, lease_token = began
 
     outcome: FetchOutcome | None = None
+    hops = Hops(gate)
     if failure is None and connector is not None and config is not None:
         try:
             outcome = await connector.fetch(
-                config, FetchState(source.etag, source.last_modified), http, started
+                config,
+                FetchState(source.etag, source.last_modified),
+                http.checking_hops(hops),
+                started,
             )
         except ConnectorError as error:
             failure = error
@@ -132,7 +136,7 @@ async def fetch_source(
             logger.error("fetch: unexpected error", extra={"error": type(error).__name__})
             failure = ConnectorError("error", "unexpected")
     if failure is not None and failure.retry_after and host is not None:
-        await _hold(gate, host, failure.retry_after)
+        await _hold(gate, hops.answered or host, failure.retry_after)
 
     # --- 3. Write the result, if the lease is still ours --------------------------------------
     try:

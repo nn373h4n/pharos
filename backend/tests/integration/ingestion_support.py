@@ -5,6 +5,7 @@ import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from typing import Any
 
 import pytest
 from sqlalchemy import text
@@ -153,3 +154,17 @@ async def slug(owner_engine: AsyncEngine, alpha: Org) -> str:
                 text("SELECT slug FROM organizations WHERE id = :id"), {"id": alpha.id}
             )
         ).scalar_one()
+
+
+class Hopping:
+    """What a fake connector gets as its client: the hop check the fetch set up (F-23)."""
+
+    def __init__(self, hop: Any) -> None:
+        self.hop = hop
+
+
+class NoHttp:
+    """Stands in for SafeHttpClient where the connector is a fake that never fetches."""
+
+    def checking_hops(self, hop: Any) -> Hopping:
+        return Hopping(hop)

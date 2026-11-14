@@ -16,13 +16,20 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from pharos.ingest import backoff, repository
-from pharos.ingest.connectors.base import ConfigError, ConnectorError, FetchOutcome, FetchState
+from pharos.ingest.connectors.base import (
+    ConfigError,
+    ConnectorError,
+    FetchOutcome,
+    FetchState,
+    error_from_fetch,
+)
 from pharos.ingest.dispatcher import IN_FLIGHT_CAP, LEASE_SECONDS, PER_TICK, dispatch
 from pharos.ingest.feed import RawEntry
 from pharos.ingest.fetcher import fetch_source
+from pharos.net.safe_http import HOST_HELD, FetchError, FetchErrorKind
 
 from .conftest import TestDatabase
-from .ingestion_support import Org, add_item, add_source, sha
+from .ingestion_support import NoHttp, Org, add_item, add_source, sha
 
 pytestmark = [pytest.mark.integration, pytest.mark.anyio]
 
@@ -53,6 +60,7 @@ class FakeConnector:
         self.calls: list[tuple[dict, FetchState]] = []
         self.during: list[Any] = []  # callbacks run in the middle of a fetch
         self.host = "news.example"
+        self.redirects: list[str] = []  # hosts the fetch is sent to after its own (F-23)
 
     def validate_config(self, raw: Mapping[str, Any]) -> dict[str, Any]:
         if "url" not in raw:
@@ -69,6 +77,11 @@ class FakeConnector:
         self.calls.append((dict(config), state))
         for callback in self.during:
             await callback()
+        try:  # what SafeHttpClient does before each request: its own host first, then redirects
+            for host in [self.host, *self.redirects]:
+                await http.hop(host)
+        except FetchError as error:
+            raise error_from_fetch(error) from None
         result = self.results.pop(0)
         if isinstance(result, BaseException):
             raise result
@@ -83,10 +96,17 @@ class OpenGate:
         self.wait = wait
         self.hosts: list[str] = []
         self.holds: list[tuple[str, int]] = []
+        self.hops: list[str] = []
+        self.held: dict[str, int] = {}  # hosts a redirect may not enter, and for how long
 
     async def enter(self, host: str) -> bool:
         self.hosts.append(host)
         return self.allow
+
+    async def pass_hop(self, host: str) -> None:
+        self.hops.append(host)
+        if host in self.held:
+            raise FetchError(FetchErrorKind.BAD_STATUS, HOST_HELD, retry_after=self.held[host])
 
     async def hold(self, host: str, seconds: int) -> None:
         self.holds.append((host, seconds))
@@ -423,7 +443,7 @@ async def run(
 ):  # type: ignore[no-untyped-def]
     return await fetch_source(
         worker_engine, slug=slug, source_id=source, lease_token=token, clock=clock,
-        connectors={"rss": connector}, http=None,  # type: ignore[arg-type]
+        connectors={"rss": connector}, http=NoHttp(),  # type: ignore[arg-type]
         gate=gate or OpenGate(),  # type: ignore[arg-type]
     )  # fmt: skip
 
@@ -1022,6 +1042,53 @@ async def test_a_gate_that_cannot_be_held_leaves_the_sources_own_backoff(
 
 
 # --- F-23 -----------------------------------------------------------------------------------------
+
+
+async def test_a_redirect_to_another_host_passes_that_hosts_gate_and_its_not_now_holds_it(
+    worker_engine: AsyncEngine, owner_engine: AsyncEngine, alpha: Org, slug: str
+) -> None:
+    clock = Clock()
+    source, token = await leased(worker_engine, owner_engine, alpha, slug, clock)
+    connector = FakeConnector(ConnectorError("bad_status", "http_error", retry_after=600))
+    connector.redirects = ["cdn.example"]
+    gate = OpenGate()
+    report = await run(worker_engine, slug, source, token, clock, connector, gate)
+    assert report.result == "failed"
+    assert (gate.hosts, gate.hops) == (["news.example"], ["cdn.example"])
+    assert gate.holds == [("cdn.example", 600)]  # the host that said it, not the source's host
+
+
+async def test_a_redirect_back_to_the_sources_host_holds_the_sources_host(
+    worker_engine: AsyncEngine, owner_engine: AsyncEngine, alpha: Org, slug: str
+) -> None:
+    clock = Clock()
+    source, token = await leased(worker_engine, owner_engine, alpha, slug, clock)
+    connector = FakeConnector(ConnectorError("bad_status", "http_error", retry_after=600))
+    connector.redirects = ["cdn.example", "news.example"]
+    gate = OpenGate()
+    await run(worker_engine, slug, source, token, clock, connector, gate)
+    assert gate.hops == ["cdn.example"]  # the source's own host passed its gate before the fetch
+    assert gate.holds == [("news.example", 600)]
+
+
+async def test_a_redirect_to_a_held_host_ends_the_fetch_and_waits_as_long_as_it_asked(
+    worker_engine: AsyncEngine, owner_engine: AsyncEngine, alpha: Org, slug: str
+) -> None:
+    clock = Clock()
+    source, token = await leased(worker_engine, owner_engine, alpha, slug, clock)
+    connector = FakeConnector(ok(entry(1)))
+    connector.redirects = ["cdn.example"]
+    gate = OpenGate()
+    gate.held["cdn.example"] = 3000
+    report = await run(worker_engine, slug, source, token, clock, connector, gate)
+    assert (report.result, report.error_code) == ("failed", "host_held")
+    assert connector.results == [ok(entry(1))]  # nothing came back from the held host
+    stored = await row(owner_engine, source)
+    assert stored.next_fetch_at >= clock() + timedelta(seconds=3000)
+    assert stored.last_error_code == "host_held"
+    assert all(host == "cdn.example" for host, _ in gate.holds)
+    run1 = (await table(owner_engine, "SELECT * FROM fetch_runs ORDER BY id"))[0]
+    assert (run1.outcome, run1.error_code, run1.http_status) == ("bad_status", "host_held", None)
 
 
 async def test_two_dispatchers_at_once_never_pass_the_cap_together(
