@@ -693,6 +693,21 @@ in the backend Dockerfile, on a `uv` version that differs from `UV_VERSION` in
 pins its known vulnerabilities: the scheduled Trivy scan reports them, and a bump is how they
 are fixed.
 
+### Tool images
+
+The workflows and `scripts/verify-release.sh` also run two tool images, Trivy and cosign, given as
+`TRIVY_IMAGE` and `COSIGN_IMAGE`. Dependabot does not read such variables, so
+`.github/images/Dockerfile` lists both images with their tag and digest. That file is never built;
+Dependabot's `docker` entry reads it and proposes a new version there. A proposal changes only that
+file, so `backend/tests/test_workflow_images.py` fails on purpose and names every copy to update:
+`TRIVY_IMAGE` in the security and release workflows, and `COSIGN_IMAGE` in the release workflow and
+in `scripts/verify-release.sh`, each with its version comment. Before merging a new cosign image,
+verify its own Sigstore signature with `cosign verify` against the signing identity and issuer
+that the Sigstore project publishes for its release images (in the cosign release notes and
+installation docs; take them from there, not from memory), and write the command and its result
+in the pull request: it is the tool that signs and verifies Pharos releases. A new Trivy image
+needs the usual review of a dependency change.
+
 ## Release images (`.github/workflows/release.yml`)
 
 The release workflow builds the two images (`pharos-backend`, `pharos-web`), scans them with the

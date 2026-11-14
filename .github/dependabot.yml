@@ -37,6 +37,7 @@ updates:
     directories:
       - /backend
       - /frontend
+      - /.github/images  # the tool images of the workflows (F-56 b): not built, only read
     schedule:
       interval: weekly
     commit-message:
