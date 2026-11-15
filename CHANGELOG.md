@@ -4,6 +4,10 @@ All notable changes are listed here, newest first. The format follows [Keep a Ch
 
 ## [Unreleased]
 
+### Added
+
+- `docs/guides/try-on-windows-wsl2.md`: how to look at Pharos on Windows 11 with WSL2, for a test only (not followed on Windows by the maintainers; Windows stays unsupported for an installation).
+
 ## [0.1.0] - 2026-11-15
 
 First release, for a pilot. Upgrade notes: none for a new install (follow `docs/guides/pilot-runbook.md`). An installation made from `main` during development needs, before `up`: the new optional range settings if the defaults clash with a host network (`PHAROS_EGRESS_SUBNET`, `PHAROS_EGRESS_DYNAMIC_RANGE`, `PHAROS_EGRESS_API_IP`, `PHAROS_EGRESS_WORKER_IP`, `PHAROS_DATA_SUBNET`; see `deploy/.env.example`), then the migrations up to 0014 (`docker compose run --rm migrate`, after reading them), then the egress rules (`sudo deploy/egress/pharos-egress.sh apply`, DEPLOYMENT "Egress rules"). (Two entries under Changed below describe steps for installs made during development; a new install via `make env` needs neither.)
