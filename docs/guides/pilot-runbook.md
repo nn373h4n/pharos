@@ -34,8 +34,9 @@ repository, an issue or a pull request. They belong in `deploy/.env` and the adm
 A published release is run by digest, so nothing is built on the server, and the check below is
 meant to show that what you run is what the release workflow signed
 ([DEPLOYMENT.md, "Installing a published release"](../DEPLOYMENT.md#installing-a-published-release)).
-That chain (publishing, signing, the check) had never run on GitHub when this runbook was written:
-see "Not ready in this release" in the changelog and treat the first release as its first test.
+That chain (publishing, signing, the check) first ran for v0.1.0 (2026-11-15), and this step was
+followed on its published images in a throwaway environment; it has not been followed on a pilot
+server yet (gate G6).
 
 ```bash
 git clone https://github.com/<owner>/<repo>.git pharos && cd pharos
