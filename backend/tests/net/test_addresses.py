@@ -33,6 +33,7 @@ DENIED = [
     "198.18.0.1",
     "198.19.255.255",
     "198.51.100.1",
+    "168.63.129.16",  # Azure's WireServer (M5-13 review)
     "203.0.113.1",
     "192.88.99.1",
     "224.0.0.1",
@@ -141,3 +142,11 @@ def test_an_extra_allowance_opens_only_what_it_names() -> None:
 def test_parse_networks_refuses_host_bits() -> None:
     with pytest.raises(ValueError, match="host bits"):
         parse_networks(["10.0.0.1/8"])
+
+
+def test_azure_wireserver_is_refused_although_it_is_a_global_address() -> None:
+    """168.63.129.16 answers Azure's VM agent and DNS; nothing fetched may reach it (M5-13)."""
+    from pharos.net.addresses import AddressPolicy
+
+    assert AddressPolicy().violation("168.63.129.16") is not None
+    assert AddressPolicy().violation("168.63.129.17") is None  # control: its neighbour is public

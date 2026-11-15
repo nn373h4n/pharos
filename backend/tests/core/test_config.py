@@ -467,6 +467,52 @@ def test_a_worker_refuses_to_be_given_the_secrets_of_signing_in(extra: dict[str,
         )
 
 
+# --- the scheduler (F-21) ------------------------------------------------------------------------
+
+
+def test_the_scheduler_needs_only_redis_in_production() -> None:
+    settings = Settings(
+        environment="production",
+        process="beat",
+        redis_url=GOOD_REDIS,  # type: ignore[arg-type]
+        public_url="https://pharos.example",
+    )
+    assert settings.process == "beat"
+
+
+@pytest.mark.parametrize(
+    ("extra", "words"),
+    [
+        ({"database_url": GOOD_DB}, "must not be given a database address"),
+        ({"secret_key": GOOD_SECRET_KEY}, "beat must not be given the root key"),
+        ({"oidc_client_secret": "a-real-looking-client-secret-1234"}, "beat must not"),
+        ({"github_token": "ghp_" + "a" * 36}, "GitHub token or the model key"),
+        ({"llm_api_key": "sk-" + "a" * 40}, "GitHub token or the model key"),
+    ],
+)
+def test_the_scheduler_refuses_anything_it_does_not_need(extra: dict[str, str], words: str) -> None:
+    with pytest.raises(ValidationError, match=words):
+        Settings(
+            environment="production",
+            process="beat",
+            redis_url=GOOD_REDIS,  # type: ignore[arg-type]
+            public_url="https://pharos.example",
+            **extra,  # type: ignore[arg-type]
+        )
+
+
+def test_a_worker_and_the_api_still_need_a_real_database_address() -> None:
+    for process in ("api", "worker"):
+        with pytest.raises(ValidationError, match="database_url"):
+            Settings(
+                environment="production",
+                process=process,  # type: ignore[arg-type]
+                redis_url=GOOD_REDIS,  # type: ignore[arg-type]
+                public_url="https://pharos.example",
+                secret_key=GOOD_SECRET_KEY,  # type: ignore[arg-type]
+            )
+
+
 # --- the GitHub token (M3-09) ----
 
 

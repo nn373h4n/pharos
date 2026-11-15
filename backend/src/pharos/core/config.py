@@ -72,6 +72,11 @@ _DNS_NAME = re.compile(
 )
 
 
+# The default database address: a placeholder that production refuses, and the one the scheduler
+# must keep (it is given no database address).
+_UNSET_DATABASE_URL = "postgresql+asyncpg://pharos_app:change-me@localhost:5432/pharos"
+
+
 class Settings(BaseSettings):
     """Runtime configuration of the API and worker processes.
 
@@ -90,14 +95,14 @@ class Settings(BaseSettings):
     environment: Literal["development", "test", "production"] = "production"
     log_level: str = "INFO"
     # Which kind of process this is. A worker never signs anybody in, so it is given no root key and
-    # no identity-provider secret (see deploy/docker-compose.yml) and is not asked to have them.
-    process: Literal["api", "worker"] = "api"
+    # no identity-provider secret (see deploy/docker-compose.yml) and is not asked to have them. The
+    # scheduler (`beat`) only puts tasks on the queue: it needs Redis and nothing else, and is given
+    # no database address at all (F-21).
+    process: Literal["api", "worker", "beat"] = "api"
 
     # The application connects as a role that does not own the tables, so RLS always applies.
     # The owner role's URL is deliberately not part of these settings (see MigrationSettings).
-    database_url: SecretStr = SecretStr(
-        "postgresql+asyncpg://pharos_app:change-me@localhost:5432/pharos"
-    )
+    database_url: SecretStr = SecretStr(_UNSET_DATABASE_URL)
     redis_url: SecretStr = SecretStr("redis://localhost:6379/0")
 
     alembic_dir: Path = DEFAULT_ALEMBIC_DIR
@@ -433,7 +438,10 @@ class Settings(BaseSettings):
     def _require_real_secrets_in_production(self) -> Self:
         if self.environment != "production":
             return self
-        if _is_placeholder(_password(self.database_url)):
+        if self.process == "beat":
+            if self.database_url.get_secret_value() != _UNSET_DATABASE_URL:
+                raise ValueError("the scheduler must not be given a database address")
+        elif _is_placeholder(_password(self.database_url)):
             raise ValueError("database_url needs a real password in production")
         if not _password(self.redis_url):
             raise ValueError("redis_url needs a password in production")
@@ -444,11 +452,17 @@ class Settings(BaseSettings):
                 "password hashing is too cheap for production (Argon2id needs at least "
                 "19456 KiB and 2 iterations)"
             )
-        if self.process == "worker":
+        if self.process in ("worker", "beat"):
             if self.oidc_issuer is not None or self.oidc_client_secret is not None:
-                raise ValueError("a worker must not be given identity-provider settings")
+                raise ValueError(f"a {self.process} must not be given identity-provider settings")
             if self.secret_key.get_secret_value() != _DEVELOPMENT_SECRET_KEY:
-                raise ValueError("a worker must not be given the root key")
+                raise ValueError(f"a {self.process} must not be given the root key")
+            if self.process == "beat" and (
+                self.github_token is not None or self.llm_api_key is not None
+            ):
+                raise ValueError(
+                    "the scheduler must not be given the GitHub token or the model key"
+                )
             return self
         if self.github_token is not None:
             raise ValueError("only the worker may be given the GitHub token")
