@@ -92,7 +92,7 @@ Left on purpose, still open: F-08, F-09, F-10, F-11, F-12, F-16, F-19, F-22, F-2
 
 | # | Check | Result |
 | --- | --- | --- |
-| 1 | M5 acceptance criteria 1 to 10 | FAIL on 2026-11-14 (2 partly, 4 and 6 NOT RUN; the rest PASS): see [the readiness report](../reports/m5-readiness.md) |
+| 1 | M5 acceptance criteria 1 to 10 | FAIL on 2026-11-14 only on 6 (NOT RUN: no release tag yet); the rest PASS: see [the readiness report](../reports/m5-readiness.md) |
 | 2 to 12 | Gates G1 to G11 | G1 PASS (2026-11-14); G2 to G11 NOT RUN |
 | 13 | No open P0 or P1 (the proposal's G2 checkpoint) | PASS for findings on 2026-11-14 (two independent reviews); R1 stays open as a behaviour risk |
 
