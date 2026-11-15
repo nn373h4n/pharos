@@ -621,3 +621,17 @@ def test_caddy_publishes_on_one_address_only_when_one_is_named() -> None:
         assert (
             f'"${{PHAROS_BIND_ADDRESS:+${{PHAROS_BIND_ADDRESS}}:}}${{{port}}}:${{{port}}}"' in block
         ), port
+
+
+
+def test_a_name_lookup_of_the_worker_ends_before_the_client_stops_waiting() -> None:
+    """F-62: the C resolver's own limit (2 s, one try) is below SafeHttpClient's 5 s, so a lookup
+    that never gets an answer frees its DNS thread instead of holding it for half a minute."""
+    from pharos.net.safe_http import RESOLVE_TIMEOUT_SECONDS
+
+    worker = service_block("worker")
+    match = re.search(r'^    dns_opt: \["timeout:(\d+)", "attempts:(\d+)"\]$', worker, re.MULTILINE)
+    assert match, "the worker has no resolver limits"
+    timeout, attempts = int(match.group(1)), int(match.group(2))
+    # A and AAAA are asked at once; each try waits `timeout`, so the worst case is timeout*attempts.
+    assert timeout * attempts * 2 < RESOLVE_TIMEOUT_SECONDS
