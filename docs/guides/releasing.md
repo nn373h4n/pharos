@@ -13,6 +13,10 @@ These are repository settings the workflow cannot enforce, and the first two mat
 - A **tag ruleset** for `v*`: only you can create a tag, and nobody can update or delete one. Without
   it a deleted and recreated tag could point a release at another commit.
 - **Actions pinned to a full commit SHA** turned on in the repository's Actions settings.
+- If a package named `pharos-backend` or `pharos-web` already exists under your account (pushed by
+  hand, or by another repository), give this repository **write** access to it in the package's
+  settings ("Manage Actions access") before the tag, or remove it if it is empty. Otherwise the
+  `publish` job pushes the layers and is then refused with `denied` (the first run of v0.1.0 was).
 - After the first push, set both packages (`pharos-backend`, `pharos-web`) to **public** and link
   them to this repository; then check that `scripts/verify-release.sh` works without logging in.
 - Look at the readiness list of the milestone you are releasing (`TASKS.md`, `PROGRESS.md`) and write
