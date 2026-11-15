@@ -13,8 +13,9 @@
 #   egress  outbound internet for the services that must call out: api (identity provider) and
 #           worker (content sources and LLM providers). beat only needs Redis, so it is not on it.
 # postgres, redis and web cannot open connections to the internet.
-# Which destinations the egress services may reach is a host firewall or proxy decision; see
-# docs/DEPLOYMENT.md.
+# Which destinations the egress services may reach is a host firewall decision (ADR-0023): the
+# network has a fixed range and api and worker fixed addresses on it, so the rules of
+# deploy/egress/pharos-egress.sh can tell them apart; scripts/egress-check.sh proves them.
 #
 # The profiles "dev" (Keycloak), "local-llm" (Ollama) and "observability" (OpenTelemetry,
 # Prometheus, Grafana) are reserved. Their services arrive with the milestones that need them
@@ -36,7 +37,18 @@ networks:
           ip_range: ${PHAROS_APP_DYNAMIC_RANGE:-172.28.20.0/25}
   data:
     internal: true
-  egress: {}
+    # Fixed, so the host rules can keep its containers away from the host's own services, which an
+    # internal network still reaches through its gateway (ADR-0023, review of 2026-11-14).
+    ipam:
+      config:
+        - subnet: ${PHAROS_DATA_SUBNET:-172.28.50.0/24}
+  # Fixed, so host firewall rules can name api and worker by address (ADR-0023, M5-03). Both take
+  # high addresses outside ip_range, as Caddy does on app. Change all four when the range clashes.
+  egress:
+    ipam:
+      config:
+        - subnet: ${PHAROS_EGRESS_SUBNET:-172.28.40.0/24}
+          ip_range: ${PHAROS_EGRESS_DYNAMIC_RANGE:-172.28.40.0/25}
   # The local model (profile "local-llm", ADR-0020): the worker reaches it here and nothing else
   # does. The network has no gateway to the internet, so the server has no route out of its own.
   # (A service on the host that listens on all interfaces can still be reached through the
@@ -117,7 +129,17 @@ x-worker-env: &worker-env
   PHAROS_EMBEDDING_PRICE_MICRO_USD: ${PHAROS_EMBEDDING_PRICE_MICRO_USD:-1}
   PHAROS_DEFAULT_LOCALE: ${PHAROS_DEFAULT_LOCALE:-en}
 
-# What the API gets: the above plus everything about signing in.
+# What the scheduler gets: Redis and nothing else (F-21). It puts tasks on the queue; it opens no
+# database connection, holds no key and fetches nothing, so it is given no database address.
+x-beat-env: &beat-env
+  PHAROS_PROCESS: beat
+  PHAROS_ENVIRONMENT: ${PHAROS_ENVIRONMENT:-production}
+  PHAROS_LOG_LEVEL: ${PHAROS_LOG_LEVEL:-INFO}
+  PHAROS_REDIS_URL: redis://pharos_worker:${PHAROS_REDIS_WORKER_PASSWORD:?set PHAROS_REDIS_WORKER_PASSWORD}@redis:6379/0
+  PHAROS_PUBLIC_URL: ${PHAROS_PUBLIC_URL:?set PHAROS_PUBLIC_URL}
+  PHAROS_ORG_SLUG: ${PHAROS_ORG_SLUG:-default}
+
+# What the API gets: the worker's settings plus everything about signing in.
 x-backend-env: &backend-env
   <<: *worker-env
   PHAROS_PROCESS: api
@@ -243,7 +265,11 @@ services:
       - ${PHAROS_CADDY_IP:-172.28.20.254}
     environment: *backend-env
     tmpfs: [/tmp]
-    networks: [app, data, egress]
+    networks:
+      app: {}
+      data: {}
+      egress:
+        ipv4_address: ${PHAROS_EGRESS_API_IP:-172.28.40.250}
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
@@ -277,7 +303,11 @@ services:
     # threads of a worker busy for half a minute and make every other source's lookup wait (F-62).
     dns_opt: ["timeout:2", "attempts:1"]
     # `llm` is empty unless the "local-llm" profile runs the model server on it.
-    networks: [data, egress, llm]
+    networks:
+      data: {}
+      llm: {}
+      egress:
+        ipv4_address: ${PHAROS_EGRESS_WORKER_IP:-172.28.40.251}
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
@@ -374,7 +404,7 @@ services:
     <<: *hardening
     # The schedule file goes to tmpfs; it is rebuilt from the code on every start.
     command: ["celery", "--app", "pharos.workers.entrypoint", "beat", "--loglevel", "INFO", "-s", "/tmp/celerybeat-schedule", "--pidfile="]
-    environment: *worker-env
+    environment: *beat-env
     tmpfs: [/tmp]
     # The scheduler only talks to Redis, so it has no route to the internet.
     networks: [data]

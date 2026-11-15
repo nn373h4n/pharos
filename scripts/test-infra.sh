@@ -42,7 +42,9 @@ up() {
 }
 
 down() {
-  docker rm -f "$PG_NAME" "$REDIS_NAME" >/dev/null 2>&1 || true
+  # -v: the database's anonymous data volume goes with its container (without it every up and down
+  # left one behind: 358 of them, 15 GB, by 2026-11-14).
+  docker rm -f -v "$PG_NAME" "$REDIS_NAME" >/dev/null 2>&1 || true
 }
 
 case "${1:-}" in
