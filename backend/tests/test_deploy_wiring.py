@@ -640,7 +640,6 @@ def test_caddy_publishes_on_one_address_only_when_one_is_named() -> None:
         ), port
 
 
-
 def test_a_name_lookup_of_the_worker_ends_before_the_client_stops_waiting() -> None:
     """F-62: the C resolver's own limit (2 s, one try) is below SafeHttpClient's 5 s, so a lookup
     that never gets an answer frees its DNS thread instead of holding it for half a minute."""
