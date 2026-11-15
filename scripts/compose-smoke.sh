@@ -605,6 +605,9 @@ check "status.sh shows a recent worker heartbeat in seconds" \
   grep -qE '^PASS +worker +last heartbeat [0-9]+ s ago$' <<<"$status_out"
 check "status.sh reads when the retention jobs ran, through the operator command (F-48)" \
   grep -qE '^PASS +retention +prune-audit (never ran|[0-9]+ days ago); fold-interactions' <<<"$status_out"
+worker_resolv=$(compose exec -T worker cat /etc/resolv.conf 2>/dev/null || true)
+check "the worker's name lookups give up within seconds (resolv.conf: timeout:2 attempts:1, F-62)" \
+  grep -qE '^options.*timeout:2.*attempts:1|^options.*attempts:1.*timeout:2' <<<"$worker_resolv"
 check "status.sh reads the embedding vectors through the operator command in the worker (F-42)" \
   grep -qE '^PASS +clusters +(embeddings are off|every vector is of the configured embedding model)$' <<<"$status_out"
 check "status.sh shows the size of the newest dump" \

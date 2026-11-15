@@ -298,6 +298,10 @@ services:
       # Likewise the model key: only the process that calls a model holds it.
       PHAROS_LLM_API_KEY: ${PHAROS_LLM_API_KEY:-}
     tmpfs: [/tmp]
+    # A name lookup gives up within about four seconds (two per try, one try), before the five
+    # seconds SafeHttpClient waits: a name server that never answers cannot keep the few DNS
+    # threads of a worker busy for half a minute and make every other source's lookup wait (F-62).
+    dns_opt: ["timeout:2", "attempts:1"]
     # `llm` is empty unless the "local-llm" profile runs the model server on it.
     networks:
       data: {}
