@@ -169,7 +169,7 @@ services:
   # when the owner is already right. Root inside its container, with no network and only the two
   # capabilities that changing the owner of files it does not own needs.
   caddy-volumes:
-    image: caddy:2-alpine@sha256:78bd35025c7ba85961dd149ae670315129954e77abe2383ac47c89106b35ade9
+    image: caddy:2-alpine@sha256:003a97808e781aa9f7e75cc2f43d34d461099031faf5e20faefb9f61126836f0
     restart: "no"
     read_only: true
     cap_drop: [ALL]
@@ -184,7 +184,7 @@ services:
     mem_limit: 32m
 
   caddy:
-    image: caddy:2-alpine@sha256:78bd35025c7ba85961dd149ae670315129954e77abe2383ac47c89106b35ade9
+    image: caddy:2-alpine@sha256:003a97808e781aa9f7e75cc2f43d34d461099031faf5e20faefb9f61126836f0
     <<: *hardening
     # Not root, and no capability at all (F-08): the sysctl lets this container's own network
     # namespace, which holds nothing but Caddy, bind ports below 1024. `no-new-privileges` stays on.
