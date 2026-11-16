@@ -11,6 +11,8 @@ backup and a restore. The production checklist and the pilot runbook are not wri
 
 - Linux with Docker Engine 26 or newer and the Compose plugin (v2). Older engines have known
   weaknesses in how internal networks forward DNS.
+  Windows is not supported for an installation; to look at Pharos on Windows 11, see
+  [Trying Pharos on Windows 11 (WSL2)](guides/try-on-windows-wsl2.md).
 - Free ports 80 and 443, or other ports set in `deploy/.env`.
 - Memory: the demo stack ran in the checks on a host with 2 vCPUs and 8 GB, next to other
   workloads. The sizing for a pilot or for 30,000 users in `docs/ARCHITECTURE_PROPOSAL.md` section 9
