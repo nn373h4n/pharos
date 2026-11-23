@@ -4,7 +4,7 @@
 # uv comes from its own image, pinned by digest (ADR-0024), not from a pip install that follows an
 # index. Dependabot's docker updates keep this line and the base images below fresh. Keep the uv
 # version equal to UV_VERSION in .github/workflows/ci.yml (a test compares them).
-FROM ghcr.io/astral-sh/uv:0.13.5@sha256:32a7bb39b496babbd997b0a39a4d66c126bdaf5661b302bf6f06abda8deca6ff AS uv
+FROM ghcr.io/astral-sh/uv:0.13.9@sha256:d3b601f0c7b118bc1753febf7c41cc80981df678445e0254284eecf84db79a7d AS uv
 
 FROM python:3.12-slim@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b AS build
 
